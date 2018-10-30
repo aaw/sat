@@ -1,7 +1,9 @@
+#include "parse.h"
+
 #include <cstdio>
 
-void parse(const char* filename) {
-    int nc, nvars, nclauses;
+Instance parse(const char* filename) {
+    int nc;
     FILE* f = fopen(filename, "r");
     if (!f) {
         // TODO: return an error here
@@ -9,8 +11,9 @@ void parse(const char* filename) {
     }
 
     // Read comment lines until we see the problem line.
+    Instance inst;
     do {
-        nc = fscanf(f, " p cnf %i %i \n", &nvars, &nclauses);
+        nc = fscanf(f, " p cnf %i %i \n", &inst.nvars, &inst.nclauses);
         if (nc > 0 && nc != EOF) break;
         nc = fscanf(f, "%*s\n");
     } while (nc != 2 && nc != EOF);
@@ -18,14 +21,9 @@ void parse(const char* filename) {
     // Read clauses until EOF.
     int lit;
     do {
-        printf("Clause: ");
-        do {
-            nc = fscanf(f, " %i ", &lit);
-            printf("%d ", lit);
-        }
-        while (nc != EOF && lit != 0);
-        printf("\n");
+        do { nc = fscanf(f, " %i ", &lit); } while (nc != EOF && lit != 0);
     } while (nc != EOF);
 
     fclose(f);
+    return inst;
 }
