@@ -9,7 +9,7 @@ sat: main.o parse.o
 main.o: main.cc parse.h
 	g++ $(CPPFLAGS) -c main.cc
 
-parse.o: parse.cc
+parse.o: parse.cc parse.h
 	g++ $(CPPFLAGS) -c parse.cc
 
 clean:
