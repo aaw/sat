@@ -3,8 +3,10 @@
 
 enum State {
     UNEXAMINED = 0,
-    TRIED_ONE_VAL = 1,
-    TRIED_BOTH_VALS = 2
+    FALSE = 1,
+    TRUE = 2,
+    FALSE_NOT_TRUE = 3,
+    TRUE_NOT_FALSE = 4
 };
 
 // Algorithm B from 7.2.2.2 (Satisfiability by watching).
@@ -18,11 +20,11 @@ bool solve(Instance* cnf) {
         if (state[d] == UNEXAMINED) {
             if (cnf->watch[d].empty() || !cnf->watch[-d].empty()) { l = -d; }
             else { l = d; }
-            state[d] = TRIED_ONE_VAL;
+            state[d] = (l == d) ? TRUE : FALSE;
             LOG(3) << "Choosing " << l << " but haven't tried " << -l << " yet";
-        } else if (state[d] == TRIED_ONE_VAL) {
+        } else if (state[d] == TRUE || state[d] == FALSE) {
             l = -l;
-            state[d] = TRIED_BOTH_VALS;
+            state[d] = (l == d) ? TRUE_NOT_FALSE : FALSE_NOT_TRUE;
             LOG(3) << "Now trying " << l << ", final try for " << d;
         } else {
             // Backtrack
@@ -30,9 +32,9 @@ bool solve(Instance* cnf) {
             d--;
             continue;
         }
-        // Update watch lists
+        // Update watch lists for NOT l
         bool found_new_watch = false;
-        for (const Instance::clause_t& c : cnf->watch[l]) {
+        for (const Instance::clause_t& c : cnf->watch[-l]) {
             LOG(3) << "Making clause " << c << " watch something else.";
             int end = (c == cnf->start.size() - 1) ?
                 cnf->clauses.size() :
@@ -53,8 +55,8 @@ bool solve(Instance* cnf) {
                 break;
             }
         }
-        if (found_new_watch || cnf->watch[l].empty()) {
-            cnf->watch[l].clear();
+        if (found_new_watch || cnf->watch[-l].empty()) {
+            cnf->watch[-l].clear();
             d++;
             LOG(3) << "Successfully updated watch lists, moving to step " << d;
         }
