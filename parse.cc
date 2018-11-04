@@ -1,3 +1,4 @@
+#include "logging.h"
 #include "parse.h"
 
 #include <cstdio>
@@ -35,7 +36,15 @@ Instance parse(const char* filename) {
         nc = fscanf(f, "%*s\n");
     } while (nc != 2 && nc != EOF);
 
-    // Read clauses (until EOF.
+    LOG(4) << "Problem has " << cnf.nvars << " variables and "
+           << cnf.nclauses << " clauses.";
+
+    // Initialize data structures now that we know nvars and nclauses.
+    cnf.link.resize(cnf.nclauses);
+    cnf.watch_storage.resize(2 * cnf.nvars + 1);
+    cnf.watch = &cnf.watch_storage[cnf.nvars + 1];
+
+    // Read clauses until EOF.
     int lit;
     do {
         cnf.start.push_back(cnf.clauses.size());
@@ -43,6 +52,7 @@ Instance parse(const char* filename) {
             nc = fscanf(f, " %i ", &lit);
             done = nc == EOF || lit == 0;
         }
+        cnf.watch[cnf.clauses[cnf.start.back()]].push_back(cnf.start.back());
     } while (nc != EOF);
 
     fclose(f);

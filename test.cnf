@@ -6,7 +6,7 @@ c there can be many
 c
 c
 c
-p cnf 6 10
+p cnf 10 5
 -1     2     0
 2      3     0
 -4     -3    0
