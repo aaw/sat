@@ -34,16 +34,25 @@ bool solve(Instance* cnf) {
         }
         // Update watch lists for NOT l
         bool found_new_watch = false;
+        LOG(3) << "Attempting to re-assign " << -l << "'s watchlist";
         for (const Instance::clause_t& c : cnf->watch[-l]) {
             LOG(3) << "Making clause " << c << " watch something else.";
             int end = (c == cnf->start.size() - 1) ?
                 cnf->clauses.size() :
                 cnf->start[c+1];
-            bool seen_old_watch = false;
             found_new_watch = false;
             for (int i = cnf->start[c]; i < end; ++i) {
-                if (!seen_old_watch && cnf->clauses[i] != l) continue;
-                if (cnf->clauses[i] == l) { seen_old_watch = true; continue; }
+                if (cnf->clauses[i] == -l) { continue; }
+                if (cnf->clauses[i] > 0 &&
+                    (state[cnf->clauses[i]] == FALSE ||
+                     state[cnf->clauses[i]] == FALSE_NOT_TRUE)) {
+                    continue;
+                }
+                if (cnf->clauses[i] < 0 &&
+                    (state[-cnf->clauses[i]] != FALSE &&
+                     state[-cnf->clauses[i]] != FALSE_NOT_TRUE)) {
+                    continue;
+                }
                 LOG(3) << "Choosing " << cnf->clauses[i]
                        << " as new watchee of clause " << c;
                 cnf->watch[cnf->clauses[i]].push_back(c);

@@ -15,6 +15,8 @@ struct Instance {
     // to clauses[start[i+1]-1] (or clauses[clauses.size()-1]
     // if i == start.size() - 1).
     std::vector<clause_t> start;
+
+    // TODO: do i need this?
     // Link to another clause with the same watched literal.
     std::vector<clause_t> link;
     // A singly linked list of all clauses that watch each literal.

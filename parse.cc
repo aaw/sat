@@ -48,11 +48,12 @@ Instance parse(const char* filename) {
     int lit;
     do {
         cnf.start.push_back(cnf.clauses.size());
-        for (bool done = false; !done; cnf.clauses.push_back(lit)) {
+        while (true) {
             nc = fscanf(f, " %i ", &lit);
-            done = nc == EOF || lit == 0;
+            if (nc == EOF || lit == 0) break;
+            cnf.clauses.push_back(lit);
         }
-        cnf.watch[cnf.clauses[cnf.start.back()]].push_back(cnf.start.back());
+        cnf.watch[cnf.clauses[cnf.start.back()]].push_back(cnf.start.size()-1);
     } while (nc != EOF);
     LOG(4) << "Done parsing input.";
 
