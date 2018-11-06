@@ -9,6 +9,10 @@ enum State {
     TRUE_NOT_FALSE = 4
 };
 
+#define IS_FALSE(val, state) \
+    ((val > 0 && (state == FALSE || state == FALSE_NOT_TRUE)) || \
+     (val < 0 && (state != FALSE && state != FALSE_NOT_TRUE)))
+
 // Algorithm B from 7.2.2.2 (Satisfiability by watching).
 bool solve(Instance* cnf) {
     Instance::lit_t d = 1;
@@ -42,17 +46,9 @@ bool solve(Instance* cnf) {
                 cnf->start[c+1];
             found_new_watch = false;
             for (int i = cnf->start[c]; i < end; ++i) {
-                if (cnf->clauses[i] == -l) { continue; }
-                if (cnf->clauses[i] > 0 &&
-                    (state[cnf->clauses[i]] == FALSE ||
-                     state[cnf->clauses[i]] == FALSE_NOT_TRUE)) {
-                    continue;
-                }
-                if (cnf->clauses[i] < 0 &&
-                    (state[-cnf->clauses[i]] != FALSE &&
-                     state[-cnf->clauses[i]] != FALSE_NOT_TRUE)) {
-                    continue;
-                }
+                Instance::lit_t lit = cnf->clauses[i];
+                if (lit == -l) { continue; }
+                if (IS_FALSE(lit, state[abs(lit)])) { continue; }
                 LOG(3) << "Choosing " << cnf->clauses[i]
                        << " as new watchee of clause " << c;
                 cnf->watch[cnf->clauses[i]].push_back(c);
