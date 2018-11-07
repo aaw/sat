@@ -6,7 +6,7 @@ RM=rm -f
 sat: main.o parse.o solve.o
 	g++ $(LDFLAGS) -o sat main.o parse.o solve.o $(LDLIBS)
 
-main.o: main.cc parse.h logging.h
+main.o: main.cc parse.h logging.h solve.h
 	g++ $(CPPFLAGS) -c main.cc
 
 parse.o: parse.cc parse.h logging.h
