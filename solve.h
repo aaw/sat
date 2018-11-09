@@ -5,6 +5,4 @@
 
 bool solve(Instance* cnf);
 
-bool solve2(Instance* cnf);
-
 #endif  // __SOLVE_H__

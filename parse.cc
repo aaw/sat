@@ -41,10 +41,8 @@ Instance parse(const char* filename) {
 
     // Initialize data structures now that we know nvars and nclauses.
     cnf.link.resize(cnf.nclauses, -1);  // TODO: 1-index clauses
-    cnf.watch_storage.resize(2 * cnf.nvars + 1);
+    cnf.watch_storage.resize(2 * cnf.nvars + 1, -1);
     cnf.watch = &cnf.watch_storage[cnf.nvars];
-    cnf.watch2_storage.resize(2 * cnf.nvars + 1, -1); // TODO: 1-index clauses
-    cnf.watch2 = &cnf.watch2_storage[cnf.nvars];
 
     // Read clauses until EOF.
     int lit;
@@ -55,9 +53,8 @@ Instance parse(const char* filename) {
             if (nc == EOF || lit == 0) break;
             cnf.clauses.push_back(lit);
         }
-        cnf.watch[cnf.clauses[cnf.start.back()]].push_back(cnf.start.size()-1);
-        Instance::clause_t old = cnf.watch2[cnf.clauses[cnf.start.back()]];
-        cnf.watch2[cnf.clauses[cnf.start.back()]] = cnf.start.size() - 1;
+        Instance::clause_t old = cnf.watch[cnf.clauses[cnf.start.back()]];
+        cnf.watch[cnf.clauses[cnf.start.back()]] = cnf.start.size() - 1;
         cnf.link[cnf.start.size() - 1] = old;
     } while (nc != EOF);
     LOG(4) << "Done parsing input.";

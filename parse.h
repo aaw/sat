@@ -6,7 +6,7 @@
 // TODO: templatize this with lit_t, clause_t
 struct Instance {
     typedef int lit_t;
-    typedef unsigned int clause_t;
+    typedef int clause_t;  // TODO: make unsigned int, start indexing at 1!
 
     int nvars;
     int nclauses;
@@ -16,14 +16,10 @@ struct Instance {
     // if i == start.size() - 1).
     std::vector<clause_t> start;
 
-    // A singly linked list of all clauses that watch each literal.
-    std::vector<std::vector<clause_t>> watch_storage;
-    std::vector<clause_t>* watch;
-
     // Link to another clause with the same watched literal.
     std::vector<clause_t> link;
-    std::vector<clause_t> watch2_storage;
-    clause_t* watch2;
+    std::vector<clause_t> watch_storage;
+    clause_t* watch;
 };
 
 Instance parse(const char* filename);

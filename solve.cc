@@ -1,6 +1,8 @@
 #include "logging.h"
 #include "solve.h"
 
+#include <sstream>
+
 enum State {
     UNEXAMINED = 0,
     FALSE = 1,
@@ -11,119 +13,94 @@ enum State {
 
 #define IS_FALSE(val, state) \
     ((val > 0 && (state == FALSE || state == FALSE_NOT_TRUE)) || \
-     (val < 0 && (state != FALSE && state != FALSE_NOT_TRUE)))
+     (val < 0 && (state == TRUE || state == TRUE_NOT_FALSE)))
+
+#define CLAUSE_END(cnf, c) \
+    ((c == (int)cnf->start.size() - 1) ? (int)cnf->clauses.size() : cnf->start[c+1])
+
+std::string dump_watchlist(Instance* cnf) {
+    std::ostringstream oss;
+    for (Instance::lit_t l = -cnf->nvars; l <= cnf->nvars; ++l) {
+        if (l == 0) continue;
+        Instance::clause_t x = cnf->watch[l];
+        if (x != -1) {
+            oss << l << ": ";
+            while (x != -1) {
+                oss << "[" << x << "] ";
+                x = cnf->link[x];
+            }
+            oss << "\n";
+        }
+    }
+    return oss.str();
+}
 
 // Algorithm B from 7.2.2.2 (Satisfiability by watching).
 bool solve(Instance* cnf) {
     Instance::lit_t d = 1;
     Instance::lit_t l = 0;
     std::vector<State> state(cnf->nvars + 1);  // states are 1-indexed.
+    LOG(3) << "Initial watchlists:\n" << dump_watchlist(cnf);
     while (0 < d && d <= cnf->nvars) {
         LOG(3) << "Starting stage " << d;
+        l = d;
         // Choose a literal value
         if (state[d] == UNEXAMINED) {
-            if (cnf->watch[d].empty() || !cnf->watch[-d].empty()) { l = -d; }
+            if (cnf->watch[d] == -1 || cnf->watch[-d] != -1) { l = -d; }
             else { l = d; }
             state[d] = (l == d) ? TRUE : FALSE;
             LOG(3) << "Choosing " << l << " but haven't tried " << -l << " yet";
-        } else if (state[d] == TRUE || state[d] == FALSE) {
-            l = -l;
-            state[d] = (l == d) ? TRUE_NOT_FALSE : FALSE_NOT_TRUE;
-            LOG(3) << "Now trying " << l << ", final try for " << d;
+        } else if (state[d] == TRUE) {
+            state[d] = FALSE_NOT_TRUE;
+            l = -d;
+            LOG(3) << "Trying " << l << " after " << -l << " has failed.";
+        } else if (state[d] == FALSE) {
+            state[d] = TRUE_NOT_FALSE;
+            l = d;
+            LOG(3) << "Trying " << l << " after " << -l << " has failed.";
         } else {
             // Backtrack
             LOG(3) << "Tried all values for " << d << ", backtracking.";
+            state[d] = UNEXAMINED;
             d--;
             continue;
         }
         // Update watch lists for NOT l
-        bool found_new_watch = false;
-        LOG(3) << "Attempting to re-assign " << -l << "'s watchlist"
-               << " (size " << cnf->watch[-1].size() << ")";
-        for (const Instance::clause_t& c : cnf->watch[-l]) {
-            LOG(3) << "Making clause " << c << " watch something else.";
-            int end = (c == cnf->start.size() - 1) ?
-                cnf->clauses.size() :
-                cnf->start[c+1];
-            found_new_watch = false;
-            for (int i = cnf->start[c]; i < end; ++i) {
-                Instance::lit_t lit = cnf->clauses[i];
-                if (lit == -l) { continue; }
-                if (IS_FALSE(lit, state[abs(lit)])) { continue; }
-                LOG(3) << "Choosing " << cnf->clauses[i]
-                       << " as new watchee of clause " << c;
-                cnf->watch[cnf->clauses[i]].push_back(c);
-                found_new_watch = true;
+        LOG(3) << "Attempting to re-assign " << -l << "'s watchlist";
+        Instance::clause_t watcher = cnf->watch[-l];
+        while (watcher != -1) {
+            Instance::clause_t start = cnf->start[watcher];
+            Instance::clause_t end = CLAUSE_END(cnf, watcher);
+            Instance::clause_t next = cnf->link[watcher];
+            Instance::clause_t k = start + 1;
+            LOG(3) << "start = " << start << ", end = " << end
+                   << ", next = " << next << ", k = " << k;
+            while (k < end) {
+                Instance::lit_t lit = cnf->clauses[k];
+                if (IS_FALSE(lit, state[abs(lit)])) {
+                    LOG(3) << lit << " is false, continuing to k = " << k + 1;
+                    k++;
+                    continue;
+                }
+                LOG(3) << lit << " is not false, re-assigning watchlist. "
+                       << "first swapping " << lit << " and " << -l;
+                cnf->clauses[start] = lit;
+                cnf->clauses[k] = -l;
+                cnf->link[watcher] = cnf->watch[lit];
+                cnf->watch[lit] = watcher;
+                watcher = next;
                 break;
             }
-            if (!found_new_watch) {
-                LOG(3) << "Couldn't find new watch for " << c << "!";
+            if (k == end) {
+                LOG(3) << "Failed to re-assign " << -l << "'s watchlist. "
+                       << "Going to try " << l << " = false next.";
                 break;
             }
+            LOG(3) << "Succeeded in re-assigning " << -l << "'s watchlist.";
         }
-        if (found_new_watch || cnf->watch[-l].empty()) {
-            cnf->watch[-l].clear();
-            d++;
-            LOG(3) << "Successfully updated watch lists, moving to step " << d;
-        }
-    }
-    return d != 0;
-}
-
-
-// Algorithm B from 7.2.2.2 (Satisfiability by watching).
-bool solve2(Instance* cnf) {
-    Instance::lit_t d = 1;
-    Instance::lit_t l = 0;
-    std::vector<State> state(cnf->nvars + 1);  // states are 1-indexed.
-    while (0 < d && d <= cnf->nvars) {
-        LOG(3) << "Starting stage " << d;
-        // Choose a literal value
-        if (state[d] == UNEXAMINED) {
-            if (cnf->watch[d].empty() || !cnf->watch[-d].empty()) { l = -d; }
-            else { l = d; }
-            state[d] = (l == d) ? TRUE : FALSE;
-            LOG(3) << "Choosing " << l << " but haven't tried " << -l << " yet";
-        } else if (state[d] == TRUE || state[d] == FALSE) {
-            l = -l;
-            state[d] = (l == d) ? TRUE_NOT_FALSE : FALSE_NOT_TRUE;
-            LOG(3) << "Now trying " << l << ", final try for " << d;
-        } else {
-            // Backtrack
-            LOG(3) << "Tried all values for " << d << ", backtracking.";
-            d--;
-            continue;
-        }
-        // Update watch lists for NOT l
-        bool found_new_watch = false;
-        LOG(3) << "Attempting to re-assign " << -l << "'s watchlist"
-               << " (size " << cnf->watch[-1].size() << ")";
-        for (const Instance::clause_t& c : cnf->watch[-l]) {
-            LOG(3) << "Making clause " << c << " watch something else.";
-            int end = (c == cnf->start.size() - 1) ?
-                cnf->clauses.size() :
-                cnf->start[c+1];
-            found_new_watch = false;
-            for (int i = cnf->start[c]; i < end; ++i) {
-                Instance::lit_t lit = cnf->clauses[i];
-                if (lit == -l) { continue; }
-                if (IS_FALSE(lit, state[abs(lit)])) { continue; }
-                LOG(3) << "Choosing " << cnf->clauses[i]
-                       << " as new watchee of clause " << c;
-                cnf->watch[cnf->clauses[i]].push_back(c);
-                found_new_watch = true;
-                break;
-            }
-            if (!found_new_watch) {
-                LOG(3) << "Couldn't find new watch for " << c << "!";
-                break;
-            }
-        }
-        if (found_new_watch || cnf->watch[-l].empty()) {
-            cnf->watch[-l].clear();
-            d++;
-            LOG(3) << "Successfully updated watch lists, moving to step " << d;
-        }
+        cnf->watch[-l] = watcher;
+        if (watcher == -1) d++;
+        LOG(3) << "Watchlists:\n" << dump_watchlist(cnf);
     }
     return d != 0;
 }
