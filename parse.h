@@ -1,12 +1,13 @@
 #ifndef __PARSE_H__
 #define __PARSE_H__
 
+#include <limits>
 #include <vector>
 
 // TODO: templatize this with lit_t, clause_t
 struct Instance {
     typedef int lit_t;
-    typedef int clause_t;  // TODO: make unsigned int, start indexing at 1!
+    typedef unsigned int clause_t;
 
     int nvars;
     int nclauses;
@@ -20,6 +21,8 @@ struct Instance {
     std::vector<clause_t> link;
     std::vector<clause_t> watch_storage;
     clause_t* watch;
+
+    static const clause_t null_clause;
 };
 
 Instance parse(const char* filename);

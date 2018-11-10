@@ -1,6 +1,7 @@
 #include "logging.h"
 #include "solve.h"
 
+#include <limits>
 #include <sstream>
 
 enum State {
@@ -23,9 +24,9 @@ std::string dump_watchlist(Instance* cnf) {
     for (Instance::lit_t l = -cnf->nvars; l <= cnf->nvars; ++l) {
         if (l == 0) continue;
         Instance::clause_t x = cnf->watch[l];
-        if (x != -1) {
+        if (x != Instance::null_clause) {
             oss << l << ": ";
-            while (x != -1) {
+            while (x != Instance::null_clause) {
                 oss << "[" << x << "] ";
                 x = cnf->link[x];
             }
@@ -46,7 +47,9 @@ bool solve(Instance* cnf) {
         l = d;
         // Choose a literal value
         if (state[d] == UNEXAMINED) {
-            if (cnf->watch[d] == -1 || cnf->watch[-d] != -1) { l = -d; }
+            bool negok = cnf->watch[d] == Instance::null_clause ||
+                cnf->watch[-d] != Instance::null_clause;
+            if (negok) { l = -d; }
             else { l = d; }
             state[d] = (l == d) ? TRUE : FALSE;
             LOG(3) << "Choosing " << l << " but haven't tried " << -l << " yet";
@@ -68,7 +71,7 @@ bool solve(Instance* cnf) {
         // Update watch lists for NOT l
         LOG(3) << "Attempting to re-assign " << -l << "'s watchlist";
         Instance::clause_t watcher = cnf->watch[-l];
-        while (watcher != -1) {
+        while (watcher != Instance::null_clause) {
             Instance::clause_t start = cnf->start[watcher];
             Instance::clause_t end = CLAUSE_END(cnf, watcher);
             Instance::clause_t next = cnf->link[watcher];
@@ -99,7 +102,7 @@ bool solve(Instance* cnf) {
             LOG(3) << "Succeeded in re-assigning " << -l << "'s watchlist.";
         }
         cnf->watch[-l] = watcher;
-        if (watcher == -1) d++;
+        if (watcher == Instance::null_clause) d++;
         LOG(3) << "Watchlists:\n" << dump_watchlist(cnf);
     }
     return d != 0;
