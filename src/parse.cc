@@ -51,12 +51,16 @@ Instance parse(const char* filename) {
     // Read clauses until EOF.
     int lit;
     do {
-        cnf.start.push_back(cnf.clauses.size());
+        bool read_lit = false;
+        int start = cnf.clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
             cnf.clauses.push_back(lit);
+            read_lit = true;
         }
+        if (!read_lit) break;
+        cnf.start.push_back(start);
         Instance::clause_t old = cnf.watch[cnf.clauses[cnf.start.back()]];
         cnf.watch[cnf.clauses[cnf.start.back()]] = cnf.start.size() - 1;
         cnf.link[cnf.start.size() - 1] = old;

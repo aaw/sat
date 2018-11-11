@@ -73,6 +73,9 @@ bool solve(Instance* cnf) {
         // Update watch lists for NOT l
         LOG(3) << "Attempting to re-assign " << -l << "'s watchlist";
         clause_t watcher = cnf->watch[-l];
+        if (watcher == nil) {
+            LOG(3) << "Nevermind, it's nil";
+        }
         while (watcher != nil) {
             clause_t start = cnf->start[watcher];
             clause_t end = CLAUSE_END(cnf, watcher);
@@ -106,6 +109,13 @@ bool solve(Instance* cnf) {
         cnf->watch[-l] = watcher;
         if (watcher == nil) d++;
         LOG(5) << "Watchlists:\n" << dump_watchlist(cnf);
+    }
+    if (d != 0) {
+        std::ostringstream oss;
+        for (unsigned int i = 1; i < state.size(); i++) {
+            oss << "[" << i << ":" << state[i] << "]";
+        }
+        LOG(3) << "Final assignment: " << oss.str();
     }
     return d != 0;
 }

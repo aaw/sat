@@ -4,7 +4,7 @@
 #include <iostream>
 
 #ifndef LOGLEVEL
-#define LOGLEVEL 1
+#define LOGLEVEL 5
 #endif  // LOGLEVEL
 
 #define LOG(i) logger(__FILE__,__LINE__,i)
