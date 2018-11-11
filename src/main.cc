@@ -8,5 +8,5 @@ int main(int argc, char** argv) {
     Instance cnf = parse(argv[1]);
     bool sat = solve(&cnf);
     LOG(1) << "Satisfiable: " << sat;
-    return sat;
+    return !sat;
 }
