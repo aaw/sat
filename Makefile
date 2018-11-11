@@ -4,19 +4,19 @@ LDLIBS=
 RM=rm -f
 
 sat: main.o parse.o solve.o
-	g++ $(LDFLAGS) -o sat main.o parse.o solve.o $(LDLIBS)
+	g++ $(LDFLAGS) -o bin/sat bin/main.o bin/parse.o bin/solve.o $(LDLIBS)
 
-main.o: main.cc parse.h logging.h solve.h
-	g++ $(CPPFLAGS) -c main.cc
+main.o: src/main.cc src/parse.h src/logging.h src/solve.h
+	g++ $(CPPFLAGS) -c src/main.cc -o bin/main.o
 
-parse.o: parse.cc parse.h logging.h
-	g++ $(CPPFLAGS) -c parse.cc
+parse.o: src/parse.cc src/parse.h src/logging.h
+	g++ $(CPPFLAGS) -c src/parse.cc -o bin/parse.o
 
-solve.o: solve.cc solve.h logging.h
-	g++ $(CPPFLAGS) -c solve.cc
+solve.o: src/solve.cc src/solve.h src/logging.h
+	g++ $(CPPFLAGS) -c src/solve.cc -o bin/solve.o
 
 clean:
-	$(RM) *.o
+	$(RM) bin/*.o
 
 distclean: clean
-	$(RM) sat
+	$(RM) bin/sat
