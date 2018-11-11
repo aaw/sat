@@ -1,0 +1,1 @@
+* Combine all cc, h except for logging.h into btwl.cc

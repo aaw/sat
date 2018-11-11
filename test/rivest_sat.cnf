@@ -1,4 +1,7 @@
-c rivest's sat 7.2.2.2 (7)
+c Knuth's "shortest interesting formula in CNF", without the final clause.
+c Based on Rivest's associative block design. TAOCP 7.2.2.2 (7)
+c label:satisfiable
+c label:easy
 p cnf 4 7
 1 2 -3 0
 2 3 -4 0

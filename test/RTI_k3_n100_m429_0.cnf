@@ -1,6 +1,7 @@
-c
-c SAT instance in DIMACS CNF input format.
-c
+c Random-3-SAT Instances and Backbone-minimal Sub-instances by Josh Singer.
+c source: https://www.cs.ubc.ca/~hoos/SATLIB/Benchmarks/SAT/BMS/descr_BMS.html
+c label:satisfiable
+c label:medium
 p cnf 100 429
 33  -47  -53  0
 75  -76  -83  0

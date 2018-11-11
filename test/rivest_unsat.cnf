@@ -1,4 +1,7 @@
-c rivest's unsat 7.2.2.2 (6)
+c Knuth's "shortest interesting formula in CNF".
+c Based on Rivest's associative block design. TAOCP 7.2.2.2 (6)
+c label:unsatisfiable
+c label:easy
 p cnf 4 8
 1 2 -3 0
 2 3 -4 0

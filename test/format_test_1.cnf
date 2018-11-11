@@ -1,11 +1,5 @@
-c Here are some
-c
-c comments
-c
-c there can be many
-c
-c
-c
+c label:satisfiable
+c label:easy
 p cnf 10 5
 -1     2     0
 2      3     0
