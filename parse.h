@@ -22,7 +22,7 @@ struct Instance {
     std::vector<clause_t> watch_storage;
     clause_t* watch;
 
-    static const clause_t null_clause;
+    static const clause_t nil;
 };
 
 Instance parse(const char* filename);

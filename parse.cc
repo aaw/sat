@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <limits>
 
-Instance::clause_t const Instance::null_clause =
+Instance::clause_t const Instance::nil =
     std::numeric_limits<clause_t>::max();
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -44,8 +44,8 @@ Instance parse(const char* filename) {
            << cnf.nclauses << " clauses.";
 
     // Initialize data structures now that we know nvars and nclauses.
-    cnf.link.resize(cnf.nclauses, Instance::null_clause);
-    cnf.watch_storage.resize(2 * cnf.nvars + 1, Instance::null_clause);
+    cnf.link.resize(cnf.nclauses, Instance::nil);
+    cnf.watch_storage.resize(2 * cnf.nvars + 1, Instance::nil);
     cnf.watch = &cnf.watch_storage[cnf.nvars];
 
     // Read clauses until EOF.
