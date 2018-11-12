@@ -19,6 +19,9 @@ enum State {
 #define CLAUSE_END(cnf, c) \
     ((c == cnf->start.size() - 1) ? cnf->clauses.size() : cnf->start[c+1])
 
+#define TRUTH(x) \
+    ((x == UNEXAMINED) ? "U" : ((x == TRUE || x == TRUE_NOT_FALSE) ? "T" : "F"))
+
 typedef Instance::clause_t clause_t;
 typedef Instance::lit_t lit_t;
 clause_t nil = Instance::nil;
@@ -113,7 +116,7 @@ bool solve(Instance* cnf) {
     if (d != 0) {
         std::ostringstream oss;
         for (unsigned int i = 1; i < state.size(); i++) {
-            oss << "[" << i << ":" << state[i] << "]";
+            oss << "[" << i << ":" << TRUTH(state[i]) << "]";
         }
         LOG(3) << "Final assignment: " << oss.str();
     }
