@@ -1,8 +1,98 @@
-#include "logging.h"
-#include "solve.h"
-
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <sstream>
+#include <vector>
+
+#include "logging.h"
+
+// TODO: templatize this with lit_t, clause_t
+struct Instance {
+    typedef int lit_t;
+    typedef unsigned int clause_t;
+
+    int nvars;
+    int nclauses;
+    std::vector<lit_t> clauses;
+    // Zero-indexed map of clauses. Clause i runs from clauses[start[i]]
+    // to clauses[start[i+1]-1] (or clauses[clauses.size()-1]
+    // if i == start.size() - 1).
+    std::vector<clause_t> start;
+
+    // Link to another clause with the same watched literal.
+    std::vector<clause_t> link;
+    std::vector<clause_t> watch_storage;
+    clause_t* watch;
+
+    static const clause_t nil;
+};
+
+Instance::clause_t const Instance::nil =
+    std::numeric_limits<clause_t>::max();
+
+// Parse a DIMACS cnf input file. File starts with zero or more comments
+// followed by a line declaring the number of variables and clauses in the file.
+// Each subsequent line is the zero-terminated definition of a disjunction.
+// Clauses are specified by integers representing literals, starting at 1.
+// Negated literals are represented with a leading minus.
+//
+// Example: The following CNF formula:
+//
+//   (x_1 OR x_2) AND (x_3) AND (NOT x_2 OR NOT x_3 OR x_4)
+//
+// Can be represented with the following file:
+//
+// c Header comment
+// p cnf 4 3
+// 1 2 0
+// 3 0
+// -2 -3 4 0
+Instance parse(const char* filename) {
+    int nc;
+    FILE* f = fopen(filename, "r");
+    if (!f) {
+        // TODO: return an error here
+        printf("Failed to open %s", filename);
+    }
+
+    // Read comment lines until we see the problem line.
+    Instance cnf;
+    do {
+        nc = fscanf(f, " p cnf %i %i \n", &cnf.nvars, &cnf.nclauses);
+        if (nc > 0 && nc != EOF) break;
+        nc = fscanf(f, "%*s\n");
+    } while (nc != 2 && nc != EOF);
+
+    LOG(4) << "Problem has " << cnf.nvars << " variables and "
+           << cnf.nclauses << " clauses.";
+
+    // Initialize data structures now that we know nvars and nclauses.
+    cnf.link.resize(cnf.nclauses, Instance::nil);
+    cnf.watch_storage.resize(2 * cnf.nvars + 1, Instance::nil);
+    cnf.watch = &cnf.watch_storage[cnf.nvars];
+
+    // Read clauses until EOF.
+    int lit;
+    do {
+        bool read_lit = false;
+        int start = cnf.clauses.size();
+        while (true) {
+            nc = fscanf(f, " %i ", &lit);
+            if (nc == EOF || lit == 0) break;
+            cnf.clauses.push_back(lit);
+            read_lit = true;
+        }
+        if (!read_lit) break;
+        cnf.start.push_back(start);
+        Instance::clause_t old = cnf.watch[cnf.clauses[cnf.start.back()]];
+        cnf.watch[cnf.clauses[cnf.start.back()]] = cnf.start.size() - 1;
+        cnf.link[cnf.start.size() - 1] = old;
+    } while (nc != EOF);
+    LOG(4) << "Done parsing input.";
+
+    fclose(f);
+    return cnf;
+}
 
 enum State {
     UNEXAMINED = 0,
@@ -51,7 +141,6 @@ bool solve(Instance* cnf) {
     LOG(5) << "Initial watchlists:\n" << dump_watchlist(cnf);
     while (0 < d && d <= cnf->nvars) {
         LOG(3) << "Starting stage " << d;
-        l = d;
         // Choose a literal value
         if (state[d] == UNEXAMINED) {
             if (cnf->watch[d] == nil || cnf->watch[-d] != nil) { l = -d; }
@@ -121,4 +210,11 @@ bool solve(Instance* cnf) {
         LOG(3) << "Final assignment: " << oss.str();
     }
     return d != 0;
+}
+
+int main(int argc, char** argv) {
+    Instance cnf = parse(argv[1]);
+    bool sat = solve(&cnf);
+    LOG(1) << "Satisfiable: " << sat;
+    return !sat;
 }
