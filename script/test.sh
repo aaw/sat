@@ -1,5 +1,7 @@
 #!/bin/bash
 
+make
+
 echo "Testing label:satisfiable, label:easy:"
 for filename in $(grep -l 'label:easy' test/*.cnf | xargs grep -l 'label:satisfiable'); do
     bin/btwl $filename 1>/dev/null 2>&1
