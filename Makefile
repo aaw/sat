@@ -3,8 +3,8 @@ LDFLAGS=-g
 LDLIBS=
 RM=rm -f
 
-sat: src/logging.h
-	g++ $(CPPFLAGS) -o bin/sat src/btwl.cc $(LDLIBS)
+btwl: src/logging.h
+	g++ $(CPPFLAGS) -o bin/btwl src/btwl.cc $(LDLIBS)
 
 clean:
 	$(RM) bin/*
