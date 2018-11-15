@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -7,12 +8,8 @@
 #include "logging.h"
 
 // TODO: templatize this with lit_t, clause_t
+template <typename lit_t, typename clause_t>
 struct Instance {
-    typedef int lit_t;
-    typedef unsigned int clause_t;
-
-    int nvars;
-    int nclauses;
     std::vector<lit_t> clauses;
     // Zero-indexed map of clauses. Clause i runs from clauses[start[i]]
     // to clauses[start[i+1]-1] (or clauses[clauses.size()-1]
@@ -23,11 +20,14 @@ struct Instance {
     std::vector<clause_t> link;
     std::vector<clause_t> watch_storage;
     clause_t* watch;
+    clause_t nclauses;
+    lit_t nvars;
 
     static const clause_t nil;
 };
 
-Instance::clause_t const Instance::nil =
+template <typename lit_t, typename clause_t>
+clause_t const Instance<lit_t, clause_t>::nil =
     std::numeric_limits<clause_t>::max();
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -47,51 +47,50 @@ Instance::clause_t const Instance::nil =
 // 1 2 0
 // 3 0
 // -2 -3 4 0
-Instance parse(const char* filename) {
+template<typename lit_t, typename clause_t>
+bool parse(const char* filename, Instance<lit_t, clause_t>* cnf) {
     int nc;
     FILE* f = fopen(filename, "r");
     if (!f) {
-        // TODO: return an error here
-        printf("Failed to open %s", filename);
+        LOG(2) << "Failed to open file: " << filename;
+        return false;
     }
 
     // Read comment lines until we see the problem line.
-    Instance cnf;
     do {
-        nc = fscanf(f, " p cnf %i %i \n", &cnf.nvars, &cnf.nclauses);
+        nc = fscanf(f, " p cnf %i %i \n", &cnf->nvars, &cnf->nclauses);
         if (nc > 0 && nc != EOF) break;
         nc = fscanf(f, "%*s\n");
     } while (nc != 2 && nc != EOF);
 
-    LOG(4) << "Problem has " << cnf.nvars << " variables and "
-           << cnf.nclauses << " clauses.";
+    LOG(4) << "Problem has " << cnf->nvars << " variables and "
+           << cnf->nclauses << " clauses.";
 
     // Initialize data structures now that we know nvars and nclauses.
-    cnf.link.resize(cnf.nclauses, Instance::nil);
-    cnf.watch_storage.resize(2 * cnf.nvars + 1, Instance::nil);
-    cnf.watch = &cnf.watch_storage[cnf.nvars];
+    cnf->link.resize(cnf->nclauses, Instance<lit_t,clause_t>::nil);
+    cnf->watch_storage.resize(2 * cnf->nvars + 1, Instance<lit_t,clause_t>::nil);
+    cnf->watch = &cnf->watch_storage[cnf->nvars];
 
     // Read clauses until EOF.
     int lit;
     do {
         bool read_lit = false;
-        int start = cnf.clauses.size();
+        int start = cnf->clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
-            cnf.clauses.push_back(lit);
+            cnf->clauses.push_back(lit);
             read_lit = true;
         }
         if (!read_lit) break;
-        cnf.start.push_back(start);
-        Instance::clause_t old = cnf.watch[cnf.clauses[cnf.start.back()]];
-        cnf.watch[cnf.clauses[cnf.start.back()]] = cnf.start.size() - 1;
-        cnf.link[cnf.start.size() - 1] = old;
+        cnf->start.push_back(start);
+        clause_t old = cnf->watch[cnf->clauses[cnf->start.back()]];
+        cnf->watch[cnf->clauses[cnf->start.back()]] = cnf->start.size() - 1;
+        cnf->link[cnf->start.size() - 1] = old;
     } while (nc != EOF);
-    LOG(4) << "Done parsing input.";
 
     fclose(f);
-    return cnf;
+    return true;
 }
 
 enum State {
@@ -112,11 +111,9 @@ enum State {
 #define TRUTH(x) \
     ((x == UNEXAMINED) ? "U" : ((x == TRUE || x == TRUE_NOT_FALSE) ? "T" : "F"))
 
-typedef Instance::clause_t clause_t;
-typedef Instance::lit_t lit_t;
-clause_t nil = Instance::nil;
-
-std::string dump_watchlist(Instance* cnf) {
+template <typename lit_t, typename clause_t>
+std::string dump_watchlist(Instance<lit_t, clause_t>* cnf) {
+    clause_t nil = Instance<lit_t, clause_t>::nil;
     std::ostringstream oss;
     for (lit_t l = -cnf->nvars; l <= cnf->nvars; ++l) {
         if (l == 0) continue;
@@ -134,7 +131,9 @@ std::string dump_watchlist(Instance* cnf) {
 }
 
 // Algorithm B from 7.2.2.2 (Satisfiability by watching).
-bool solve(Instance* cnf) {
+template <typename lit_t, typename clause_t>
+bool solve(Instance<lit_t, clause_t>* cnf) {
+    clause_t nil = Instance<lit_t, clause_t>::nil;
     lit_t d = 1;
     lit_t l = 0;
     std::vector<State> state(cnf->nvars + 1);  // states are 1-indexed.
@@ -213,8 +212,12 @@ bool solve(Instance* cnf) {
 }
 
 int main(int argc, char** argv) {
-    Instance cnf = parse(argv[1]);
+    Instance<int, unsigned int> cnf;
+    if (!parse(argv[1], &cnf)) {
+        LOG(1) << "Error parsing .cnf file.";
+        return -1;
+    }
     bool sat = solve(&cnf);
-    LOG(1) << "Satisfiable: " << sat;
-    return !sat;
+    LOG(3) << "Satisfiable: " << sat;
+    return sat ? 0 : 1;
 }
