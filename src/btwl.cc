@@ -17,7 +17,6 @@ struct Instance {
     std::vector<clause_t> link;
     std::vector<clause_t> watch_storage;
     clause_t* watch;
-    clause_t nclauses;
     lit_t nvars;
 };
 
@@ -59,13 +58,12 @@ bool parse(const char* filename, Instance* cnf) {
     ASSERT_NO_OVERFLOW(lit_t, nvars);
     ASSERT_NO_OVERFLOW(clause_t, nclauses);
     cnf->nvars = static_cast<lit_t>(nvars);
-    cnf->nclauses = static_cast<clause_t>(nclauses);
 
     LOG(4) << "Problem has " << cnf->nvars << " variables and "
-           << cnf->nclauses << " clauses.";
+           << nclauses << " clauses.";
 
     // Initialize data structures now that we know nvars and nclauses.
-    cnf->link.resize(cnf->nclauses, clause_nil);
+    cnf->link.resize(nclauses, clause_nil);
     cnf->watch_storage.resize(2 * cnf->nvars + 1, clause_nil);
     cnf->watch = &cnf->watch_storage[cnf->nvars];
 
