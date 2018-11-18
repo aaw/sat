@@ -6,17 +6,23 @@
 #include "logging.h"
 #include "types.h"
 
+#define CLAUSE_END(cnf, c) \
+    (((c) == cnf->start.size() - 1) ? cnf->clauses.size() : cnf->start[(c)+1])
+
 struct Instance {
     std::vector<lit_t> clauses;
+
     // Zero-indexed map of clauses. Clause i runs from clauses[start[i]]
-    // to clauses[start[i+1]-1] (or clauses[clauses.size()-1]
-    // if i == start.size() - 1).
+    // to CLAUSE_END(inst, i).
     std::vector<clause_t> start;
 
     // Link to another clause with the same watched literal.
     std::vector<clause_t> link;
+
+    // Watch lists.
     std::vector<clause_t> watch_storage;
     clause_t* watch;
+
     lit_t nvars;
 };
 
@@ -100,9 +106,6 @@ enum State {
 #define IS_FALSE(val, state) \
     ((val > 0 && (state == FALSE || state == FALSE_NOT_TRUE)) || \
      (val < 0 && (state == TRUE || state == TRUE_NOT_FALSE)))
-
-#define CLAUSE_END(cnf, c) \
-    ((c == cnf->start.size() - 1) ? cnf->clauses.size() : cnf->start[c+1])
 
 #define TRUTH(x) \
     ((x == UNEXAMINED) ? "U" : ((x == TRUE || x == TRUE_NOT_FALSE) ? "T" : "F"))
