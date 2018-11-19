@@ -4,13 +4,13 @@
 #include <iostream>
 
 #ifndef LOGLEVEL
-#define LOGLEVEL 1
+#define LOGLEVEL 5
 #endif  // LOGLEVEL
 
-#define LOG(i) logger(__FILE__,__LINE__,i)
+#define LOG(i) Logger(__FILE__,__LINE__,i)
 
-struct logger {
-    logger(const std::string& filename, int line, int level)
+struct Logger {
+    Logger(const std::string& filename, int line, int level)
 #ifdef LOGGING
       : enabled_(level <= LOGLEVEL) {
         if (enabled_) std::cout << "[" << filename << ":" << line << "] ";
@@ -19,14 +19,14 @@ struct logger {
 #endif  // LOGGING
     }
 
-    ~logger() {
+    ~Logger() {
 #ifdef LOGGING
         if (enabled_) std::cout << std::endl;
 #endif  // LOGGING
     }
 
     template<class T>
-    logger& operator<<(const T& msg) {
+    Logger& operator<<(const T& msg) {
 #ifdef LOGGING
         if (enabled_) std::cout << msg;
 #endif  // LOGGING
@@ -37,6 +37,32 @@ struct logger {
 private:
     bool enabled_;
 #endif  // LOGGING
+};
+
+#define CHECK(expr) AbortLogger(__FILE__,__LINE__,expr)
+
+struct AbortLogger {
+    AbortLogger(const std::string& filename, int line, bool check_passed) :
+      enabled_(!check_passed) {
+        if (!enabled_) return;
+        std::cout << "[FATAL " << filename << ":" << line << "] ";
+    }
+
+    ~AbortLogger() {
+        if (!enabled_) return;
+        std::cout << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    template<class T>
+    AbortLogger& operator<<(const T& msg) {
+        if (!enabled_) return *this;
+        std::cout << msg;
+        return *this;
+    }
+
+private:
+    bool enabled_;
 };
 
 #endif  // __LOGGING_H__

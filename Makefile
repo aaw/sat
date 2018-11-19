@@ -8,3 +8,5 @@ bin/btwl: src/btwl.cc src/logging.h src/types.h
 
 clean:
 	$(RM) bin/*
+	$(RM) *~
+	$(RM) */*~

@@ -43,17 +43,13 @@ struct Instance {
 // 1 2 0
 // 3 0
 // -2 -3 4 0
-bool parse(const char* filename, Instance* cnf) {
+Instance parse(const char* filename) {
     int nc;
     FILE* f = fopen(filename, "r");
-    if (!f) {
-        LOG(2) << "Failed to open file: " << filename;
-        return false;
-    }
+    CHECK(f) << "Failed to open file: " << filename;
 
     // Read comment lines until we see the problem line.
-    long long nvars = 0;
-    long long nclauses = 0;
+    long long nvars = 0, nclauses = 0;
     do {
         nc = fscanf(f, " p cnf %lld %lld \n", &nvars, &nclauses);
         if (nc > 0 && nc != EOF) break;
@@ -63,36 +59,38 @@ bool parse(const char* filename, Instance* cnf) {
     assert(nclauses >= 0);
     ASSERT_NO_OVERFLOW(lit_t, nvars);
     ASSERT_NO_OVERFLOW(clause_t, nclauses);
-    cnf->nvars = static_cast<lit_t>(nvars);
 
-    LOG(4) << "Problem has " << cnf->nvars << " variables and "
+    Instance cnf;
+    cnf.nvars = static_cast<lit_t>(nvars);
+
+    LOG(4) << "Problem has " << cnf.nvars << " variables and "
            << nclauses << " clauses.";
 
     // Initialize data structures now that we know nvars and nclauses.
-    cnf->link.resize(nclauses, clause_nil);
-    cnf->watch_storage.resize(2 * cnf->nvars + 1, clause_nil);
-    cnf->watch = &cnf->watch_storage[cnf->nvars];
+    cnf.link.resize(nclauses, clause_nil);
+    cnf.watch_storage.resize(2 * cnf.nvars + 1, clause_nil);
+    cnf.watch = &cnf.watch_storage[cnf.nvars];
 
     // Read clauses until EOF.
     int lit;
     do {
         bool read_lit = false;
-        int start = cnf->clauses.size();
+        int start = cnf.clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
-            cnf->clauses.push_back(lit);
+            cnf.clauses.push_back(lit);
             read_lit = true;
         }
         if (!read_lit) break;
-        cnf->start.push_back(start);
-        clause_t old = cnf->watch[cnf->clauses[cnf->start.back()]];
-        cnf->watch[cnf->clauses[cnf->start.back()]] = cnf->start.size() - 1;
-        cnf->link[cnf->start.size() - 1] = old;
+        cnf.start.push_back(start);
+        clause_t old = cnf.watch[cnf.clauses[cnf.start.back()]];
+        cnf.watch[cnf.clauses[cnf.start.back()]] = cnf.start.size() - 1;
+        cnf.link[cnf.start.size() - 1] = old;
     } while (nc != EOF);
 
     fclose(f);
-    return true;
+    return cnf;
 }
 
 enum State {
@@ -208,11 +206,8 @@ bool solve(Instance* cnf) {
 }
 
 int main(int argc, char** argv) {
-    Instance cnf;
-    if (!parse(argv[1], &cnf)) {
-        LOG(1) << "Error parsing .cnf file.";
-        return -1;
-    }
+    CHECK(argc == 2) << "Usage: " << argv[0] << " filename.cnf";
+    Instance cnf = parse(argv[1]);
     bool sat = solve(&cnf);
     LOG(3) << "Satisfiable: " << sat;
     return sat ? 0 : 1;
