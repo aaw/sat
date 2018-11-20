@@ -1,4 +1,4 @@
-// Backtracking with a watchlist. Algorithm B from 7.2.2.2
+// Cyclic DPLL. Algorithm D from 7.2.2.2
 
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +24,11 @@ struct Cnf {
     // Watch lists.
     std::vector<clause_t> watch_storage;
     clause_t* watch;
+
+    // Active ring.
+    std::vector<lit_t> next;
+    lit_t head;
+    lit_t tail;
 
     lit_t nvars;
 };
@@ -64,6 +69,8 @@ Cnf parse(const char* filename) {
 
     Cnf cnf;
     cnf.nvars = static_cast<lit_t>(nvars);
+    cnf.head = lit_nil;
+    cnf.tail = lit_nil;
 
     LOG(4) << "Cnf has " << cnf.nvars << " variables and "
            << nclauses << " clauses.";
@@ -72,6 +79,7 @@ Cnf parse(const char* filename) {
     cnf.link.resize(nclauses, clause_nil);
     cnf.watch_storage.resize(2 * cnf.nvars + 1, clause_nil);
     cnf.watch = &cnf.watch_storage[cnf.nvars];
+    cnf.next.resize(cnf.nvars + 1, lit_nil);
 
     // Read clauses until EOF.
     int lit;
@@ -90,6 +98,20 @@ Cnf parse(const char* filename) {
         cnf.watch[cnf.clauses[cnf.start.back()]] = cnf.start.size() - 1;
         cnf.link[cnf.start.size() - 1] = old;
     } while (nc != EOF);
+
+    // Initialize active ring of literals with non-empty watchlists.
+    for (lit_t k = cnf.nvars; k > 0; --k) {
+        if (cnf->watch[k] != clause_nil || cnf->watch[-k] != clause_nil) {
+            cnf.next[k] = cnf.head;
+            cnf.head = k;
+            if (cnf.tail == lit_nil) {
+                cnf.tail = k;
+            }
+        }
+    }
+    if (cnf.tail != 0) {
+        cnf.next[cnf.tail] = cnf.head;
+    }
 
     fclose(f);
     return cnf;
@@ -113,7 +135,7 @@ enum State {
 std::string dump_watchlist(Cnf* cnf) {
     std::ostringstream oss;
     for (lit_t l = -cnf->nvars; l <= cnf->nvars; ++l) {
-        if (l == 0) continue;
+        if (l == lit_nil) continue;
         clause_t x = cnf->watch[l];
         if (x != clause_nil) {
             oss << l << ": ";
@@ -127,7 +149,6 @@ std::string dump_watchlist(Cnf* cnf) {
     return oss.str();
 }
 
-// Algorithm B from 7.2.2.2 (Satisfiability by watching).
 bool solve(Cnf* cnf) {
     lit_t d = 1;
     lit_t l = 0;

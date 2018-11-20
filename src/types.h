@@ -9,6 +9,7 @@
 typedef int16_t lit_t;
 typedef uint16_t clause_t;
 
+constexpr lit_t lit_nil = lit_t(0);
 constexpr clause_t clause_nil = std::numeric_limits<clause_t>::max();
 
 #define ASSERT_NO_OVERFLOW(x, y) \
