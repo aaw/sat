@@ -101,7 +101,7 @@ Cnf parse(const char* filename) {
 
     // Initialize active ring of literals with non-empty watchlists.
     for (lit_t k = cnf.nvars; k > 0; --k) {
-        if (cnf->watch[k] != clause_nil || cnf->watch[-k] != clause_nil) {
+        if (cnf.watch[k] != clause_nil || cnf.watch[-k] != clause_nil) {
             cnf.next[k] = cnf.head;
             cnf.head = k;
             if (cnf.tail == lit_nil) {
