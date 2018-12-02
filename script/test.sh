@@ -29,7 +29,8 @@ make ${BINARY}
 echo "Testing label:satisfiable, label:easy:"
 for filename in $(grep -l 'label:easy' test/*.cnf | xargs grep -l 'label:satisfiable'); do
     if ! ${BINARY} ${filename} 1>/dev/null 2>&1; then
-        printf 'X'
+        echo ""
+        echo "${filename} should be satisifiable but ${BINARY} reports otherwise"
     else
         printf '.'
     fi
@@ -39,7 +40,8 @@ echo ""
 echo "Testing label:unsatisfiable, label:easy:"
 for filename in $(grep -l 'label:easy' test/*.cnf | xargs grep -l 'label:unsatisfiable'); do
     if ${BINARY} ${filename} 1>/dev/null 2>&1; then
-        printf 'X'
+        echo ""
+        echo "${filename} should be unsatisifiable but ${BINARY} reports otherwise"
     else
         printf '.'
     fi

@@ -208,7 +208,7 @@ bool solve(Cnf* cnf) {
 }
 
 int main(int argc, char** argv) {
-    CHECK(argc == 2) << "Usage: " << argv[0] << " filename.cnf";
+    CHECK(argc == 2) << "Usage: " << argv[0] << " <filename>";
     Cnf cnf = parse(argv[1]);
     bool sat = solve(&cnf);
     LOG(3) << "Satisfiable: " << sat;
