@@ -148,6 +148,21 @@ std::string dump_assignment(const std::vector<State>& x) {
     return oss.str();
 }
 
+std::string dump_moves(const std::vector<State>& x) {
+    std::ostringstream oss;
+    for (unsigned int i = 1; i < x.size(); ++i) {
+        oss << "[" << i << ":";
+        if (x[i] == TRUE) oss << "T__]";
+        if (x[i] == FALSE) oss << "F__]";
+        if (x[i] == TRUE_NOT_FALSE) oss << "TNF]";
+        if (x[i] == FALSE_NOT_TRUE) oss << "FNT]";
+        if (x[i] == TRUE_FORCED) oss << "T_U]";
+        if (x[i] == FALSE_FORCED) oss << "F_U]";
+        if (x[i] == UNSET) oss << "---]";
+    }
+    return oss.str();
+}
+
 std::string dump_watchlist(Cnf* cnf) {
     std::ostringstream oss;
     for (lit_t l = -cnf->nvars; l <= cnf->nvars; ++l) {
@@ -216,6 +231,7 @@ bool solve(Cnf* cnf) {
     LOG(5) << "Initial watchlists:\n" << dump_watchlist(cnf);
     while (cnf->tail != lit_nil) {
         LOG(4) << "State: " << dump_assignment(vals);
+        LOG(4) << "moves: " << dump_moves(state);
         lit_t k = cnf->tail;
         bool found_unit = false;
         do {
@@ -235,7 +251,8 @@ bool solve(Cnf* cnf) {
                 while (state[d] != UNSET && state[d] != FALSE &&
                        state[d] != TRUE  && d > 0) {
                     LOG(3) << "Need to back up from " << d
-                           << " since we've already tried true and false";
+                           << " since we've either been forced or already "
+                           << "tried both true and false";
                     k = heads[d];
                     vals[k] = UNSET;
                     if (cnf->watch[k] != clause_nil ||
@@ -246,22 +263,21 @@ bool solve(Cnf* cnf) {
                         cnf->next[cnf->tail] = cnf->head;
                     }
                     --d;
-
-                    if (state[d] == TRUE) state[d] = FALSE_NOT_TRUE;
-                    else if (state[d] == FALSE) state[d] = TRUE_NOT_FALSE;
-                    k = heads[d];
                 }
-                if (d <= 0) return false;
 
+                if (d <= 0) return false;
+                if (state[d] == TRUE) state[d] = FALSE_NOT_TRUE;
+                else if (state[d] == FALSE) state[d] = TRUE_NOT_FALSE;
+                k = heads[d];
                 break;
             } else if (pos_unit) {
                 LOG(3) << "Found a pos unit clause";
-                state[d+1] = TRUE_NOT_FALSE;
+                state[d+1] = TRUE_FORCED;
                 cnf->tail = k;
                 break;
             } else if (neg_unit) {
                 LOG(3) << "Found a neg unit clause";
-                state[d+1] = FALSE_NOT_TRUE;
+                state[d+1] = FALSE_FORCED;
                 cnf->tail = k;
                 break;
             } else {
