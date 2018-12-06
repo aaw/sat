@@ -1,14 +1,22 @@
 #!/bin/bash
-set -o errexit -o pipefail -o noclobber -o nounset
+set -o pipefail -o noclobber -o nounset
 
 # Defaults
 BINARY=btwl
+DIFFICULTY=easy
+TIMEOUT=30s
 
 # Process any overrides from command-line flags.
-while getopts ":b:" opt; do
+while getopts ":b:d:t:" opt; do
     case $opt in
         b)
             BINARY="${OPTARG}"
+            ;;
+        d)
+            DIFFICULTY="${OPTARG}"
+            ;;
+        t)
+            TIMEOUT="${OPTARG}"
             ;;
         \?)
             echo "Invalid option: -$OPTARG" >&2
@@ -26,19 +34,24 @@ echo "Testing binary ${BINARY}"
 
 make ${BINARY}
 
-echo "Testing label:satisfiable, label:easy:"
-for filename in $(grep -l 'label:easy' test/*.cnf | xargs grep -l 'label:satisfiable'); do
-    if ! ${BINARY} ${filename} 1>/dev/null 2>&1; then
-        echo ""
-        echo "${filename} should be satisifiable but ${BINARY} reports otherwise"
-    else
+LABEL="label:${DIFFICULTY}"
+echo "Testing label:satisfiable, ${LABEL}:"
+for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:satisfiable'); do
+    # TODO: turn next few lines into a function
+    output="$(timeout ${TIMEOUT} ${BINARY} ${filename} 1>/dev/null 2>&1)"
+    result="$?"
+    if [ "$result" -eq "124" ]; then
+        printf 'T'
+    elif [ "$result" -eq "0" ]; then
         printf '.'
+    else
+        echo "${filename} should be satisifiable but ${BINARY} reports otherwise"
     fi
 done
 echo ""
 
-echo "Testing label:unsatisfiable, label:easy:"
-for filename in $(grep -l 'label:easy' test/*.cnf | xargs grep -l 'label:unsatisfiable'); do
+echo "Testing label:unsatisfiable, ${LABEL}:"
+for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:unsatisfiable'); do
     if ${BINARY} ${filename} 1>/dev/null 2>&1; then
         echo ""
         echo "${filename} should be unsatisifiable but ${BINARY} reports otherwise"

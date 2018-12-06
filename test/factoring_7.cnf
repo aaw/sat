@@ -1,4 +1,4 @@
-c Factoring 5 (classical algorithm)
+c Factoring 7 (classical algorithm)
 c Generated with http://toughsat.appspot.com/
 c label:unsatisfiable
 c label:easy
@@ -102,8 +102,8 @@ p cnf 29 109
 -17 6 0
 9 -8 0
 -9 8 0
-18 -7 0
--18 7 0
+18 -8 0
+-18 8 0
 24 -8 0
 -24 8 0
 26 -7 0

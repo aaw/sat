@@ -127,10 +127,7 @@ enum State {
 };
 
 #define IS_FALSE(val, state) \
-    ((val > 0 && (state == FALSE || state == FALSE_NOT_TRUE || \
-                  state == FALSE_FORCED)) ||                   \
-     (val < 0 && (state == TRUE || state == TRUE_NOT_FALSE ||  \
-                  state == TRUE_FORCED)))
+    ((val > 0 && state == FALSE) || (val < 0 && state == TRUE))
 
 #define TRUTH(x) \
     ((x == UNEXAMINED) ? \
@@ -180,7 +177,7 @@ std::string dump_watchlist(Cnf* cnf) {
     return oss.str();
 }
 
-std::string dump_clauses(Cnf* cnf) {
+std::string dump_clauses(const Cnf* cnf) {
     std::ostringstream oss;
     for (unsigned int i = 0; i < cnf->start.size(); ++i) {
         int end = CLAUSE_END(cnf, i);
@@ -193,7 +190,7 @@ std::string dump_clauses(Cnf* cnf) {
     return oss.str();
 }
 
-std::string dump_active_ring(Cnf* cnf) {
+std::string dump_active_ring(const Cnf* cnf) {
     std::ostringstream oss;
     lit_t l = cnf->head;
     do {
@@ -203,13 +200,13 @@ std::string dump_active_ring(Cnf* cnf) {
     return oss.str();
 }
 
-bool is_unit(const Cnf* cnf, const std::vector<State>& state, lit_t x) {
+bool is_unit(const Cnf* cnf, const std::vector<State>& vals, lit_t x) {
     for (clause_t w = cnf->watch[x]; w != clause_nil; w = cnf->link[w]) {
         clause_t itr = cnf->start[w] + 1;
         clause_t end = CLAUSE_END(cnf, w);
         for (; itr != end; ++itr) {
             lit_t lit = cnf->clauses[itr];
-            if (!IS_FALSE(lit, state[abs(lit)])) {
+            if (!IS_FALSE(lit, vals[abs(lit)])) {
                 break;
             }
         }
@@ -224,9 +221,9 @@ bool is_unit(const Cnf* cnf, const std::vector<State>& state, lit_t x) {
 
 bool solve(Cnf* cnf) {
     lit_t d = 0;
-    std::vector<State> state(cnf->nvars + 1);  // states are 1-indexed.
-    std::vector<lit_t> heads(cnf->nvars + 1);
-    std::vector<State> vals(cnf->nvars + 1);
+    std::vector<State> state(cnf->nvars + 1, UNSET);  // states are 1-indexed.
+    std::vector<lit_t> heads(cnf->nvars + 1, lit_nil);
+    std::vector<State> vals(cnf->nvars + 1, UNSET);
     LOG(3) << "Clauses:\n" << dump_clauses(cnf);
     LOG(5) << "Initial watchlists:\n" << dump_watchlist(cnf);
     while (cnf->tail != lit_nil) {
@@ -234,19 +231,21 @@ bool solve(Cnf* cnf) {
         LOG(4) << "moves: " << dump_moves(state);
         lit_t k = cnf->tail;
         bool found_unit = false;
+        bool backtracked = false;
         do {
             cnf->head = cnf->next[k];
-            LOG(3) << "Active ring: " << dump_active_ring(cnf);
-            bool pos_unit = is_unit(cnf, state, cnf->head);
-            bool neg_unit = is_unit(cnf, state, -cnf->head);
+            bool pos_unit = is_unit(cnf, vals, cnf->head);
+            bool neg_unit = is_unit(cnf, vals, -cnf->head);
             LOG(3) << cnf->head << " a unit? " << pos_unit << ". "
                    << -cnf->head << " a unit? " << neg_unit;
 
             found_unit = pos_unit || neg_unit;
 
             if (pos_unit && neg_unit) {
-                LOG(3) << "Backtracking";
+                LOG(3) << "Backtracking from " << d;
+                LOG(4) << "moves: " << dump_moves(state);
 
+                backtracked = true;
                 cnf->tail = k;
                 while (state[d] != UNSET && state[d] != FALSE &&
                        state[d] != TRUE  && d > 0) {
@@ -266,9 +265,10 @@ bool solve(Cnf* cnf) {
                 }
 
                 if (d <= 0) return false;
+                k = heads[d];
                 if (state[d] == TRUE) state[d] = FALSE_NOT_TRUE;
                 else if (state[d] == FALSE) state[d] = TRUE_NOT_FALSE;
-                k = heads[d];
+                LOG(4) << "new moves: " << dump_moves(state);
                 break;
             } else if (pos_unit) {
                 LOG(3) << "Found a pos unit clause";
@@ -298,29 +298,31 @@ bool solve(Cnf* cnf) {
         }
 
         // Step D5
-        ++d;
-        k = cnf->head; // TODO: redundant?
-        heads[d] = k;
-        if (cnf->tail == k) {
-            // TODO: why do this here instead of just break?
-            cnf->tail = lit_nil;
-        } else {
-            LOG(3) << "Deleting " << k << " from the active ring";
-            cnf->head = cnf->next[k];
-            cnf->next[cnf->tail] = cnf->head;
+        if (!backtracked) {
+            ++d;
+            k = cnf->head; // TODO: redundant?
+            heads[d] = k;
+            if (cnf->tail == k) {
+                // TODO: why do this here instead of just break?
+                cnf->tail = lit_nil;
+            } else {
+                LOG(3) << "Deleting " << k << " from the active ring";
+                cnf->head = cnf->next[k];
+                cnf->next[cnf->tail] = cnf->head;
+            }
         }
 
         // Step D6
         lit_t l;
         if (state[d] == TRUE || state[d] == TRUE_NOT_FALSE ||
             state[d] == TRUE_FORCED) {
-            LOG(3) << "Setting " << d << " true";
-            vals[d] = TRUE;
-            l = -d;
+            LOG(3) << "Setting " << k << " true";
+            vals[k] = TRUE;
+            l = -k;
         } else {
-            LOG(3) << "Setting " << d << " false";
-            vals[d] = FALSE;
-            l = d;
+            LOG(3) << "Setting " << k << " false";
+            vals[k] = FALSE;
+            l = k;
         }
         // Clear l's watchlist
         LOG(3) << "Clearing " << l << "'s watchlist";
@@ -329,7 +331,7 @@ bool solve(Cnf* cnf) {
         while (j != clause_nil) {
             clause_t i = cnf->start[j];
             clause_t p = i + 1;
-            while (IS_FALSE(cnf->clauses[p], state[abs(cnf->clauses[p])])) {
+            while (IS_FALSE(cnf->clauses[p], vals[abs(cnf->clauses[p])])) {
                 ++p;
             }
             LOG(3) << "Swapping " << l << " with " << cnf->clauses[p]
@@ -357,6 +359,8 @@ bool solve(Cnf* cnf) {
             cnf->watch[lp] = j;
             j = jp;
         }
+        LOG(3) << "Updated watchlists:\n" << dump_watchlist(cnf);
+        LOG(3) << "Active ring: " << dump_active_ring(cnf);
     }
     LOG(3) << dump_clauses(cnf);
     LOG(3) << dump_assignment(vals);

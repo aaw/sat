@@ -1,0 +1,4 @@
+c label:satisfiable
+c label:easy
+p cnf 2 1
+-2 1 0
