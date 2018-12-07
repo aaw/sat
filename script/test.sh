@@ -37,31 +37,30 @@ make ${BINARY}
 LABEL="label:${DIFFICULTY}"
 echo "Testing label:satisfiable, ${LABEL}:"
 for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:satisfiable'); do
-    # TODO: turn next few lines into a function
-    echo "${filename}"
+    printf "${filename} "
     output="$(timeout ${TIMEOUT} ${BINARY} ${filename} 1>/dev/null 2>&1)"
     result="$?"
     if [ "$result" -eq "124" ]; then
-        printf 'T'
+        printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
     elif [ "$result" -eq "0" ]; then
-        printf '.'
+        printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
     else
-        echo "${filename} should be satisifiable but ${BINARY} reports otherwise"
+        printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
     fi
 done
 echo ""
 
 echo "Testing label:unsatisfiable, ${LABEL}:"
 for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:unsatisfiable'); do
-    echo "${filename}"
+    printf "${filename} "
     output="$(timeout ${TIMEOUT} ${BINARY} ${filename} 1>/dev/null 2>&1)"
     result="$?"
     if [ "$result" -eq "124" ]; then
-        printf 'T'
+        printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
     elif [ "$result" -eq "0" ]; then
-        echo "${filename} should be unsatisifiable but ${BINARY} reports otherwise"
+        printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
     else
-        printf '.'
+        printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
     fi
 done
 echo ""
