@@ -38,6 +38,7 @@ LABEL="label:${DIFFICULTY}"
 echo "Testing label:satisfiable, ${LABEL}:"
 for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:satisfiable'); do
     # TODO: turn next few lines into a function
+    echo "${filename}"
     output="$(timeout ${TIMEOUT} ${BINARY} ${filename} 1>/dev/null 2>&1)"
     result="$?"
     if [ "$result" -eq "124" ]; then
@@ -52,6 +53,7 @@ echo ""
 
 echo "Testing label:unsatisfiable, ${LABEL}:"
 for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:unsatisfiable'); do
+    echo "${filename}"
     output="$(timeout ${TIMEOUT} ${BINARY} ${filename} 1>/dev/null 2>&1)"
     result="$?"
     if [ "$result" -eq "124" ]; then
