@@ -52,8 +52,11 @@ echo ""
 
 echo "Testing label:unsatisfiable, ${LABEL}:"
 for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:unsatisfiable'); do
-    if ${BINARY} ${filename} 1>/dev/null 2>&1; then
-        echo ""
+    output="$(timeout ${TIMEOUT} ${BINARY} ${filename} 1>/dev/null 2>&1)"
+    result="$?"
+    if [ "$result" -eq "124" ]; then
+        printf 'T'
+    elif [ "$result" -eq "0" ]; then
         echo "${filename} should be unsatisifiable but ${BINARY} reports otherwise"
     else
         printf '.'
