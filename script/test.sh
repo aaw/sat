@@ -35,6 +35,10 @@ echo "Testing binary ${BINARY}"
 make ${BINARY}
 
 LABEL="label:${DIFFICULTY}"
+NSUCCESS=0
+NFAILURE=0
+NTIMEOUT=0
+
 echo "Testing label:satisfiable, ${LABEL}:"
 for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:satisfiable'); do
     printf "${filename} "
@@ -42,10 +46,13 @@ for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:satisfiab
     result="$?"
     if [ "$result" -eq "124" ]; then
         printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
+        ((NTIMEOUT++))
     elif [ "$result" -eq "0" ]; then
         printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
+        ((NSUCCESS++))
     else
         printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
+        ((NFAILURE))
     fi
 done
 echo ""
@@ -57,10 +64,15 @@ for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:unsatisfi
     result="$?"
     if [ "$result" -eq "124" ]; then
         printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
+        ((NTIMEOUT++))
     elif [ "$result" -eq "0" ]; then
         printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
+        ((NFAILURE++))
     else
         printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
+        ((NSUCCESS++))
     fi
 done
 echo ""
+
+echo "${NSUCCESS} succeeded, ${NFAILURE} failed, ${NTIMEOUT} timed out."
