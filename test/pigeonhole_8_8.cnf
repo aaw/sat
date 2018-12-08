@@ -5,7 +5,7 @@ c https://massimolauria.github.io/cnfgen
 c
 c COMMAND LINE: cnfgen php 8 8
 c
-c label:easy
+c label:medium
 c label:satisfiable
 p cnf 64 232
 1 2 3 4 5 6 7 8 0

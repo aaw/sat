@@ -5,9 +5,9 @@ c https://massimolauria.github.io/cnfgen
 c
 c COMMAND LINE: cnfgen php 5 4
 c
-p cnf 20 45
 c label:medium
 c label:unsatisfiable
+p cnf 20 45
 1 2 3 4 0
 5 6 7 8 0
 9 10 11 12 0

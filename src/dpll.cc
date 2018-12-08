@@ -8,14 +8,21 @@
 #include "logging.h"
 #include "types.h"
 
-#define CLAUSE_END(cnf, c) \
-    (((c) == cnf->start.size() - 1) ? cnf->clauses.size() : cnf->start[(c)+1])
+enum State {
+    UNSET = 0,
+    FALSE = 1,
+    TRUE = 2,
+    FALSE_NOT_TRUE = 3,
+    TRUE_NOT_FALSE = 4,
+    FALSE_FORCED = 5,
+    TRUE_FORCED = 6
+};
 
 struct Cnf {
     std::vector<lit_t> clauses;
 
-    // Zero-indexed map of clauses. Clause i runs from clauses[start[i]]
-    // to CLAUSE_END(inst, i).
+    // Zero-indexed map of clauses. Clause i runs from clause_begin to
+    // clause_end.
     std::vector<clause_t> start;  // use size_t instead of clause_t here
 
     // Link to another clause with the same watched literal.
@@ -25,12 +32,35 @@ struct Cnf {
     std::vector<clause_t> watch_storage;
     clause_t* watch;
 
+    // Values of literals (1-indexed)
+    std::vector<State> vals;
+
     // Active ring.
     std::vector<lit_t> next;
     lit_t head;
     lit_t tail;
 
     lit_t nvars;
+
+    Cnf(lit_t nvars, clause_t nclauses) :
+        link(nclauses, clause_nil),
+        watch_storage(2 * nvars + 1, clause_nil),
+        watch(&watch_storage[nvars]),
+        vals(nvars + 1, UNSET),
+        next(nvars + 1, lit_nil),
+        head(lit_nil),
+        tail(lit_nil),
+        nvars(nvars) {}
+
+    inline lit_t clause_begin(clause_t c) const { return start[c]; }
+    inline lit_t clause_end(clause_t c) const {
+        return (c == start.size() - 1) ? clauses.size() : start[c + 1];
+    }
+
+    bool is_false(lit_t x) const {
+        State s = vals[abs(x)];
+        return (x > 0 && s == FALSE) || (x < 0 && s == TRUE);
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -68,14 +98,8 @@ Cnf parse(const char* filename) {
     ASSERT_NO_OVERFLOW(clause_t, nclauses);
 
     // Initialize data structures now that we know nvars and nclauses.
-    Cnf cnf;
-    cnf.nvars = static_cast<lit_t>(nvars);
-    cnf.head = lit_nil;
-    cnf.tail = lit_nil;
-    cnf.link.resize(nclauses, clause_nil);
-    cnf.watch_storage.resize(2 * cnf.nvars + 1, clause_nil);
-    cnf.watch = &cnf.watch_storage[cnf.nvars];
-    cnf.next.resize(cnf.nvars + 1, lit_nil);
+    Cnf cnf(static_cast<lit_t>(nvars),
+            static_cast<clause_t>(nclauses));
 
     LOG(4) << "Cnf has " << cnf.nvars << " variables and "
            << nclauses << " clauses.";
@@ -115,24 +139,6 @@ Cnf parse(const char* filename) {
     fclose(f);
     return cnf;
 }
-
-enum State {
-    UNSET = 0,
-    FALSE = 1,
-    TRUE = 2,
-    FALSE_NOT_TRUE = 3,
-    TRUE_NOT_FALSE = 4,
-    FALSE_FORCED = 5,
-    TRUE_FORCED = 6
-};
-
-#define IS_FALSE(val, state) \
-    ((val > 0 && state == FALSE) || (val < 0 && state == TRUE))
-
-#define TRUTH(x) \
-    ((x == UNEXAMINED) ? \
-      "U" : \
-      ((x == TRUE || x == TRUE_NOT_FALSE || x == TRUE_FORCED) ? "T" : "F"))
 
 std::string dump_assignment(const std::vector<State>& x) {
     std::ostringstream oss;
@@ -179,10 +185,10 @@ std::string dump_watchlist(Cnf* cnf) {
 
 std::string dump_clauses(const Cnf* cnf) {
     std::ostringstream oss;
-    for (unsigned int i = 0; i < cnf->start.size(); ++i) {
-        int end = CLAUSE_END(cnf, i);
+    for (clause_t i = 0; i < cnf->start.size(); ++i) {
+        lit_t end = cnf->clause_end(i);
         oss << "(";
-        for (int itr = cnf->start[i]; itr != end; ++itr) {
+        for (int itr = cnf->clause_begin(i); itr != end; ++itr) {
             oss << cnf->clauses[itr] << " ";
         }
         oss << ")  ";
@@ -200,13 +206,13 @@ std::string dump_active_ring(const Cnf* cnf) {
     return oss.str();
 }
 
-bool is_unit(const Cnf* cnf, const std::vector<State>& vals, lit_t x) {
+bool is_unit(const Cnf* cnf, lit_t x) {
     for (clause_t w = cnf->watch[x]; w != clause_nil; w = cnf->link[w]) {
-        clause_t itr = cnf->start[w] + 1;
-        clause_t end = CLAUSE_END(cnf, w);
+        lit_t itr = cnf->clause_begin(w) + 1;
+        lit_t end = cnf->clause_end(w);
         for (; itr != end; ++itr) {
             lit_t lit = cnf->clauses[itr];
-            if (!IS_FALSE(lit, vals[abs(lit)])) {
+            if (!cnf->is_false(lit)) {
                 break;
             }
         }
@@ -223,19 +229,18 @@ bool solve(Cnf* cnf) {
     lit_t d = 0;
     std::vector<State> state(cnf->nvars + 1, UNSET);  // states are 1-indexed.
     std::vector<lit_t> heads(cnf->nvars + 1, lit_nil);
-    std::vector<State> vals(cnf->nvars + 1, UNSET);
     LOG(3) << "Clauses:\n" << dump_clauses(cnf);
     LOG(5) << "Initial watchlists:\n" << dump_watchlist(cnf);
     while (cnf->tail != lit_nil) {
-        LOG(4) << "State: " << dump_assignment(vals);
+        LOG(4) << "State: " << dump_assignment(cnf->vals);
         LOG(4) << "moves: " << dump_moves(state);
         lit_t k = cnf->tail;
         bool found_unit = false;
         bool backtracked = false;
         do {
             cnf->head = cnf->next[k];
-            bool pos_unit = is_unit(cnf, vals, cnf->head);
-            bool neg_unit = is_unit(cnf, vals, -cnf->head);
+            bool pos_unit = is_unit(cnf, cnf->head);
+            bool neg_unit = is_unit(cnf, -cnf->head);
             LOG(3) << cnf->head << " a unit? " << pos_unit << ". "
                    << -cnf->head << " a unit? " << neg_unit;
 
@@ -253,7 +258,7 @@ bool solve(Cnf* cnf) {
                            << " since we've either been forced or already "
                            << "tried both true and false";
                     k = heads[d];
-                    vals[k] = UNSET;
+                    cnf->vals[k] = UNSET;
                     if (cnf->watch[k] != clause_nil ||
                         cnf->watch[-k] != clause_nil) {
                         LOG(3) << "Removing " << k << " from the active ring";
@@ -317,11 +322,11 @@ bool solve(Cnf* cnf) {
         if (state[d] == TRUE || state[d] == TRUE_NOT_FALSE ||
             state[d] == TRUE_FORCED) {
             LOG(3) << "Setting " << k << " true";
-            vals[k] = TRUE;
+            cnf->vals[k] = TRUE;
             l = -k;
         } else {
             LOG(3) << "Setting " << k << " false";
-            vals[k] = FALSE;
+            cnf->vals[k] = FALSE;
             l = k;
         }
         // Clear l's watchlist
@@ -331,9 +336,7 @@ bool solve(Cnf* cnf) {
         while (j != clause_nil) {
             clause_t i = cnf->start[j];
             clause_t p = i + 1;
-            while (IS_FALSE(cnf->clauses[p], vals[abs(cnf->clauses[p])])) {
-                ++p;
-            }
+            while (cnf->is_false(cnf->clauses[p])) { ++p; }
             LOG(3) << "Swapping " << l << " with " << cnf->clauses[p]
                    << " so " << cnf->clauses[p] << " is watched in clause "
                    << j;
@@ -341,7 +344,7 @@ bool solve(Cnf* cnf) {
             cnf->clauses[p] = l;
             cnf->clauses[i] = lp;
             if (cnf->watch[lp] == clause_nil && cnf->watch[-lp] == clause_nil &&
-                vals[abs(lp)] == UNSET) {
+                cnf->vals[abs(lp)] == UNSET) {
                 LOG(3) << lp << " has become active now that it's watched. "
                        << "Adding it to the active ring.";
                 if (cnf->tail == lit_nil) {
@@ -363,7 +366,7 @@ bool solve(Cnf* cnf) {
         LOG(3) << "Active ring: " << dump_active_ring(cnf);
     }
     LOG(3) << dump_clauses(cnf);
-    LOG(3) << dump_assignment(vals);
+    LOG(3) << dump_assignment(cnf->vals);
     return true;
 }
 
