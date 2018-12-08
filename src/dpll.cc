@@ -61,6 +61,19 @@ struct Cnf {
         State s = vals[abs(x)];
         return (x > 0 && s == FALSE) || (x < 0 && s == TRUE);
     }
+
+    bool is_unit(lit_t x) const {
+        for (clause_t w = watch[x]; w != clause_nil; w = link[w]) {
+            lit_t itr = clause_begin(w) + 1;
+            lit_t end = clause_end(w);
+            for (; itr != end; ++itr) {
+                lit_t lit = clauses[itr];
+                if (!is_false(lit)) break;
+            }
+            if (itr == end) return true;
+        }
+        return false;
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -127,14 +140,10 @@ Cnf parse(const char* filename) {
         if (cnf.watch[k] != clause_nil || cnf.watch[-k] != clause_nil) {
             cnf.next[k] = cnf.head;
             cnf.head = k;
-            if (cnf.tail == lit_nil) {
-                cnf.tail = k;
-            }
+            if (cnf.tail == lit_nil) cnf.tail = k;
         }
     }
-    if (cnf.tail != lit_nil) {
-        cnf.next[cnf.tail] = cnf.head;
-    }
+    if (cnf.tail != lit_nil) cnf.next[cnf.tail] = cnf.head;
 
     fclose(f);
     return cnf;
@@ -206,65 +215,52 @@ std::string dump_active_ring(const Cnf* cnf) {
     return oss.str();
 }
 
-bool is_unit(const Cnf* cnf, lit_t x) {
-    for (clause_t w = cnf->watch[x]; w != clause_nil; w = cnf->link[w]) {
-        lit_t itr = cnf->clause_begin(w) + 1;
-        lit_t end = cnf->clause_end(w);
-        for (; itr != end; ++itr) {
-            lit_t lit = cnf->clauses[itr];
-            if (!cnf->is_false(lit)) {
-                break;
-            }
-        }
-        if (itr == end) return true;
-    }
-    return false;
-}
-
 // TODO: is state[0] ever used? why does Knuth include directions for
 // "an array m_0,m_1, ... m_n" of moves in summary of Algorithm D and
 // start d at 0, only to update d+1 in the algorithm?
 
-bool solve(Cnf* cnf) {
+bool solve(Cnf* c) {
     lit_t d = 0;
-    std::vector<State> state(cnf->nvars + 1, UNSET);  // states are 1-indexed.
-    std::vector<lit_t> heads(cnf->nvars + 1, lit_nil);
-    LOG(3) << "Clauses:\n" << dump_clauses(cnf);
-    LOG(5) << "Initial watchlists:\n" << dump_watchlist(cnf);
-    while (cnf->tail != lit_nil) {
-        LOG(4) << "State: " << dump_assignment(cnf->vals);
+    std::vector<State> state(c->nvars + 1, UNSET);  // states are 1-indexed.
+    std::vector<lit_t> heads(c->nvars + 1, lit_nil);
+    LOG(3) << "Clauses:\n" << dump_clauses(c);
+    LOG(5) << "Initial watchlists:\n" << dump_watchlist(c);
+    while (c->tail != lit_nil) {
+        LOG(4) << "State: " << dump_assignment(c->vals);
         LOG(4) << "moves: " << dump_moves(state);
-        lit_t k = cnf->tail;
+        lit_t k = c->tail;
+        // Did we find a unit clause in the active ring?
         bool found_unit = false;
-        bool backtracked = false;
+        // Did we find that x and -x were unit clauses, in which case we were
+        // force to backtrack?
+        bool backtrack = false;
         do {
-            cnf->head = cnf->next[k];
-            bool pos_unit = is_unit(cnf, cnf->head);
-            bool neg_unit = is_unit(cnf, -cnf->head);
-            LOG(3) << cnf->head << " a unit? " << pos_unit << ". "
-                   << -cnf->head << " a unit? " << neg_unit;
+            c->head = c->next[k];
+            bool pos_unit = c->is_unit(c->head);
+            bool neg_unit = c->is_unit(-c->head);
+            LOG(3) << c->head << " a unit? " << pos_unit << ". "
+                   << -c->head << " a unit? " << neg_unit;
 
             found_unit = pos_unit || neg_unit;
+            backtrack = pos_unit && neg_unit;
 
-            if (pos_unit && neg_unit) {
+            if (backtrack) {
                 LOG(3) << "Backtracking from " << d;
                 LOG(4) << "moves: " << dump_moves(state);
-
-                backtracked = true;
-                cnf->tail = k;
+                c->tail = k;
                 while (state[d] != UNSET && state[d] != FALSE &&
                        state[d] != TRUE  && d > 0) {
                     LOG(3) << "Need to back up from " << d
                            << " since we've either been forced or already "
                            << "tried both true and false";
                     k = heads[d];
-                    cnf->vals[k] = UNSET;
-                    if (cnf->watch[k] != clause_nil ||
-                        cnf->watch[-k] != clause_nil) {
+                    c->vals[k] = UNSET;
+                    if (c->watch[k] != clause_nil ||
+                        c->watch[-k] != clause_nil) {
                         LOG(3) << "Removing " << k << " from the active ring";
-                        cnf->next[k] = cnf->head;
-                        cnf->head = k;
-                        cnf->next[cnf->tail] = cnf->head;
+                        c->next[k] = c->head;
+                        c->head = k;
+                        c->next[c->tail] = c->head;
                     }
                     --d;
                 }
@@ -278,24 +274,24 @@ bool solve(Cnf* cnf) {
             } else if (pos_unit) {
                 LOG(3) << "Found a pos unit clause";
                 state[d+1] = TRUE_FORCED;
-                cnf->tail = k;
+                c->tail = k;
                 break;
             } else if (neg_unit) {
                 LOG(3) << "Found a neg unit clause";
                 state[d+1] = FALSE_FORCED;
-                cnf->tail = k;
+                c->tail = k;
                 break;
             } else {
                 // Keep looking for unit clauses in the active ring.
-                k = cnf->head;
+                k = c->head;
             }
-        } while (cnf->head != cnf->tail);
+        } while (c->head != c->tail);
 
         if (!found_unit) {
             LOG(3) << "Couldn't find a unit clause, resorting to branching";
-            cnf->head = cnf->next[cnf->tail];
-            if (cnf->watch[cnf->head] == clause_nil ||
-                cnf->watch[-cnf->head] != clause_nil) {
+            c->head = c->next[c->tail];
+            if (c->watch[c->head] == clause_nil ||
+                c->watch[-c->head] != clause_nil) {
                 state[d+1] = TRUE;
             } else {
                 state[d+1] = FALSE;
@@ -303,17 +299,17 @@ bool solve(Cnf* cnf) {
         }
 
         // Step D5
-        if (!backtracked) {
+        if (!backtrack) {
             ++d;
-            k = cnf->head; // TODO: redundant?
+            k = c->head; // TODO: redundant?
             heads[d] = k;
-            if (cnf->tail == k) {
+            if (c->tail == k) {
                 // TODO: why do this here instead of just break?
-                cnf->tail = lit_nil;
+                c->tail = lit_nil;
             } else {
                 LOG(3) << "Deleting " << k << " from the active ring";
-                cnf->head = cnf->next[k];
-                cnf->next[cnf->tail] = cnf->head;
+                c->head = c->next[k];
+                c->next[c->tail] = c->head;
             }
         }
 
@@ -322,58 +318,58 @@ bool solve(Cnf* cnf) {
         if (state[d] == TRUE || state[d] == TRUE_NOT_FALSE ||
             state[d] == TRUE_FORCED) {
             LOG(3) << "Setting " << k << " true";
-            cnf->vals[k] = TRUE;
+            c->vals[k] = TRUE;
             l = -k;
         } else {
             LOG(3) << "Setting " << k << " false";
-            cnf->vals[k] = FALSE;
+            c->vals[k] = FALSE;
             l = k;
         }
         // Clear l's watchlist
         LOG(3) << "Clearing " << l << "'s watchlist";
-        clause_t j = cnf->watch[l];
-        cnf->watch[l] = clause_nil;
+        clause_t j = c->watch[l];
+        c->watch[l] = clause_nil;
         while (j != clause_nil) {
-            clause_t i = cnf->start[j];
+            clause_t i = c->start[j];
             clause_t p = i + 1;
-            while (cnf->is_false(cnf->clauses[p])) { ++p; }
-            LOG(3) << "Swapping " << l << " with " << cnf->clauses[p]
-                   << " so " << cnf->clauses[p] << " is watched in clause "
+            while (c->is_false(c->clauses[p])) { ++p; }
+            LOG(3) << "Swapping " << l << " with " << c->clauses[p]
+                   << " so " << c->clauses[p] << " is watched in clause "
                    << j;
-            lit_t lp = cnf->clauses[p]; // TODO: replace these lines with swap?
-            cnf->clauses[p] = l;
-            cnf->clauses[i] = lp;
-            if (cnf->watch[lp] == clause_nil && cnf->watch[-lp] == clause_nil &&
-                cnf->vals[abs(lp)] == UNSET) {
+            lit_t lp = c->clauses[p]; // TODO: replace these lines with swap?
+            c->clauses[p] = l;
+            c->clauses[i] = lp;
+            if (c->watch[lp] == clause_nil && c->watch[-lp] == clause_nil &&
+                c->vals[abs(lp)] == UNSET) {
                 LOG(3) << lp << " has become active now that it's watched. "
                        << "Adding it to the active ring.";
-                if (cnf->tail == lit_nil) {
-                    cnf->head = abs(lp);
-                    cnf->tail = cnf->head;
-                    cnf->next[cnf->tail] = cnf->head;
+                if (c->tail == lit_nil) {
+                    c->head = abs(lp);
+                    c->tail = c->head;
+                    c->next[c->tail] = c->head;
                 } else {
-                    cnf->next[abs(lp)] = cnf->head;
-                    cnf->head = abs(lp);
-                    cnf->next[cnf->tail] = cnf->head;
+                    c->next[abs(lp)] = c->head;
+                    c->head = abs(lp);
+                    c->next[c->tail] = c->head;
                 }
             }
-            clause_t jp = cnf->link[j];
-            cnf->link[j] = cnf->watch[lp];
-            cnf->watch[lp] = j;
+            clause_t jp = c->link[j];
+            c->link[j] = c->watch[lp];
+            c->watch[lp] = j;
             j = jp;
         }
-        LOG(3) << "Updated watchlists:\n" << dump_watchlist(cnf);
-        LOG(3) << "Active ring: " << dump_active_ring(cnf);
+        LOG(3) << "Updated watchlists:\n" << dump_watchlist(c);
+        LOG(3) << "Active ring: " << dump_active_ring(c);
     }
-    LOG(3) << dump_clauses(cnf);
-    LOG(3) << dump_assignment(cnf->vals);
+    LOG(3) << dump_clauses(c);
+    LOG(3) << dump_assignment(c->vals);
     return true;
 }
 
 int main(int argc, char** argv) {
     CHECK(argc == 2) << "Usage: " << argv[0] << " <filename>";
-    Cnf cnf = parse(argv[1]);
-    bool sat = solve(&cnf);
+    Cnf c = parse(argv[1]);
+    bool sat = solve(&c);
     LOG(3) << "Satisfiable: " << sat;
     return sat ? 0 : 1;
 }
