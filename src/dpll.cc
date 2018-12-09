@@ -197,7 +197,7 @@ std::string dump_clauses(const Cnf* cnf) {
     for (clause_t i = 0; i < cnf->start.size(); ++i) {
         lit_t end = cnf->clause_end(i);
         oss << "(";
-        for (int itr = cnf->clause_begin(i); itr != end; ++itr) {
+        for (lit_t itr = cnf->clause_begin(i); itr != end; ++itr) {
             oss << cnf->clauses[itr] << " ";
         }
         oss << ")  ";
@@ -301,7 +301,7 @@ bool solve(Cnf* c) {
         // Step D5
         if (!backtrack) {
             ++d;
-            k = c->head; // TODO: redundant?
+            k = c->head;
             heads[d] = k;
             if (c->tail == k) {
                 // TODO: why do this here instead of just break?
