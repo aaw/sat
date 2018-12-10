@@ -20,16 +20,20 @@ def options(n):
             yield((d,i,i+d+1))
 
 def exactly_one(x):
-    return x
+    clauses = [tuple(x)]
+    for i in range(0, len(x)-1):
+        for j in range (i+1, len(x)):
+            clauses.append((-x[i],-x[j]))
+    return clauses
 
 def compressed_exactly_one(x):
+    # TODO
     return x
 
 def langford(n, compressed):
     buffer = io.StringIO()
     n_clauses = 0
     opts = [x for x in options(n)]
-    print(str(opts))
     clauses = []
     # Each pair of digits must be selected exactly once.
     for i in range(1, n+1):
@@ -39,16 +43,17 @@ def langford(n, compressed):
     for i in range(1, 2*n+1):
         clauses.append(
             exactly_one([j+1 for j,x in enumerate(opts) if i in (x[1], x[2])]))
+    clauses = set(x for sublist in clauses for x in sublist)
+    for c in clauses:
+        buffer.write((" ".join(["{}"] * len(c)) + " 0\n").format(*c))
 
-    print("clauses: " + str(clauses))
-    # buffer.write("{0}".format(1))
-
-    return 'p cnf {0} {1}\n'.format(n, n_clauses) + buffer.getvalue()
+    return 'p cnf {0} {1}\n'.format(len(opts), len(clauses)) + buffer.getvalue()
 
 if __name__ == '__main__':
     try:
         assert(2 <= len(sys.argv) <= 3)
         n = int(sys.argv[1])
+        assert(n > 1)
         compressed = len(sys.argv) == 3 and sys.argv[2] == '--compressed'
     except:
         print('Usage: "langford.py n [--compressed]" for integer n')
