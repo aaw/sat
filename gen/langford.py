@@ -17,7 +17,12 @@ import sys
 def options(n):
     for d in range(1, n+1):
         for i in range(1, 2*n-d):
-            yield((d,i,i+d+1))
+            # Use symmetry shortcut for the d == n case, just like Knuth
+            # mentions. I guess the real reason to do this is to generate unit
+            # clauses which create examples that DPLL is faster on than basic
+            # backtracking.
+            if d != n or i <= (2*n - i - d - 1):
+                yield((d,i,i+d+1))
 
 def exactly_one(x):
     clauses = [tuple(x)]
@@ -43,7 +48,7 @@ def langford(n, compressed):
     for i in range(1, 2*n+1):
         clauses.append(
             exactly_one([j+1 for j,x in enumerate(opts) if i in (x[1], x[2])]))
-    clauses = set(x for sublist in clauses for x in sublist)
+    clauses = set(x for sublist in clauses for x in sublist if len(x) > 0)
     for c in clauses:
         buffer.write((" ".join(["{}"] * len(c)) + " 0\n").format(*c))
 
