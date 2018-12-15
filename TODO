@@ -1,2 +1,4 @@
+* finish TODO in langford.py
+
 * in test script, exit if make fails
 * Make a script to test consistency (clause count, var count) and formatting of all test files

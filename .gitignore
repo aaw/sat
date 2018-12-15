@@ -5,3 +5,6 @@
 
 # C++
 bin/*
+
+# Python
+__pycache__

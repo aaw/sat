@@ -24,35 +24,50 @@ def options(n):
             if d != n or i <= (2*n - i - d - 1):
                 yield((d,i,i+d+1))
 
-def exactly_one(x):
-    clauses = [tuple(x)]
+def at_most_one(x):
+    clauses = []
     for i in range(0, len(x)-1):
         for j in range (i+1, len(x)):
             clauses.append((-x[i],-x[j]))
     return clauses
 
-def compressed_exactly_one(x):
-    # TODO
-    return x
+def compressed_at_most_one(next_var):
+    nv = next_var - 1
+    def f(x):
+        nonlocal nv
+        if len(x) <= 4:
+            return at_most_one(x)
+        else:
+            nv += 1
+            split = nv
+            return f(x[:len(x)//2] + [split]) + \
+                f([-split] + x[len(x)//2:])
+    return f
 
 def langford(n, compressed):
     buffer = io.StringIO()
     n_clauses = 0
     opts = [x for x in options(n)]
     clauses = []
+    S = at_most_one
+    if compressed:
+        S = compressed_at_most_one(len(opts)+1)
     # Each pair of digits must be selected exactly once.
     for i in range(1, n+1):
-        clauses.append(
-            exactly_one([j+1 for j,x in enumerate(opts) if x[0] == i]))
+        cs = [j+1 for j,x in enumerate(opts) if x[0] == i]
+        clauses.append([tuple(cs)]) # At least one
+        clauses.append(S(cs)) # At most one
     # Each index selection must be used exactly once.
     for i in range(1, 2*n+1):
-        clauses.append(
-            exactly_one([j+1 for j,x in enumerate(opts) if i in (x[1], x[2])]))
+        cs = [j+1 for j,x in enumerate(opts) if i in (x[1], x[2])]
+        clauses.append([tuple(cs)]) # At least one
+        clauses.append(S(cs)) # At most one
     clauses = set(x for sublist in clauses for x in sublist if len(x) > 0)
     for c in clauses:
         buffer.write((" ".join(["{}"] * len(c)) + " 0\n").format(*c))
 
-    return 'p cnf {0} {1}\n'.format(len(opts), len(clauses)) + buffer.getvalue()
+    mv = max(abs(var) for clause in clauses for var in clause)
+    return 'p cnf {0} {1}\n'.format(mv, len(clauses)) + buffer.getvalue()
 
 if __name__ == '__main__':
     try:
