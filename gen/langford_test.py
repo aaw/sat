@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 from itertools import chain, combinations
 import unittest
 
@@ -51,6 +53,18 @@ class TestLangford(unittest.TestCase):
 
     def test_at_most_one_4(self):
         self.gen_at_most_one_test(4)
+
+    def test_at_most_one_5(self):
+        self.gen_at_most_one_test(5)
+
+    def test_at_most_one_6(self):
+        self.gen_at_most_one_test(6)
+
+    def test_at_most_one_7(self):
+        self.gen_at_most_one_test(7)
+
+    def test_at_most_one_8(self):
+        self.gen_at_most_one_test(8)
 
     def gen_compressed_at_most_one_test(self, x):
         f = langford.compressed_at_most_one(x+1)

@@ -2,17 +2,23 @@
 
 # Usage: python3 langford.py n [--compressed]
 #
-# Generates the Langford clauses described in Knuth 7.2.2.2 (the
-# specific case of n = 3 is described in (12)).
-# These are satisfiable exactly when n mod 4 = 0 or 3.
-# If --compressed is specified, the alternate, smaller encoding of
-# Knuth's symmetric S function is used.
+# Generates the Langford clauses described in Knuth 7.2.2.2 (the specific case
+# of n = 3 is described in (12)). These clauses are satisfiable exactly when
+# n mod 4 = 0 or 3. If --compressed is specified, the alternate, smaller
+# encoding of Knuth's symmetric S function is used, resulting in fewer clauses
+# but more variables.
+#
+# The Langford clauses encode the following problem: can two ones, two twos,
+# ... two n's be placed in a sequence of length 2n such that there are exactly
+# k numbers between each pair of numbers k for each k in [1,n]? `langford.py 4`
+# produces a satisfiable formula, for example, since the sequence 41312432
+# exists.
 
 import io
 import math
 import sys
 
-# Return triples representing options in the set cover as in (11).
+# Return triples representing options in the set cover problem as in (11).
 # (x, y, z) means digit x is placed in slots y and z.
 def options(n):
     for d in range(1, n+1):
@@ -24,6 +30,10 @@ def options(n):
             if d != n or i <= (2*n - i - d - 1):
                 yield((d,i,i+d+1))
 
+# Given a list of variables, generate a boolean formula that is satisfied when
+# at most one of the variables it true. The formula generated is just a big
+# disjunction specifying that out of every pair of variables, at least one is
+# false.
 def at_most_one(x):
     clauses = []
     for i in range(0, len(x)-1):
@@ -31,6 +41,23 @@ def at_most_one(x):
             clauses.append((-x[i],-x[j]))
     return clauses
 
+# Given a list of variables, generate a boolean formula that is satisfied when
+# at most one of the variables is true. Let S(x_1, x_2, ..., x_n) represent the
+# boolean function that returns true iff at most one of x_1, x_2, ..., x_n is
+# true. Then S satisfies:
+#
+# S(x_1, x_2, ..., x_n) =
+#     Exists a t such that S(x_1, ..., x_j, t) AND S(-t, x_j+1, ..., x_n)
+#
+# When n > 4, this yields a boolean formula with fewer clauses but more
+# variables than the formula produced by at_most_one above. The function below
+# returns a function that implements this scheme. Since this scheme introduces
+# new variables, next_var must be provided as an integer from which new
+# variables can be generated. Values >= next_var may be used for new variables.
+#
+# The function below returns a function that accepts a list of variables and
+# returns a list of clauses that contain at least the list of original variables
+# and are satisfiable iff at most one of the original variables is true.
 def compressed_at_most_one(next_var):
     nv = next_var - 1
     def f(x):
@@ -45,8 +72,6 @@ def compressed_at_most_one(next_var):
     return f
 
 def langford(n, compressed):
-    buffer = io.StringIO()
-    n_clauses = 0
     opts = [x for x in options(n)]
     clauses = []
     S = at_most_one
@@ -63,6 +88,7 @@ def langford(n, compressed):
         clauses.append([tuple(cs)]) # At least one
         clauses.append(S(cs)) # At most one
     clauses = set(x for sublist in clauses for x in sublist if len(x) > 0)
+    buffer = io.StringIO()
     for c in clauses:
         buffer.write((" ".join(["{}"] * len(c)) + " 0\n").format(*c))
 
