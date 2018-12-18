@@ -8,38 +8,68 @@
 #include "logging.h"
 #include "types.h"
 
+// States used by both the search algorithm and the final assignment. The final
+// assignment only uses UNSET, FALSE, and TRUE. The search algorithm's
+// interpretation of these values is noted below.
 enum State {
     UNSET = 0,
-    FALSE = 1,
-    TRUE = 2,
-    FALSE_NOT_TRUE = 3,
-    TRUE_NOT_FALSE = 4,
-    FALSE_FORCED = 5,
-    TRUE_FORCED = 6
+    FALSE = 1,           // Trying false, haven't tried true yet.
+    TRUE = 2,            // Trying true, haven't tried false yet.
+    FALSE_NOT_TRUE = 3,  // Trying false after true failed.
+    TRUE_NOT_FALSE = 4,  // Trying true after false failed.
+    FALSE_FORCED = 5,    // Trying false because it was forced by a unit clause.
+    TRUE_FORCED = 6      // Trying true because it was forced by a unit clause.
 };
 
+// Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
+    // Clauses are stored as a sequential list of literals in memory with no
+    // terminator between clauses. Example: (1 or 2) and (3 or -2 or -1) would
+    // be stored as [1][2][3][-2][-1]. The start array (below) keeps track of
+    // where each clause starts -- in the example above, start[0] = 0 and
+    // start[1] = 2. The end index of each clause can be inferred from the start
+    // index of the next clause. The watched literal in each clause is always
+    // the first literal in the clause. We swap literals within a clause to
+    // maintain this invariant throughout the algorithm.
     std::vector<lit_t> clauses;
 
-    // Zero-indexed map of clauses. Clause i runs from clause_begin to
-    // clause_end.
-    std::vector<clause_t> start;  // use size_t instead of clause_t here
+    // Zero-indexed map of clauses. Literals in clause i run from
+    // clauses[start[i]] to clauses[start[i+1]] - 1 except for the final
+    // clause, where the endpoint is just clauses.size() - 1. start.size() is
+    // the number of clauses.
+    std::vector<clause_t> start;
 
-    // Link to another clause with the same watched literal.
-    std::vector<clause_t> link;
-
-    // Watch lists.
+    // Watch lists. watch maps a literal to the index of a clause that watches
+    // that literal, or clause_nil if there is no such clause. link maps a
+    // clause c to another clause that shares the same watched literal as c,
+    // or clause_nil if there is no such clause. These two maps can be used to
+    // iterate over all clauses that watch a particular literal. For example,
+    // watch[-2], link[watch[-2]], and link[link[watch[-2]]] are all clauses
+    // that watch the literal -2, assuming none are clause_nil. watch is just
+    // a pointer to the middle element of watch_storage, allowing watch to
+    // accept indexes that are negated variables.
     std::vector<clause_t> watch_storage;
+    std::vector<clause_t> link;
     clause_t* watch;
 
-    // Values of literals (1-indexed)
+    // One-indexed values of variables. Only valid if a satisfying assignment
+    // has been found, in which case vals[1] through vals[nvars] will contain
+    // only TRUE and FALSE values.
     std::vector<State> vals;
 
-    // Active ring.
+    // Active ring. A circular linked list that stores all of the variables v
+    // that currently have a non-empty watch list for one of their literal
+    // values, i.e., watch[v] != clause_nil or watch[-v] != clause_nil. Only
+    // variable on the active ring can be in a unit clause. Variables on the
+    // active ring with both literal values v and -v in unit clauses are used to
+    // detect unsatisfiable (partial) assignment during the search. An empty
+    // list has head = tail = lit_nil. A non-empty list consists of head,
+    // next[head], next[next[head]], etc. until the values wrap around to head.
     std::vector<lit_t> next;
     lit_t head;
     lit_t tail;
 
+    // Variables in the problem are 1 through nvars, inclusive.
     lit_t nvars;
 
     Cnf(lit_t nvars, clause_t nclauses) :
@@ -57,11 +87,13 @@ struct Cnf {
         return (c == start.size() - 1) ? clauses.size() : start[c + 1];
     }
 
+    // Is the literal x currently set false?
     bool is_false(lit_t x) const {
         State s = vals[abs(x)];
         return (x > 0 && s == FALSE) || (x < 0 && s == TRUE);
     }
 
+    // Is the literal x currently in a unit clause?
     bool is_unit(lit_t x) const {
         for (clause_t w = watch[x]; w != clause_nil; w = link[w]) {
             lit_t itr = clause_begin(w) + 1;
@@ -164,13 +196,13 @@ std::string dump_moves(const std::vector<State>& x) {
     std::ostringstream oss;
     for (unsigned int i = 1; i < x.size(); ++i) {
         oss << "[" << i << ":";
-        if (x[i] == TRUE) oss << "T__]";
-        if (x[i] == FALSE) oss << "F__]";
-        if (x[i] == TRUE_NOT_FALSE) oss << "TNF]";
-        if (x[i] == FALSE_NOT_TRUE) oss << "FNT]";
-        if (x[i] == TRUE_FORCED) oss << "T_U]";
-        if (x[i] == FALSE_FORCED) oss << "F_U]";
-        if (x[i] == UNSET) oss << "---]";
+        if (x[i] == TRUE) oss << "T1]";
+        if (x[i] == FALSE) oss << "F1]";
+        if (x[i] == TRUE_NOT_FALSE) oss << "T2]";
+        if (x[i] == FALSE_NOT_TRUE) oss << "F2]";
+        if (x[i] == TRUE_FORCED) oss << "T!]";
+        if (x[i] == FALSE_FORCED) oss << "F!]";
+        if (x[i] == UNSET) oss << "--]";
     }
     return oss.str();
 }
