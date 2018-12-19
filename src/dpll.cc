@@ -146,9 +146,6 @@ Cnf parse(const char* filename) {
     Cnf cnf(static_cast<lit_t>(nvars),
             static_cast<clause_t>(nclauses));
 
-    LOG(4) << "Cnf has " << cnf.nvars << " variables and "
-           << nclauses << " clauses.";
-
     // Read clauses until EOF.
     int lit;
     do {
@@ -167,7 +164,7 @@ Cnf parse(const char* filename) {
         cnf.link[cnf.start.size() - 1] = old;
     } while (nc != EOF);
 
-    // Initialize active ring of literals with non-empty watchlists.
+    // Initialize active ring of literals with non-empty watch lists.
     for (lit_t k = cnf.nvars; k > 0; --k) {
         if (cnf.watch[k] != clause_nil || cnf.watch[-k] != clause_nil) {
             cnf.next[k] = cnf.head;
@@ -247,32 +244,33 @@ std::string dump_active_ring(const Cnf* cnf) {
     return oss.str();
 }
 
-// TODO: is state[0] ever used? why does Knuth include directions for
-// "an array m_0,m_1, ... m_n" of moves in summary of Algorithm D and
-// start d at 0, only to update d+1 in the algorithm?
-
+// Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
+    // The search for a satisfying assignment proceeds in stages from d = 1 to
+    // d = c->nvars. As long as a consistent partial assignment is found, d
+    // is incremented. If a conflict is found, we backtrack by decrementing d.
+    // heads is a 1-indexed current (partial) permutation of explored variables
+    // and state is a 1-indexed map of states of explored variables.
     lit_t d = 0;
     std::vector<State> state(c->nvars + 1, UNSET);  // states are 1-indexed.
     std::vector<lit_t> heads(c->nvars + 1, lit_nil);
     LOG(3) << "Clauses:\n" << dump_clauses(c);
     LOG(5) << "Initial watchlists:\n" << dump_watchlist(c);
+
+    // As long as some literal has a non-empty watch list, continue searching
+    // for a satisfying assignment.
     while (c->tail != lit_nil) {
         LOG(4) << "State: " << dump_assignment(c->vals);
         LOG(4) << "moves: " << dump_moves(state);
-        lit_t k = c->tail;
-        // Did we find a unit clause in the active ring?
-        bool found_unit = false;
-        // Did we find that x and -x were unit clauses, in which case we were
-        // force to backtrack?
-        bool backtrack = false;
+        lit_t k = c->tail;  // Current variable being considered.
+        bool found_unit = false;  // Did we find a unit clause?
+        bool backtrack = false;  // Were we force to backtrack?
+
+        // Iterate over the active ring looking for a literal in a unit clause.
         do {
             c->head = c->next[k];
             bool pos_unit = c->is_unit(c->head);
             bool neg_unit = c->is_unit(-c->head);
-            LOG(3) << c->head << " a unit? " << pos_unit << ". "
-                   << -c->head << " a unit? " << neg_unit;
-
             found_unit = pos_unit || neg_unit;
             backtrack = pos_unit && neg_unit;
 
@@ -319,6 +317,9 @@ bool solve(Cnf* c) {
             }
         } while (c->head != c->tail);
 
+        // If we couldn't find a unit clause, we may as well try setting the
+        // first variable on the active ring, but we might have to branch and
+        // try both TRUE and FALSE. We guess TRUE first if ... TODO
         if (!found_unit) {
             LOG(3) << "Couldn't find a unit clause, resorting to branching";
             c->head = c->next[c->tail];
@@ -357,20 +358,27 @@ bool solve(Cnf* c) {
             c->vals[k] = FALSE;
             l = k;
         }
-        // Clear l's watchlist
+
+        // Clear l's watch list, iterate through all clauses that used to watch
+        // l and make them watch some other literal.
         LOG(3) << "Clearing " << l << "'s watchlist";
         clause_t j = c->watch[l];
         c->watch[l] = clause_nil;
         while (j != clause_nil) {
+            // Find the first literal in clause j that isn't false, swap it to
+            // the front of clause j so that it's now watched by clause j.
             clause_t i = c->start[j];
             clause_t p = i + 1;
             while (c->is_false(c->clauses[p])) { ++p; }
             LOG(3) << "Swapping " << l << " with " << c->clauses[p]
                    << " so " << c->clauses[p] << " is watched in clause "
                    << j;
-            lit_t lp = c->clauses[p]; // TODO: replace these lines with swap?
+            lit_t lp = c->clauses[p];
             c->clauses[p] = l;
             c->clauses[i] = lp;
+
+            // If setting lp as the watched literal for clause j causes lp to
+            // become active, add lp to the active ring.
             if (c->watch[lp] == clause_nil && c->watch[-lp] == clause_nil &&
                 c->vals[abs(lp)] == UNSET) {
                 LOG(3) << lp << " has become active now that it's watched. "
@@ -385,6 +393,9 @@ bool solve(Cnf* c) {
                     c->next[c->tail] = c->head;
                 }
             }
+
+            // Add lp to j's watch list, move on by setting j to the next clause
+            // that was originally watched by l and repeat the loop.
             clause_t jp = c->link[j];
             c->link[j] = c->watch[lp];
             c->watch[lp] = j;
