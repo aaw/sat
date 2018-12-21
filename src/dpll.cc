@@ -73,8 +73,8 @@ struct Cnf {
     lit_t nvars;
 
     Cnf(lit_t nvars, clause_t nclauses) :
-        link(nclauses, clause_nil),
         watch_storage(2 * nvars + 1, clause_nil),
+        link(nclauses, clause_nil),
         watch(&watch_storage[nvars]),
         vals(nvars + 1, UNSET),
         next(nvars + 1, lit_nil),
@@ -264,7 +264,7 @@ bool solve(Cnf* c) {
         LOG(4) << "moves: " << dump_moves(state);
         lit_t k = c->tail;  // Current variable being considered.
         bool found_unit = false;  // Did we find a unit clause?
-        bool backtrack = false;  // Were we force to backtrack?
+        bool backtrack = false;  // Were we forced to backtrack?
 
         // Iterate over the active ring looking for a literal in a unit clause.
         do {
@@ -318,8 +318,8 @@ bool solve(Cnf* c) {
         } while (c->head != c->tail);
 
         // If we couldn't find a unit clause, we may as well try setting the
-        // first variable on the active ring, but we might have to branch and
-        // try both TRUE and FALSE. We guess TRUE first if ... TODO
+        // first variable on the active ring. We guess TRUE/FALSE based on the
+        // state of the watch list.
         if (!found_unit) {
             LOG(3) << "Couldn't find a unit clause, resorting to branching";
             c->head = c->next[c->tail];
