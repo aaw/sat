@@ -98,19 +98,16 @@ struct Cnf {
     }
 
     // Is the literal x currently set false?
-    bool is_false(lit_t x) const {
+    inline bool is_false(lit_t x) const {
         State s = vals[abs(x)];
-        return (x > 0 && (s == FALSE || s == FALSE_NOT_TRUE || s == FALSE_FORCED)) ||
-                (x < 0 && (s == TRUE || s == TRUE_NOT_FALSE || s == TRUE_FORCED));
+        return (x > 0 && s & 1) || (x < 0 && s > 0 && !(s & 1));
     }
 
     // Is the variable v currently set to a forced value, either because of a
     // unit clause or because we've already tried setting it to the other value
     // and failed?
-    bool is_forced(lit_t v) const {
-        State s = vals[v];
-        return (s == FALSE_NOT_TRUE || s == TRUE_NOT_FALSE ||
-                s == TRUE_FORCED || s == FALSE_FORCED);
+    inline bool is_forced(lit_t v) const {
+        return vals[v] > 2;
     }
 
     // Is the literal x currently in a unit clause?
@@ -323,17 +320,10 @@ bool solve(Cnf* c) {
             }
         }
 
-        // Step D6
-        lit_t l;
-        if (c->vals[k] == TRUE || c->vals[k] == TRUE_NOT_FALSE ||
-            c->vals[k] == TRUE_FORCED) {
-            l = -k;
-        } else {
-            l = k;
-        }
-
+        // Step D6: TODO: explain why l is set like it is...
         // Clear l's watch list, iterate through all clauses that used to watch
         // l and make them watch some other literal.
+        lit_t l = c->vals[k] & 1 ? k : -k;
         clause_t j = c->watch[l];
         c->watch[l] = clause_nil;
         while (j != clause_nil) {
