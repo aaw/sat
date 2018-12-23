@@ -1,4 +1,9 @@
 // Cyclic DPLL. Algorithm D from 7.2.2.2
+//
+// Significant differences:
+// - No gotos
+// - No separate moves + xs arrays
+
 
 #include <cstdio>
 #include <cstdlib>
@@ -90,7 +95,8 @@ struct Cnf {
     // Is the literal x currently set false?
     bool is_false(lit_t x) const {
         State s = vals[abs(x)];
-        return (x > 0 && s == FALSE) || (x < 0 && s == TRUE);
+        return (x > 0 && (s == FALSE || s == FALSE_NOT_TRUE || s == FALSE_FORCED)) ||
+                (x < 0 && (s == TRUE || s == TRUE_NOT_FALSE || s == TRUE_FORCED));
     }
 
     // Is the literal x currently in a unit clause?
@@ -178,17 +184,6 @@ Cnf parse(const char* filename) {
     return cnf;
 }
 
-std::string dump_assignment(const std::vector<State>& x) {
-    std::ostringstream oss;
-    for (unsigned int i = 1; i < x.size(); ++i) {
-        oss << "[" << i << ":";
-        if (x[i] == TRUE) oss << "T]";
-        if (x[i] == FALSE) oss << "F]";
-        if (x[i] == UNSET) oss << "-]";
-    }
-    return oss.str();
-}
-
 std::string dump_moves(const std::vector<State>& x) {
     std::ostringstream oss;
     for (unsigned int i = 1; i < x.size(); ++i) {
@@ -252,7 +247,6 @@ bool solve(Cnf* c) {
     // heads is a 1-indexed current (partial) permutation of explored variables
     // and state is a 1-indexed map of states of explored variables.
     lit_t d = 0;
-    std::vector<State> state(c->nvars + 1, UNSET);  // states are 1-indexed.
     std::vector<lit_t> heads(c->nvars + 1, lit_nil);
     LOG(3) << "Clauses:\n" << dump_clauses(c);
     LOG(5) << "Initial watchlists:\n" << dump_watchlist(c);
@@ -260,8 +254,7 @@ bool solve(Cnf* c) {
     // As long as some literal has a non-empty watch list, continue searching
     // for a satisfying assignment.
     while (c->tail != lit_nil) {
-        LOG(4) << "State: " << dump_assignment(c->vals);
-        LOG(4) << "moves: " << dump_moves(state);
+        LOG(4) << "State: " << dump_moves(c->vals);
         lit_t k = c->tail;  // Current variable being considered.
         bool found_unit = false;  // Did we find a unit clause?
         bool backtrack = false;  // Were we forced to backtrack?
@@ -276,10 +269,10 @@ bool solve(Cnf* c) {
 
             if (backtrack) {
                 LOG(3) << "Backtracking from " << d;
-                LOG(4) << "moves: " << dump_moves(state);
                 c->tail = k;
-                while (state[d] != UNSET && state[d] != FALSE &&
-                       state[d] != TRUE  && d > 0) {
+                while (c->vals[heads[d]] != UNSET &&
+                       c->vals[heads[d]] != FALSE &&
+                       c->vals[heads[d]] != TRUE  && d > 0) {
                     LOG(3) << "Need to back up from " << d
                            << " since we've either been forced or already "
                            << "tried both true and false";
@@ -297,18 +290,17 @@ bool solve(Cnf* c) {
 
                 if (d <= 0) return false;
                 k = heads[d];
-                if (state[d] == TRUE) state[d] = FALSE_NOT_TRUE;
-                else if (state[d] == FALSE) state[d] = TRUE_NOT_FALSE;
-                LOG(4) << "new moves: " << dump_moves(state);
+                if (c->vals[k] == TRUE) c->vals[k] = FALSE_NOT_TRUE;
+                else if (c->vals[k] == FALSE) c->vals[k] = TRUE_NOT_FALSE;
                 break;
             } else if (pos_unit) {
                 LOG(3) << "Found a pos unit clause";
-                state[d+1] = TRUE_FORCED;
+                c->vals[c->head] = TRUE_FORCED;
                 c->tail = k;
                 break;
             } else if (neg_unit) {
                 LOG(3) << "Found a neg unit clause";
-                state[d+1] = FALSE_FORCED;
+                c->vals[c->head] = FALSE_FORCED;
                 c->tail = k;
                 break;
             } else {
@@ -325,9 +317,9 @@ bool solve(Cnf* c) {
             c->head = c->next[c->tail];
             if (c->watch[c->head] == clause_nil ||
                 c->watch[-c->head] != clause_nil) {
-                state[d+1] = TRUE;
+                c->vals[c->head] = TRUE;
             } else {
-                state[d+1] = FALSE;
+                c->vals[c->head] = FALSE;
             }
         }
 
@@ -348,14 +340,12 @@ bool solve(Cnf* c) {
 
         // Step D6
         lit_t l;
-        if (state[d] == TRUE || state[d] == TRUE_NOT_FALSE ||
-            state[d] == TRUE_FORCED) {
+        if (c->vals[k] == TRUE || c->vals[k] == TRUE_NOT_FALSE ||
+            c->vals[k] == TRUE_FORCED) {
             LOG(3) << "Setting " << k << " true";
-            c->vals[k] = TRUE;
             l = -k;
         } else {
             LOG(3) << "Setting " << k << " false";
-            c->vals[k] = FALSE;
             l = k;
         }
 
@@ -405,7 +395,7 @@ bool solve(Cnf* c) {
         LOG(3) << "Active ring: " << dump_active_ring(c);
     }
     LOG(3) << dump_clauses(c);
-    LOG(3) << dump_assignment(c->vals);
+    LOG(3) << dump_moves(c->vals);
     return true;
 }
 
