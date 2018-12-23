@@ -99,6 +99,15 @@ struct Cnf {
                 (x < 0 && (s == TRUE || s == TRUE_NOT_FALSE || s == TRUE_FORCED));
     }
 
+    // Is the variable currently set to a forced value, either because of a unit
+    // literal or because we've already tried setting it to the other value and
+    // failed?
+    bool is_forced(lit_t v) const {
+        State s = vals[v];
+        return (s == FALSE_NOT_TRUE || s == TRUE_NOT_FALSE ||
+                s == TRUE_FORCED || s == FALSE_FORCED);
+    }
+
     // Is the literal x currently in a unit clause?
     bool is_unit(lit_t x) const {
         for (clause_t w = watch[x]; w != clause_nil; w = link[w]) {
@@ -199,23 +208,6 @@ std::string dump_moves(const std::vector<State>& x) {
     return oss.str();
 }
 
-std::string dump_watchlist(Cnf* cnf) {
-    std::ostringstream oss;
-    for (lit_t l = -cnf->nvars; l <= cnf->nvars; ++l) {
-        if (l == lit_nil) continue;
-        clause_t x = cnf->watch[l];
-        if (x != clause_nil) {
-            oss << l << ": ";
-            while (x != clause_nil) {
-                oss << "[" << x << "] ";
-                x = cnf->link[x];
-            }
-            oss << "\n";
-        }
-    }
-    return oss.str();
-}
-
 std::string dump_clauses(const Cnf* cnf) {
     std::ostringstream oss;
     for (clause_t i = 0; i < cnf->start.size(); ++i) {
@@ -244,43 +236,36 @@ bool solve(Cnf* c) {
     // The search for a satisfying assignment proceeds in stages from d = 1 to
     // d = c->nvars. As long as a consistent partial assignment is found, d
     // is incremented. If a conflict is found, we backtrack by decrementing d.
-    // heads is a 1-indexed current (partial) permutation of explored variables
-    // and state is a 1-indexed map of states of explored variables.
+    // heads is a 1-indexed current (partial) permutation of explored variables.
     lit_t d = 0;
     std::vector<lit_t> heads(c->nvars + 1, lit_nil);
     LOG(3) << "Clauses:\n" << dump_clauses(c);
-    LOG(5) << "Initial watchlists:\n" << dump_watchlist(c);
 
     // As long as some literal has a non-empty watch list, continue searching
     // for a satisfying assignment.
     while (c->tail != lit_nil) {
         LOG(4) << "State: " << dump_moves(c->vals);
         lit_t k = c->tail;  // Current variable being considered.
-        bool found_unit = false;  // Did we find a unit clause?
+        bool pos_unit = false;  // Found a positive literal in a unit clause?
+        bool neg_unit = false;  // Found a negative literal in a unit clause?
         bool backtrack = false;  // Were we forced to backtrack?
 
         // Iterate over the active ring looking for a literal in a unit clause.
         do {
             c->head = c->next[k];
-            bool pos_unit = c->is_unit(c->head);
-            bool neg_unit = c->is_unit(-c->head);
-            found_unit = pos_unit || neg_unit;
+            pos_unit = c->is_unit(c->head);
+            neg_unit = c->is_unit(-c->head);
             backtrack = pos_unit && neg_unit;
 
             if (backtrack) {
                 LOG(3) << "Backtracking from " << d;
                 c->tail = k;
-                while (c->vals[heads[d]] != UNSET &&
-                       c->vals[heads[d]] != FALSE &&
-                       c->vals[heads[d]] != TRUE  && d > 0) {
-                    LOG(3) << "Need to back up from " << d
-                           << " since we've either been forced or already "
-                           << "tried both true and false";
+                while (d > 0 && c->is_forced(heads[d])) {
                     k = heads[d];
                     c->vals[k] = UNSET;
+                    // If variable k was active, remove it from the active ring.
                     if (c->watch[k] != clause_nil ||
                         c->watch[-k] != clause_nil) {
-                        LOG(3) << "Removing " << k << " from the active ring";
                         c->next[k] = c->head;
                         c->head = k;
                         c->next[c->tail] = c->head;
@@ -294,12 +279,10 @@ bool solve(Cnf* c) {
                 else if (c->vals[k] == FALSE) c->vals[k] = TRUE_NOT_FALSE;
                 break;
             } else if (pos_unit) {
-                LOG(3) << "Found a pos unit clause";
                 c->vals[c->head] = TRUE_FORCED;
                 c->tail = k;
                 break;
             } else if (neg_unit) {
-                LOG(3) << "Found a neg unit clause";
                 c->vals[c->head] = FALSE_FORCED;
                 c->tail = k;
                 break;
@@ -312,7 +295,7 @@ bool solve(Cnf* c) {
         // If we couldn't find a unit clause, we may as well try setting the
         // first variable on the active ring. We guess TRUE/FALSE based on the
         // state of the watch list.
-        if (!found_unit) {
+        if (!pos_unit && !neg_unit) {
             LOG(3) << "Couldn't find a unit clause, resorting to branching";
             c->head = c->next[c->tail];
             if (c->watch[c->head] == clause_nil ||
@@ -391,7 +374,6 @@ bool solve(Cnf* c) {
             c->watch[lp] = j;
             j = jp;
         }
-        LOG(3) << "Updated watchlists:\n" << dump_watchlist(c);
         LOG(3) << "Active ring: " << dump_active_ring(c);
     }
     LOG(3) << dump_clauses(c);
