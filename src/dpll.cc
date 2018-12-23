@@ -92,6 +92,11 @@ struct Cnf {
         return (c == start.size() - 1) ? clauses.size() : start[c + 1];
     }
 
+    // Is the literal x watched by any clause?
+    inline bool watched(lit_t x) const {
+        return watch[x] != clause_nil;
+    }
+
     // Is the literal x currently set false?
     bool is_false(lit_t x) const {
         State s = vals[abs(x)];
@@ -99,9 +104,9 @@ struct Cnf {
                 (x < 0 && (s == TRUE || s == TRUE_NOT_FALSE || s == TRUE_FORCED));
     }
 
-    // Is the variable currently set to a forced value, either because of a unit
-    // literal or because we've already tried setting it to the other value and
-    // failed?
+    // Is the variable v currently set to a forced value, either because of a
+    // unit clause or because we've already tried setting it to the other value
+    // and failed?
     bool is_forced(lit_t v) const {
         State s = vals[v];
         return (s == FALSE_NOT_TRUE || s == TRUE_NOT_FALSE ||
@@ -181,7 +186,7 @@ Cnf parse(const char* filename) {
 
     // Initialize active ring of literals with non-empty watch lists.
     for (lit_t k = cnf.nvars; k > 0; --k) {
-        if (cnf.watch[k] != clause_nil || cnf.watch[-k] != clause_nil) {
+        if (cnf.watched(k) || cnf.watched(-k)) {
             cnf.next[k] = cnf.head;
             cnf.head = k;
             if (cnf.tail == lit_nil) cnf.tail = k;
@@ -248,24 +253,21 @@ bool solve(Cnf* c) {
         lit_t k = c->tail;  // Current variable being considered.
         bool pos_unit = false;  // Found a positive literal in a unit clause?
         bool neg_unit = false;  // Found a negative literal in a unit clause?
-        bool backtrack = false;  // Were we forced to backtrack?
 
         // Iterate over the active ring looking for a literal in a unit clause.
         do {
             c->head = c->next[k];
             pos_unit = c->is_unit(c->head);
             neg_unit = c->is_unit(-c->head);
-            backtrack = pos_unit && neg_unit;
 
-            if (backtrack) {
+            if (pos_unit && neg_unit) {
                 LOG(3) << "Backtracking from " << d;
                 c->tail = k;
                 while (d > 0 && c->is_forced(heads[d])) {
                     k = heads[d];
                     c->vals[k] = UNSET;
                     // If variable k was active, remove it from the active ring.
-                    if (c->watch[k] != clause_nil ||
-                        c->watch[-k] != clause_nil) {
+                    if (c->watched(k) || c->watched(-k)) {
                         c->next[k] = c->head;
                         c->head = k;
                         c->next[c->tail] = c->head;
@@ -298,8 +300,7 @@ bool solve(Cnf* c) {
         if (!pos_unit && !neg_unit) {
             LOG(3) << "Couldn't find a unit clause, resorting to branching";
             c->head = c->next[c->tail];
-            if (c->watch[c->head] == clause_nil ||
-                c->watch[-c->head] != clause_nil) {
+            if (!c->watched(c->head) || c->watched(-c->head)) {
                 c->vals[c->head] = TRUE;
             } else {
                 c->vals[c->head] = FALSE;
@@ -307,7 +308,8 @@ bool solve(Cnf* c) {
         }
 
         // Step D5
-        if (!backtrack) {
+        // (if !backtrack) == !pos_unit || !neg_unit
+        if (!pos_unit || !neg_unit) {
             ++d;
             k = c->head;
             heads[d] = k;
@@ -325,16 +327,13 @@ bool solve(Cnf* c) {
         lit_t l;
         if (c->vals[k] == TRUE || c->vals[k] == TRUE_NOT_FALSE ||
             c->vals[k] == TRUE_FORCED) {
-            LOG(3) << "Setting " << k << " true";
             l = -k;
         } else {
-            LOG(3) << "Setting " << k << " false";
             l = k;
         }
 
         // Clear l's watch list, iterate through all clauses that used to watch
         // l and make them watch some other literal.
-        LOG(3) << "Clearing " << l << "'s watchlist";
         clause_t j = c->watch[l];
         c->watch[l] = clause_nil;
         while (j != clause_nil) {
@@ -343,19 +342,14 @@ bool solve(Cnf* c) {
             clause_t i = c->start[j];
             clause_t p = i + 1;
             while (c->is_false(c->clauses[p])) { ++p; }
-            LOG(3) << "Swapping " << l << " with " << c->clauses[p]
-                   << " so " << c->clauses[p] << " is watched in clause "
-                   << j;
             lit_t lp = c->clauses[p];
             c->clauses[p] = l;
             c->clauses[i] = lp;
 
             // If setting lp as the watched literal for clause j causes lp to
             // become active, add lp to the active ring.
-            if (c->watch[lp] == clause_nil && c->watch[-lp] == clause_nil &&
+            if (!c->watched(lp) && !c->watched(-lp) &&
                 c->vals[abs(lp)] == UNSET) {
-                LOG(3) << lp << " has become active now that it's watched. "
-                       << "Adding it to the active ring.";
                 if (c->tail == lit_nil) {
                     c->head = abs(lp);
                     c->tail = c->head;
