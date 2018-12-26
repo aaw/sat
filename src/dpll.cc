@@ -2,6 +2,9 @@
 //
 // Significant differences:
 // - No gotos
+// - Dimacs format
+// - watchlists indexed by negatives
+// - no attempt to optimize bit-level ops
 // - No separate moves + xs arrays
 
 
