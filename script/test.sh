@@ -2,6 +2,8 @@
 set -o pipefail -o noclobber -o nounset
 
 # Defaults
+SATISFIABLE=10
+UNSATISFIABLE=20
 BINARY=btwl
 DIFFICULTY=easy
 TIMEOUT=30s
@@ -47,7 +49,7 @@ for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:satisfiab
     if [ "$result" -eq "124" ]; then
         printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
         ((NTIMEOUT++))
-    elif [ "$result" -eq "0" ]; then
+    elif [ "$result" -eq "$SATISFIABLE" ]; then
         printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
         ((NSUCCESS++))
     else
@@ -65,12 +67,12 @@ for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:unsatisfi
     if [ "$result" -eq "124" ]; then
         printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
         ((NTIMEOUT++))
-    elif [ "$result" -eq "0" ]; then
-        printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
-        ((NFAILURE++))
-    else
+    elif [ "$result" -eq "$UNSATISFIABLE" ]; then
         printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
         ((NSUCCESS++))
+    else
+        printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
+        ((NFAILURE))
     fi
 done
 echo ""

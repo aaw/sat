@@ -1,0 +1,1 @@
+Output format: https://www.satcompetition.org/2004/format-solvers2004.html

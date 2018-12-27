@@ -13,7 +13,7 @@ struct Logger {
     Logger(const std::string& filename, int line, int level)
 #ifdef LOGGING
       : enabled_(level <= LOGLEVEL) {
-        if (enabled_) std::cout << "[" << filename << ":" << line << "] ";
+        if (enabled_) std::cout << "c [" << filename << ":" << line << "] ";
 #else
     {
 #endif  // LOGGING
@@ -45,7 +45,8 @@ struct AbortLogger {
     AbortLogger(const std::string& filename, int line, bool check_passed) :
       enabled_(!check_passed) {
         if (!enabled_) return;
-        std::cout << "[FATAL " << filename << ":" << line << "] ";
+        std::cout << "s UNKNOWN" << std::endl;
+        std::cout << "c [FATAL " << filename << ":" << line << "] ";
     }
 
     ~AbortLogger() {

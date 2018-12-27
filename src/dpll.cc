@@ -6,7 +6,9 @@
 // - watchlists indexed by negatives
 // - no attempt to optimize bit-level ops
 // - No separate moves + xs arrays
-
+//
+// TODO: make output consistent with SAT output
+// TODO: remove debug logging
 
 #include <cstdio>
 #include <cstdlib>
@@ -100,7 +102,7 @@ struct Cnf {
         return watch[x] != clause_nil;
     }
 
-    // Is the literal x currently set false?
+    // Is the literal x currently false?
     inline bool is_false(lit_t x) const {
         State s = vals[abs(x)];
         return (x > 0 && s & 1) || (x < 0 && s > 0 && !(s & 1));
@@ -371,7 +373,19 @@ bool solve(Cnf* c) {
 int main(int argc, char** argv) {
     CHECK(argc == 2) << "Usage: " << argv[0] << " <filename>";
     Cnf c = parse(argv[1]);
-    bool sat = solve(&c);
-    LOG(3) << "Satisfiable: " << sat;
-    return sat ? 0 : 1;
+    if (solve(&c)) {
+        std::cout << "s SATISFIABLE" << std::endl;
+        for (int i = 1, j = 0; i <= c.nvars; ++i) {
+            if (c.vals[i] == UNSET) continue;
+            if (j % 10 == 0) std::cout << "v";
+            std::cout << ((c.vals[i] & 1) ? " -" : " ") << i;
+            ++j;
+            if (i == c.nvars) std::cout << " 0" << std::endl;
+            else if (j > 0 && j % 10 == 0) std::cout << std::endl;
+         }
+        return SATISFIABLE;
+    } else {
+        std::cout << "s UNSATISFIABLE" << std::endl;
+        return UNSATISFIABLE;
+    }
 }

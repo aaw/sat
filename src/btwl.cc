@@ -11,6 +11,14 @@
 #define CLAUSE_END(cnf, c) \
     (((c) == cnf->start.size() - 1) ? cnf->clauses.size() : cnf->start[(c)+1])
 
+enum State {
+    UNEXAMINED = 0,
+    FALSE = 1,
+    TRUE = 2,
+    FALSE_NOT_TRUE = 3,
+    TRUE_NOT_FALSE = 4
+};
+
 struct Cnf {
     std::vector<lit_t> clauses;
 
@@ -24,6 +32,9 @@ struct Cnf {
     // Watch lists.
     std::vector<clause_t> watch_storage;
     clause_t* watch;
+
+    // Variable values.
+    std::vector<State> vals;
 
     lit_t nvars;
 };
@@ -69,6 +80,7 @@ Cnf parse(const char* filename) {
            << nclauses << " clauses.";
 
     // Initialize data structures now that we know nvars and nclauses.
+    cnf.vals.resize(cnf.nvars + 1, UNEXAMINED);
     cnf.link.resize(nclauses, clause_nil);
     cnf.watch_storage.resize(2 * cnf.nvars + 1, clause_nil);
     cnf.watch = &cnf.watch_storage[cnf.nvars];
@@ -94,14 +106,6 @@ Cnf parse(const char* filename) {
     fclose(f);
     return cnf;
 }
-
-enum State {
-    UNEXAMINED = 0,
-    FALSE = 1,
-    TRUE = 2,
-    FALSE_NOT_TRUE = 3,
-    TRUE_NOT_FALSE = 4
-};
 
 #define IS_FALSE(val, state) \
     ((val > 0 && (state == FALSE || state == FALSE_NOT_TRUE)) || \
@@ -131,29 +135,28 @@ std::string dump_watchlist(Cnf* cnf) {
 bool solve(Cnf* cnf) {
     lit_t d = 1;
     lit_t l = 0;
-    std::vector<State> state(cnf->nvars + 1);  // states are 1-indexed.
     LOG(5) << "Initial watchlists:\n" << dump_watchlist(cnf);
     while (0 < d && d <= cnf->nvars) {
         LOG(3) << "Starting stage " << d;
         // Choose a literal value
-        if (state[d] == UNEXAMINED) {
+        if (cnf->vals[d] == UNEXAMINED) {
             if (cnf->watch[d] == clause_nil || cnf->watch[-d] != clause_nil) {
                 l = -d;
             } else { l = d; }
-            state[d] = (l == d) ? TRUE : FALSE;
+            cnf->vals[d] = (l == d) ? TRUE : FALSE;
             LOG(3) << "Choosing " << l << " but haven't tried " << -l << " yet";
-        } else if (state[d] == TRUE) {
-            state[d] = FALSE_NOT_TRUE;
+        } else if (cnf->vals[d] == TRUE) {
+            cnf->vals[d] = FALSE_NOT_TRUE;
             l = -d;
             LOG(3) << "Trying " << l << " after " << -l << " has failed.";
-        } else if (state[d] == FALSE) {
-            state[d] = TRUE_NOT_FALSE;
+        } else if (cnf->vals[d] == FALSE) {
+            cnf->vals[d] = TRUE_NOT_FALSE;
             l = d;
             LOG(3) << "Trying " << l << " after " << -l << " has failed.";
         } else {
             // Backtrack
             LOG(3) << "Tried all values for " << d << ", backtracking.";
-            state[d] = UNEXAMINED;
+            cnf->vals[d] = UNEXAMINED;
             d--;
             continue;
         }
@@ -172,7 +175,7 @@ bool solve(Cnf* cnf) {
                    << ", next = " << next << ", k = " << k;
             while (k < end) {
                 lit_t lit = cnf->clauses[k];
-                if (IS_FALSE(lit, state[abs(lit)])) {
+                if (IS_FALSE(lit, cnf->vals[abs(lit)])) {
                     LOG(3) << lit << " is false, continuing to k = " << k + 1;
                     k++;
                     continue;
@@ -199,8 +202,8 @@ bool solve(Cnf* cnf) {
     }
     if (d != 0) {
         std::ostringstream oss;
-        for (unsigned int i = 1; i < state.size(); i++) {
-            oss << "[" << i << ":" << TRUTH(state[i]) << "]";
+        for (unsigned int i = 1; i < cnf->vals.size(); i++) {
+            oss << "[" << i << ":" << TRUTH(cnf->vals[i]) << "]";
         }
         LOG(3) << "Final assignment: " << oss.str();
     }
@@ -209,8 +212,20 @@ bool solve(Cnf* cnf) {
 
 int main(int argc, char** argv) {
     CHECK(argc == 2) << "Usage: " << argv[0] << " <filename>";
-    Cnf cnf = parse(argv[1]);
-    bool sat = solve(&cnf);
-    LOG(3) << "Satisfiable: " << sat;
-    return sat ? 0 : 1;
+    Cnf c = parse(argv[1]);
+    if (solve(&c)) {
+        std::cout << "s SATISFIABLE" << std::endl;
+        for (int i = 1, j = 0; i <= c.nvars; ++i) {
+            if (c.vals[i] == UNEXAMINED) continue;
+            if (j % 10 == 0) std::cout << "v";
+            std::cout << ((c.vals[i] & 1) ? " -" : " ") << i;
+            ++j;
+            if (i == c.nvars) std::cout << " 0" << std::endl;
+            else if (j > 0 && j % 10 == 0) std::cout << std::endl;
+         }
+        return SATISFIABLE;
+    } else {
+        std::cout << "s UNSATISFIABLE" << std::endl;
+        return UNSATISFIABLE;
+    }
 }

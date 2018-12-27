@@ -16,4 +16,10 @@ constexpr clause_t clause_nil = std::numeric_limits<clause_t>::max();
     assert(std::numeric_limits<x>::min() <= (y) && \
            std::numeric_limits<x>::max() >= (y));
 
+enum ReturnValue {
+    UNKNOWN = 0,
+    SATISFIABLE = 10,
+    UNSATISFIABLE = 20
+};
+
 #endif  // __TYPES_H__
