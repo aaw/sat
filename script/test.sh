@@ -35,6 +35,7 @@ BINARY="bin/${BINARY}"
 echo "Testing binary ${BINARY}"
 
 make ${BINARY}
+if [[ "$?" != 0 ]]; then exit "$?"; fi
 
 LABEL="label:${DIFFICULTY}"
 NSUCCESS=0

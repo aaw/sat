@@ -8,9 +8,6 @@
 #include "logging.h"
 #include "types.h"
 
-#define CLAUSE_END(cnf, c) \
-    (((c) == cnf->start.size() - 1) ? cnf->clauses.size() : cnf->start[(c)+1])
-
 enum State {
     UNEXAMINED = 0,
     FALSE = 1,
@@ -37,6 +34,18 @@ struct Cnf {
     std::vector<State> vals;
 
     lit_t nvars;
+
+    inline lit_t clause_begin(clause_t c) const { return start[c]; }
+    inline lit_t clause_end(clause_t c) const {
+        return (c == start.size() - 1) ? clauses.size() : start[c + 1];
+    }
+
+    // Is the literal x currently false?
+    inline bool is_false(lit_t x) const {
+        State s = vals[abs(x)];
+        return (x > 0 && (s == FALSE || s == FALSE_NOT_TRUE)) ||
+            (x < 0 && (s == TRUE || s == TRUE_NOT_FALSE));
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -107,13 +116,6 @@ Cnf parse(const char* filename) {
     return cnf;
 }
 
-#define IS_FALSE(val, state) \
-    ((val > 0 && (state == FALSE || state == FALSE_NOT_TRUE)) || \
-     (val < 0 && (state == TRUE || state == TRUE_NOT_FALSE)))
-
-#define TRUTH(x) \
-    ((x == UNEXAMINED) ? "U" : ((x == TRUE || x == TRUE_NOT_FALSE) ? "T" : "F"))
-
 std::string dump_watchlist(Cnf* cnf) {
     std::ostringstream oss;
     for (lit_t l = -cnf->nvars; l <= cnf->nvars; ++l) {
@@ -167,15 +169,15 @@ bool solve(Cnf* cnf) {
             LOG(3) << "Nevermind, it's nil";
         }
         while (watcher != clause_nil) {
-            clause_t start = cnf->start[watcher];
-            clause_t end = CLAUSE_END(cnf, watcher);
+            clause_t start = cnf->clause_begin(watcher);
+            clause_t end = cnf->clause_end(watcher);
             clause_t next = cnf->link[watcher];
             clause_t k = start + 1;
             LOG(3) << "start = " << start << ", end = " << end
                    << ", next = " << next << ", k = " << k;
             while (k < end) {
                 lit_t lit = cnf->clauses[k];
-                if (IS_FALSE(lit, cnf->vals[abs(lit)])) {
+                if (cnf->is_false(lit)) {
                     LOG(3) << lit << " is false, continuing to k = " << k + 1;
                     k++;
                     continue;
@@ -199,13 +201,6 @@ bool solve(Cnf* cnf) {
         cnf->watch[-l] = watcher;
         if (watcher == clause_nil) d++;
         LOG(5) << "Watchlists:\n" << dump_watchlist(cnf);
-    }
-    if (d != 0) {
-        std::ostringstream oss;
-        for (unsigned int i = 1; i < cnf->vals.size(); i++) {
-            oss << "[" << i << ":" << TRUTH(cnf->vals[i]) << "]";
-        }
-        LOG(3) << "Final assignment: " << oss.str();
     }
     return d != 0;
 }
