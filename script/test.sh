@@ -55,7 +55,7 @@ for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:satisfiab
         ((NSUCCESS++))
     else
         printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
-        ((NFAILURE))
+        ((NFAILURE++))
     fi
 done
 echo ""
@@ -73,7 +73,7 @@ for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:unsatisfi
         ((NSUCCESS++))
     else
         printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
-        ((NFAILURE))
+        ((NFAILURE++))
     fi
 done
 echo ""
