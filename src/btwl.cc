@@ -1,4 +1,4 @@
-// Backtracking with a watchlist. Algorithm B from 7.2.2.2
+// Algorithm B from 7.2.2.2: Backtracking with a watchlist.
 
 #include <cstdio>
 #include <cstdlib>
@@ -8,14 +8,17 @@
 #include "logging.h"
 #include "types.h"
 
+// States used by both the search algorithm and the final assignment. If the
+// formula is satisfiable, all variables will end up in a state > UNEXAMINED.
 enum State {
     UNEXAMINED = 0,
-    FALSE = 1,
-    TRUE = 2,
-    FALSE_NOT_TRUE = 3,
-    TRUE_NOT_FALSE = 4
+    FALSE = 1,           // Trying false, haven't tried true yet.
+    TRUE = 2,            // Trying true, haven't tried false yet.
+    FALSE_NOT_TRUE = 3,  // Trying false because true failed.
+    TRUE_NOT_FALSE = 4   // Trying true because false failed.
 };
 
+// Storage for the backtracking search and the final variable assignment.
 struct Cnf {
     std::vector<lit_t> clauses;
 
@@ -33,6 +36,8 @@ struct Cnf {
     // Variable values.
     std::vector<State> vals;
 
+    // Number of variables in the problem. Valid variables range from 1 to
+    // nvars, inclusive.
     lit_t nvars;
 
     inline lit_t clause_begin(clause_t c) const { return start[c]; }
@@ -84,9 +89,6 @@ Cnf parse(const char* filename) {
 
     Cnf cnf;
     cnf.nvars = static_cast<lit_t>(nvars);
-
-    LOG(4) << "Cnf has " << cnf.nvars << " variables and "
-           << nclauses << " clauses.";
 
     // Initialize data structures now that we know nvars and nclauses.
     cnf.vals.resize(cnf.nvars + 1, UNEXAMINED);
