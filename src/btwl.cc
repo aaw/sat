@@ -143,20 +143,15 @@ bool solve(Cnf* cnf) {
     while (0 < d && d <= cnf->nvars) {
         LOG(3) << "Starting stage " << d;
         // Choose a literal value
-        if (cnf->vals[d] == UNEXAMINED) {
-            if (cnf->watch[d] == clause_nil || cnf->watch[-d] != clause_nil) {
-                l = -d;
-            } else { l = d; }
-            cnf->vals[d] = (l == d) ? TRUE : FALSE;
-            LOG(3) << "Choosing " << l << " but haven't tried " << -l << " yet";
+        if (cnf->vals[d] == UNEXAMINED &&
+            (cnf->watch[d] == clause_nil || cnf->watch[-d] != clause_nil)) {
+            cnf->vals[d] = FALSE;
+        } else if (cnf->vals[d] == UNEXAMINED) {
+            cnf->vals[d] = TRUE;
         } else if (cnf->vals[d] == TRUE) {
             cnf->vals[d] = FALSE_NOT_TRUE;
-            l = -d;
-            LOG(3) << "Trying " << l << " after " << -l << " has failed.";
         } else if (cnf->vals[d] == FALSE) {
             cnf->vals[d] = TRUE_NOT_FALSE;
-            l = d;
-            LOG(3) << "Trying " << l << " after " << -l << " has failed.";
         } else {
             // Backtrack
             LOG(3) << "Tried all values for " << d << ", backtracking.";
@@ -164,36 +159,36 @@ bool solve(Cnf* cnf) {
             d--;
             continue;
         }
-        // Update watch lists for NOT l
-        LOG(3) << "Attempting to re-assign " << -l << "'s watchlist";
+
+        // Set current literal value based on truth value chosen for d.
+        l = ((cnf->vals[d] & 1) ? -1 : 1) * d;
+        LOG(2) << "Trying " << l;
+
+        // Update watch list entries for -l if there are any.
         clause_t watcher = cnf->watch[-l];
-        if (watcher == clause_nil) {
-            LOG(3) << "Nevermind, it's nil";
-        }
         while (watcher != clause_nil) {
             clause_t start = cnf->clause_begin(watcher);
             clause_t end = cnf->clause_end(watcher);
             clause_t next = cnf->link[watcher];
             clause_t k = start + 1;
-            LOG(3) << "start = " << start << ", end = " << end
-                   << ", next = " << next << ", k = " << k;
             while (k < end) {
+                // Search for a non-false literal to watch from clause watcher
                 lit_t lit = cnf->clauses[k];
                 if (cnf->is_false(lit)) {
-                    LOG(3) << lit << " is false, continuing to k = " << k + 1;
                     k++;
                     continue;
                 }
-                LOG(3) << lit << " is not false, re-assigning watchlist. "
-                       << "first swapping " << lit << " and " << -l;
+                // Found a non-false literal, swap lit and -l in clauses array.
                 cnf->clauses[start] = lit;
                 cnf->clauses[k] = -l;
+                // Split lit into the watch list and keep going.
                 cnf->link[watcher] = cnf->watch[lit];
                 cnf->watch[lit] = watcher;
                 watcher = next;
                 break;
             }
             if (k == end) {
+                // Failed to re-assign -l's watch list
                 LOG(3) << "Failed to re-assign " << -l << "'s watchlist. "
                        << "Going to try " << l << " = false next.";
                 break;
@@ -202,7 +197,6 @@ bool solve(Cnf* cnf) {
         }
         cnf->watch[-l] = watcher;
         if (watcher == clause_nil) d++;
-        LOG(5) << "Watchlists:\n" << dump_watchlist(cnf);
     }
     return d != 0;
 }
