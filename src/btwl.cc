@@ -40,6 +40,13 @@ struct Cnf {
     // nvars, inclusive.
     lit_t nvars;
 
+    Cnf(lit_t nvars, clause_t nclauses) :
+        link(nclauses, clause_nil),
+        watch_storage(2 * nvars + 1, clause_nil),
+        watch(&watch_storage[nvars]),
+        vals(nvars + 1, UNEXAMINED),
+        nvars(nvars) {}
+
     inline lit_t clause_begin(clause_t c) const { return start[c]; }
     inline lit_t clause_end(clause_t c) const {
         return (c == start.size() - 1) ? clauses.size() : start[c + 1];
@@ -87,14 +94,7 @@ Cnf parse(const char* filename) {
     ASSERT_NO_OVERFLOW(lit_t, nvars);
     ASSERT_NO_OVERFLOW(clause_t, nclauses);
 
-    Cnf cnf;
-    cnf.nvars = static_cast<lit_t>(nvars);
-
-    // Initialize data structures now that we know nvars and nclauses.
-    cnf.vals.resize(cnf.nvars + 1, UNEXAMINED);
-    cnf.link.resize(nclauses, clause_nil);
-    cnf.watch_storage.resize(2 * cnf.nvars + 1, clause_nil);
-    cnf.watch = &cnf.watch_storage[cnf.nvars];
+    Cnf cnf(static_cast<lit_t>(nvars), static_cast<clause_t>(nclauses));
 
     // Read clauses until EOF.
     int lit;
@@ -137,8 +137,8 @@ std::string dump_watchlist(Cnf* cnf) {
 
 // Algorithm B from 7.2.2.2 (Satisfiability by watching).
 bool solve(Cnf* cnf) {
-    lit_t d = 1;
-    lit_t l = 0;
+    lit_t d = 1;  // Number of variables set in the partial assignment.
+    lit_t l = 0;  // Current literal.
     LOG(5) << "Initial watchlists:\n" << dump_watchlist(cnf);
     while (0 < d && d <= cnf->nvars) {
         LOG(3) << "Starting stage " << d;
