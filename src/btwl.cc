@@ -181,19 +181,20 @@ bool solve(Cnf* cnf) {
                 // Found a non-false literal, swap lit and -l in clauses array.
                 cnf->clauses[start] = lit;
                 cnf->clauses[k] = -l;
-                // Split lit into the watch list and keep going.
+                // Splice lit into the watch list and keep going.
                 cnf->link[watcher] = cnf->watch[lit];
                 cnf->watch[lit] = watcher;
                 watcher = next;
                 break;
             }
             if (k == end) {
-                // Failed to re-assign -l's watch list
-                LOG(3) << "Failed to re-assign " << -l << "'s watchlist. "
-                       << "Going to try " << l << " = false next.";
+                // Failed to re-assign some literal on -l's watch list. This
+                // means that some clause can't be satisfied with the partial
+                // assignment created by l. We need to move on to the next
+                // search step for l, which could be either trying -l or
+                // backtracking.
                 break;
             }
-            LOG(3) << "Succeeded in re-assigning " << -l << "'s watchlist.";
         }
         cnf->watch[-l] = watcher;
         if (watcher == clause_nil) d++;
