@@ -118,31 +118,13 @@ Cnf parse(const char* filename) {
     return cnf;
 }
 
-std::string dump_watchlist(Cnf* cnf) {
-    std::ostringstream oss;
-    for (lit_t l = -cnf->nvars; l <= cnf->nvars; ++l) {
-        if (l == 0) continue;
-        clause_t x = cnf->watch[l];
-        if (x != clause_nil) {
-            oss << l << ": ";
-            while (x != clause_nil) {
-                oss << "[" << x << "] ";
-                x = cnf->link[x];
-            }
-            oss << "\n";
-        }
-    }
-    return oss.str();
-}
-
 // Algorithm B from 7.2.2.2 (Satisfiability by watching).
 bool solve(Cnf* cnf) {
-    lit_t d = 1;  // Number of variables set in the partial assignment.
+    lit_t d = 1;  // Stage; Number of variables set in the partial assignment.
     lit_t l = 0;  // Current literal.
-    LOG(5) << "Initial watchlists:\n" << dump_watchlist(cnf);
     while (0 < d && d <= cnf->nvars) {
-        LOG(3) << "Starting stage " << d;
-        // Choose a literal value
+        LOG(5) << "Starting stage " << d;
+        // Choose a literal value.
         if (cnf->vals[d] == UNEXAMINED &&
             (cnf->watch[d] == clause_nil || cnf->watch[-d] != clause_nil)) {
             cnf->vals[d] = FALSE;
@@ -153,8 +135,7 @@ bool solve(Cnf* cnf) {
         } else if (cnf->vals[d] == FALSE) {
             cnf->vals[d] = TRUE_NOT_FALSE;
         } else {
-            // Backtrack
-            LOG(3) << "Tried all values for " << d << ", backtracking.";
+            // Backtrack.
             cnf->vals[d] = UNEXAMINED;
             d--;
             continue;
@@ -162,7 +143,7 @@ bool solve(Cnf* cnf) {
 
         // Set current literal value based on truth value chosen for d.
         l = ((cnf->vals[d] & 1) ? -1 : 1) * d;
-        LOG(2) << "Trying " << l;
+        LOG(5) << "Trying " << l;
 
         // Update watch list entries for -l if there are any.
         clause_t watcher = cnf->watch[-l];
@@ -197,6 +178,7 @@ bool solve(Cnf* cnf) {
             }
         }
         cnf->watch[-l] = watcher;
+        // Move on to the next variable if watch list reassignment succeeded.
         if (watcher == clause_nil) d++;
     }
     return d != 0;
