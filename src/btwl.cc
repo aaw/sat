@@ -20,20 +20,36 @@ enum State {
 
 // Storage for the backtracking search and the final variable assignment.
 struct Cnf {
+    // Clauses are stored as a sequential list of literals in memory with no
+    // terminator between clauses. Example: (1 OR 2) AND (3 OR -2 OR -1) would
+    // be stored as [1][2][3][-2][-1]. The start array (below) keeps track of
+    // where each clause starts -- in the example above, start[0] = 0 and
+    // start[1] = 2. The end index of each clause can be inferred from the start
+    // index of the next clause. The watched literal in each clause is always
+    // the first literal in the clause. We swap literals within a clause to
+    // maintain this invariant throughout the algorithm.
     std::vector<lit_t> clauses;
 
-    // Zero-indexed map of clauses. Clause i runs from clauses[start[i]]
-    // to CLAUSE_END(inst, i).
+    // Zero-indexed map of clauses. Literals in clause i run from
+    // clauses[start[i]] to clauses[start[i+1]] - 1 except for the final
+    // clause, where the endpoint is just clauses.size() - 1. start.size() is
+    // the number of clauses.
     std::vector<clause_t> start;
 
-    // Link to another clause with the same watched literal.
-    std::vector<clause_t> link;
-
-    // Watch lists.
+    // Watch lists. watch maps a literal to the index of a clause that watches
+    // that literal, or clause_nil if there is no such clause. link maps a
+    // clause c to another clause that shares the same watched literal as c,
+    // or clause_nil if there is no such clause. These two maps can be used to
+    // iterate over all clauses that watch a particular literal. For example,
+    // watch[-2], link[watch[-2]], and link[link[watch[-2]]] are all clauses
+    // that watch the literal -2, assuming none are clause_nil. watch is just
+    // a pointer to the middle element of watch_storage, allowing watch to
+    // accept indexes that are negated variables.
     std::vector<clause_t> watch_storage;
+    std::vector<clause_t> link;
     clause_t* watch;
 
-    // Variable values.
+    // One-indexed values of variables in the satisfying assignment.
     std::vector<State> vals;
 
     // Number of variables in the problem. Valid variables range from 1 to
@@ -41,8 +57,8 @@ struct Cnf {
     lit_t nvars;
 
     Cnf(lit_t nvars, clause_t nclauses) :
-        link(nclauses, clause_nil),
         watch_storage(2 * nvars + 1, clause_nil),
+        link(nclauses, clause_nil),
         watch(&watch_storage[nvars]),
         vals(nvars + 1, UNEXAMINED),
         nvars(nvars) {}

@@ -34,7 +34,7 @@ enum State {
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
     // Clauses are stored as a sequential list of literals in memory with no
-    // terminator between clauses. Example: (1 or 2) and (3 or -2 or -1) would
+    // terminator between clauses. Example: (1 OR 2) AND (3 OR -2 OR -1) would
     // be stored as [1][2][3][-2][-1]. The start array (below) keeps track of
     // where each clause starts -- in the example above, start[0] = 0 and
     // start[1] = 2. The end index of each clause can be inferred from the start
@@ -62,11 +62,6 @@ struct Cnf {
     std::vector<clause_t> link;
     clause_t* watch;
 
-    // One-indexed values of variables. Only valid if a satisfying assignment
-    // has been found, in which case vals[1] through vals[nvars] will contain
-    // only TRUE and FALSE values.
-    std::vector<State> vals;
-
     // Active ring. A circular linked list that stores all of the variables v
     // that currently have a non-empty watch list for one of their literal
     // values, i.e., watch[v] != clause_nil or watch[-v] != clause_nil. Only
@@ -79,17 +74,21 @@ struct Cnf {
     lit_t head;
     lit_t tail;
 
-    // Variables in the problem are 1 through nvars, inclusive.
+    // One-indexed values of variables in the satisfying assignment.
+    std::vector<State> vals;
+
+    // Number of variables in the problem. Valid variables range from 1 to
+    // nvars, inclusive.
     lit_t nvars;
 
     Cnf(lit_t nvars, clause_t nclauses) :
         watch_storage(2 * nvars + 1, clause_nil),
         link(nclauses, clause_nil),
         watch(&watch_storage[nvars]),
-        vals(nvars + 1, UNSET),
         next(nvars + 1, lit_nil),
         head(lit_nil),
         tail(lit_nil),
+        vals(nvars + 1, UNSET),
         nvars(nvars) {}
 
     inline lit_t clause_begin(clause_t c) const { return start[c]; }
