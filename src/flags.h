@@ -3,8 +3,6 @@
 
 #include <cstdlib>
 #include <iostream>
-
-#include <unistd.h>
 #include <getopt.h>
 
 // To add and use a new flag:
