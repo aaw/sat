@@ -5,6 +5,7 @@
 #include <sstream>
 #include <vector>
 
+#include "flags.h"
 #include "logging.h"
 #include "types.h"
 
@@ -201,8 +202,10 @@ bool solve(Cnf* cnf) {
 }
 
 int main(int argc, char** argv) {
-    CHECK(argc == 2) << "Usage: " << argv[0] << " <filename>";
-    Cnf c = parse(argv[1]);
+    int oidx;
+    CHECK(parse_flags(argc, argv, &oidx))
+        << "Usage: " << argv[0] << " <filename>";
+    Cnf c = parse(argv[oidx]);
     if (!c.start.empty() && solve(&c)) {
         std::cout << "s SATISFIABLE" << std::endl;
         for (int i = 1, j = 0; i <= c.nvars; ++i) {

@@ -3,16 +3,14 @@
 
 #include <iostream>
 
-#ifndef LOGLEVEL
-#define LOGLEVEL 5
-#endif  // LOGLEVEL
+extern int FLAGS_verbosity;
 
 #define LOG(i) Logger(__FILE__,__LINE__,i)
 
 struct Logger {
     Logger(const std::string& filename, int line, int level)
 #ifdef LOGGING
-      : enabled_(level <= LOGLEVEL) {
+      : enabled_(level <= FLAGS_verbosity) {
         if (enabled_) std::cout << "c [" << filename << ":" << line << "] ";
 #else
     {
