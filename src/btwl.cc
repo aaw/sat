@@ -75,6 +75,14 @@ struct Cnf {
         return (x > 0 && (s == FALSE || s == FALSE_NOT_TRUE)) ||
             (x < 0 && (s == TRUE || s == TRUE_NOT_FALSE));
     }
+
+    std::string vals_debug_string() const {
+        std::ostringstream oss;
+        for(std::size_t i = 1; i < vals.size(); ++i) {
+            oss << vals[i];
+        }
+        return oss.str();
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -140,7 +148,7 @@ bool solve(Cnf* cnf) {
     lit_t d = 1;  // Stage; Number of variables set in the partial assignment.
     lit_t l = 0;  // Current literal.
     while (0 < d && d <= cnf->nvars) {
-        LOG(5) << "Starting stage " << d;
+        LOG(1) << "vals: " << cnf->vals_debug_string();
         // Choose a literal value.
         if (cnf->vals[d] == UNEXAMINED &&
             (cnf->watch[d] == clause_nil || cnf->watch[-d] != clause_nil)) {
@@ -153,6 +161,7 @@ bool solve(Cnf* cnf) {
             cnf->vals[d] = TRUE_NOT_FALSE;
         } else {
             // Backtrack.
+            LOG(2) << "Backtracking from stage " << d;
             cnf->vals[d] = UNEXAMINED;
             d--;
             continue;
@@ -160,7 +169,7 @@ bool solve(Cnf* cnf) {
 
         // Set current literal value based on truth value chosen for d.
         l = ((cnf->vals[d] & 1) ? -1 : 1) * d;
-        LOG(5) << "Trying " << l;
+        LOG(3) << "Trying " << l;
 
         // Update watch list entries for -l if there are any.
         clause_t watcher = cnf->watch[-l];
@@ -183,6 +192,7 @@ bool solve(Cnf* cnf) {
                 cnf->link[watcher] = cnf->watch[lit];
                 cnf->watch[lit] = watcher;
                 watcher = next;
+                LOG(3) << "Successfully updated watch list for " << lit;
                 break;
             }
             if (k == end) {
@@ -191,6 +201,7 @@ bool solve(Cnf* cnf) {
                 // assignment created by l. We need to move on to the next
                 // search step for l, which could be either trying -l or
                 // backtracking.
+                LOG(3) << "Couldn't update watch list for " << -l;
                 break;
             }
         }
