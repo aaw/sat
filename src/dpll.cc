@@ -7,8 +7,6 @@
 // - no attempt to optimize bit-level ops
 // - No separate moves + xs arrays
 
-#include <cstdio>
-#include <cstdlib>
 #include <sstream>
 #include <vector>
 

@@ -2,7 +2,6 @@
 #define __TYPES_H__
 
 #include <cassert>
-#include <cstdint>
 #include <limits>
 
 // TODO: add a few #ifdefs here to change types from 8 bit/16 bit/32 bit

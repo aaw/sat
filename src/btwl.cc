@@ -1,7 +1,5 @@
 // Algorithm B from 7.2.2.2: Backtracking with a watchlist.
 
-#include <cstdio>
-#include <cstdlib>
 #include <sstream>
 #include <vector>
 

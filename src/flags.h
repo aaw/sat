@@ -1,7 +1,6 @@
 #ifndef __FLAGS_H__
 #define __FLAGS_H__
 
-#include <cstdlib>
 #include <iostream>
 #include <getopt.h>
 
