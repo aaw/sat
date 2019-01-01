@@ -6,9 +6,6 @@
 // - watchlists indexed by negatives
 // - no attempt to optimize bit-level ops
 // - No separate moves + xs arrays
-//
-// TODO: make output consistent with SAT output
-// TODO: remove debug logging
 
 #include <cstdio>
 #include <cstdlib>
@@ -243,6 +240,7 @@ bool solve(Cnf* c) {
         LOG(1) << "vals: " << c->vals_debug_string();
         LOG(3) << "clauses: " << c->clauses_debug_string();
         LOG(4) << "active ring: " << c->active_ring_debug_string();
+
         lit_t k = c->tail;  // Current variable being considered.
         bool pos_unit = false;  // Found a positive literal in a unit clause?
         bool neg_unit = false;  // Found a negative literal in a unit clause?
