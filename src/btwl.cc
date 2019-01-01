@@ -78,9 +78,7 @@ struct Cnf {
 
     std::string vals_debug_string() const {
         std::ostringstream oss;
-        for(std::size_t i = 1; i < vals.size(); ++i) {
-            oss << vals[i];
-        }
+        for(std::size_t i = 1; i < vals.size(); ++i) { oss << vals[i]; }
         return oss.str();
     }
 };

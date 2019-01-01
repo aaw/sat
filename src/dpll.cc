@@ -128,6 +128,34 @@ struct Cnf {
         }
         return false;
     }
+
+    std::string vals_debug_string() const {
+        std::ostringstream oss;
+        for(std::size_t i = 1; i < vals.size(); ++i) { oss << vals[i]; }
+        return oss.str();
+    }
+
+    std::string clauses_debug_string() const {
+        std::ostringstream oss;
+        for (clause_t i = 0; i < start.size(); ++i) {
+            lit_t end = clause_end(i);
+            oss << "(";
+            for (lit_t itr = clause_begin(i); itr != end; ++itr) {
+                oss << clauses[itr];
+                if (itr + 1 != end) oss << " ";
+            }
+            oss << ") ";
+        }
+        return oss.str();
+    }
+
+    std::string active_ring_debug_string() const {
+        std::ostringstream oss;
+        lit_t l = head;
+        do { oss << "[" << l << "]"; l = next[l]; } while (l != head);
+        return oss.str();
+    }
+
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -200,44 +228,6 @@ Cnf parse(const char* filename) {
     return cnf;
 }
 
-std::string dump_moves(const std::vector<State>& x) {
-    std::ostringstream oss;
-    for (unsigned int i = 1; i < x.size(); ++i) {
-        oss << "[" << i << ":";
-        if (x[i] == TRUE) oss << "T1]";
-        if (x[i] == FALSE) oss << "F1]";
-        if (x[i] == TRUE_NOT_FALSE) oss << "T2]";
-        if (x[i] == FALSE_NOT_TRUE) oss << "F2]";
-        if (x[i] == TRUE_FORCED) oss << "T!]";
-        if (x[i] == FALSE_FORCED) oss << "F!]";
-        if (x[i] == UNSET) oss << "--]";
-    }
-    return oss.str();
-}
-
-std::string dump_clauses(const Cnf* cnf) {
-    std::ostringstream oss;
-    for (clause_t i = 0; i < cnf->start.size(); ++i) {
-        lit_t end = cnf->clause_end(i);
-        oss << "(";
-        for (lit_t itr = cnf->clause_begin(i); itr != end; ++itr) {
-            oss << cnf->clauses[itr] << " ";
-        }
-        oss << ")  ";
-    }
-    return oss.str();
-}
-
-std::string dump_active_ring(const Cnf* cnf) {
-    std::ostringstream oss;
-    lit_t l = cnf->head;
-    do {
-        oss << "[" << l << "]";
-        l = cnf->next[l];
-    } while (l != cnf->head);
-    return oss.str();
-}
-
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     // The search for a satisfying assignment proceeds in stages from d = 1 to
@@ -246,12 +236,13 @@ bool solve(Cnf* c) {
     // heads is a 1-indexed current (partial) permutation of explored variables.
     lit_t d = 0;
     std::vector<lit_t> heads(c->nvars + 1, lit_nil);
-    LOG(3) << "Clauses:\n" << dump_clauses(c);
 
     // As long as some literal has a non-empty watch list, continue searching
     // for a satisfying assignment.
     while (c->tail != lit_nil) {
-        LOG(4) << "State: " << dump_moves(c->vals);
+        LOG(1) << "vals: " << c->vals_debug_string();
+        LOG(3) << "clauses: " << c->clauses_debug_string();
+        LOG(4) << "active ring: " << c->active_ring_debug_string();
         lit_t k = c->tail;  // Current variable being considered.
         bool pos_unit = false;  // Found a positive literal in a unit clause?
         bool neg_unit = false;  // Found a negative literal in a unit clause?
@@ -263,7 +254,7 @@ bool solve(Cnf* c) {
             neg_unit = c->is_unit(-c->head);
 
             if (pos_unit && neg_unit) {
-                LOG(3) << "Backtracking from " << d;
+                LOG(2) << "Backtracking from " << d;
                 c->tail = k;
                 while (d > 0 && c->is_forced(heads[d])) {
                     k = heads[d];
@@ -300,7 +291,7 @@ bool solve(Cnf* c) {
         // first variable on the active ring. We guess TRUE/FALSE based on the
         // state of the watch list.
         if (!pos_unit && !neg_unit) {
-            LOG(3) << "Couldn't find a unit clause, resorting to branching";
+            LOG(2) << "Couldn't find a unit clause, resorting to branching";
             c->head = c->next[c->tail];
             if (!c->watched(c->head) || c->watched(-c->head)) {
                 c->vals[c->head] = TRUE;
@@ -319,7 +310,7 @@ bool solve(Cnf* c) {
                 // TODO: why do this here instead of just break?
                 c->tail = lit_nil;
             } else {
-                LOG(3) << "Deleting " << k << " from the active ring";
+                LOG(2) << "Deleting " << k << " from the active ring";
                 c->head = c->next[k];
                 c->next[c->tail] = c->head;
             }
@@ -363,10 +354,7 @@ bool solve(Cnf* c) {
             c->watch[lp] = j;
             j = jp;
         }
-        LOG(3) << "Active ring: " << dump_active_ring(c);
     }
-    LOG(3) << dump_clauses(c);
-    LOG(3) << dump_moves(c->vals);
     return true;
 }
 

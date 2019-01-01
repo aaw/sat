@@ -11,7 +11,7 @@
 // (3) Add an entry to long_options[] and optstring[] below defining its parse.
 // (4) Add a case in the switch statement below to handle setting the flag.
 
-int FLAGS_verbosity = 1;
+int FLAGS_verbosity = 0;
 
 bool parse_flags(int argc, char* argv[], int* option_index) {
     *option_index = 0;
