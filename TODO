@@ -1,4 +1,2 @@
-* finish TODO in langford.py
-
-* in test script, exit if make fails
+* Redo logging.h, make it actually a no-op when -v flag set appropriately
 * Make a script to test consistency (clause count, var count) and formatting of all test files

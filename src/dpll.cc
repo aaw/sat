@@ -1,11 +1,5 @@
-// Cyclic DPLL. Algorithm D from 7.2.2.2
-//
-// Significant differences:
-// - No gotos
-// - Dimacs format
-// - watchlists indexed by negatives
-// - no attempt to optimize bit-level ops
-// - No separate moves + xs arrays
+// Algorithm D from Knuth's The Art of Computer Programming 7.2.2.2:
+// Cyclic DPLL.
 
 #include <sstream>
 #include <vector>
@@ -73,7 +67,10 @@ struct Cnf {
     // One-indexed values of variables in the satisfying assignment.
     std::vector<State> vals;
 
-    // Number of variables in the problem. Valid variables range from 1 to
+    // One-indexed current (partial) permutation of explored variables.
+    std::vector<lit_t> heads;
+
+    // Number of variables in the formula. Valid variables range from 1 to
     // nvars, inclusive.
     lit_t nvars;
 
@@ -85,11 +82,14 @@ struct Cnf {
         head(lit_nil),
         tail(lit_nil),
         vals(nvars + 1, UNSET),
+        heads(nvars + 1, lit_nil),
         nvars(nvars) {}
 
-    inline lit_t clause_begin(clause_t c) const { return start[c]; }
-    inline lit_t clause_end(clause_t c) const {
-        return (c == start.size() - 1) ? clauses.size() : start[c + 1];
+    // These two methods give the begin/end index of the kth clause in the
+    // clauses vector. Used for iterating over all literals in the kth clause.
+    inline lit_t clause_begin(clause_t k) const { return start[k]; }
+    inline lit_t clause_end(clause_t k) const {
+        return (k == start.size() - 1) ? clauses.size() : start[k + 1];
     }
 
     // Is the literal x watched by any clause?
@@ -103,11 +103,12 @@ struct Cnf {
         return (x > 0 && s & 1) || (x < 0 && s > 0 && !(s & 1));
     }
 
-    // Is the variable v currently set to a forced value, either because of a
-    // unit clause or because we've already tried setting it to the other value
-    // and failed?
-    inline bool is_forced(lit_t v) const {
-        return vals[v] > 2;
+    // Is there any freedom to set the variable we chose at stage d to some
+    // other value? The only way this is possible is if that variable hasn't
+    // been explored yet or only true/false has been tried and the other value
+    // hasn't yet been considered.
+    inline bool freedom_at_stage(lit_t d) const {
+        return vals[heads[d]] <= 2;
     }
 
     // Is the literal x currently in a unit clause?
@@ -188,39 +189,38 @@ Cnf parse(const char* filename) {
     ASSERT_NO_OVERFLOW(clause_t, nclauses);
 
     // Initialize data structures now that we know nvars and nclauses.
-    Cnf cnf(static_cast<lit_t>(nvars),
-            static_cast<clause_t>(nclauses));
+    Cnf c(static_cast<lit_t>(nvars), static_cast<clause_t>(nclauses));
 
     // Read clauses until EOF.
     int lit;
     do {
         bool read_lit = false;
-        int start = cnf.clauses.size();
+        int start = c.clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
-            cnf.clauses.push_back(lit);
+            c.clauses.push_back(lit);
             read_lit = true;
         }
         if (!read_lit) break;
-        cnf.start.push_back(start);
-        clause_t old = cnf.watch[cnf.clauses[cnf.start.back()]];
-        cnf.watch[cnf.clauses[cnf.start.back()]] = cnf.start.size() - 1;
-        cnf.link[cnf.start.size() - 1] = old;
+        c.start.push_back(start);
+        clause_t old = c.watch[c.clauses[c.start.back()]];
+        c.watch[c.clauses[c.start.back()]] = c.start.size() - 1;
+        c.link[c.start.size() - 1] = old;
     } while (nc != EOF);
 
     // Initialize active ring of literals with non-empty watch lists.
-    for (lit_t k = cnf.nvars; k > 0; --k) {
-        if (cnf.watched(k) || cnf.watched(-k)) {
-            cnf.next[k] = cnf.head;
-            cnf.head = k;
-            if (cnf.tail == lit_nil) cnf.tail = k;
+    for (lit_t k = c.nvars; k > 0; --k) {
+        if (c.watched(k) || c.watched(-k)) {
+            c.next[k] = c.head;
+            c.head = k;
+            if (c.tail == lit_nil) c.tail = k;
         }
     }
-    if (cnf.tail != lit_nil) cnf.next[cnf.tail] = cnf.head;
+    if (c.tail != lit_nil) c.next[c.tail] = c.head;
 
     fclose(f);
-    return cnf;
+    return c;
 }
 
 // Returns true exactly when a satisfying assignment exists for c.
@@ -228,12 +228,13 @@ bool solve(Cnf* c) {
     // The search for a satisfying assignment proceeds in stages from d = 1 to
     // d = c->nvars. As long as a consistent partial assignment is found, d
     // is incremented. If a conflict is found, we backtrack by decrementing d.
-    // heads is a 1-indexed current (partial) permutation of explored variables.
     lit_t d = 0;
-    std::vector<lit_t> heads(c->nvars + 1, lit_nil);
 
     // As long as some literal has a non-empty watch list, continue searching
-    // for a satisfying assignment.
+    // for a satisfying assignment. Each iteration of this main while loop
+    // results in setting a value for some variable in the formula. This may
+    // move the search forward towards a partial assignment or may require
+    // several backtracking steps to find a feasible variable to set.
     while (c->tail != lit_nil) {
         LOG(1) << "vals: " << c->vals_debug_string();
         LOG(3) << "clauses: " << c->clauses_debug_string();
@@ -251,9 +252,11 @@ bool solve(Cnf* c) {
 
             if (pos_unit && neg_unit) {
                 LOG(2) << "Backtracking from " << d;
+                // Backtrack until we find a variable that has another truth
+                // value we can try.
                 c->tail = k;
-                while (d > 0 && c->is_forced(heads[d])) {
-                    k = heads[d];
+                while (d > 0 && !c->freedom_at_stage(d)) {
+                    k = c->heads[d];
                     c->vals[k] = UNSET;
                     // If variable k was active, remove it from the active ring.
                     if (c->watched(k) || c->watched(-k)) {
@@ -263,17 +266,20 @@ bool solve(Cnf* c) {
                     }
                     --d;
                 }
-
+                // If we've backtracked to the start, formula is unsatisfiable.
                 if (d <= 0) return false;
-                k = heads[d];
+                // Otherwise, try the other truth value for step d > 0.
+                k = c->heads[d];
                 if (c->vals[k] == TRUE) c->vals[k] = FALSE_NOT_TRUE;
                 else if (c->vals[k] == FALSE) c->vals[k] = TRUE_NOT_FALSE;
                 break;
             } else if (pos_unit) {
+                // Only the positive form of the variable appears in a unit.
                 c->vals[c->head] = TRUE_FORCED;
                 c->tail = k;
                 break;
             } else if (neg_unit) {
+                // Only the negated form of the variable appears in a unit.
                 c->vals[c->head] = FALSE_FORCED;
                 c->tail = k;
                 break;
@@ -285,7 +291,8 @@ bool solve(Cnf* c) {
 
         // If we couldn't find a unit clause, we may as well try setting the
         // first variable on the active ring. We guess TRUE/FALSE based on the
-        // state of the watch list.
+        // state of the watch list, but it's only a guess -- we may end up
+        // backtracking and trying the other value later.
         if (!pos_unit && !neg_unit) {
             LOG(2) << "Couldn't find a unit clause, resorting to branching";
             c->head = c->next[c->tail];
@@ -296,14 +303,14 @@ bool solve(Cnf* c) {
             }
         }
 
-        // Step D5
-        // (if !backtrack) == !pos_unit || !neg_unit
+        // The backtracking step above sets up d, k, and the active ring
+        // appropriately for the current step. If we didn't backtrack at all
+        // during this iteration, we still have some bookkeeping to do now.
         if (!pos_unit || !neg_unit) {
             ++d;
             k = c->head;
-            heads[d] = k;
+            c->heads[d] = k;
             if (c->tail == k) {
-                // TODO: why do this here instead of just break?
                 c->tail = lit_nil;
             } else {
                 LOG(2) << "Deleting " << k << " from the active ring";
@@ -312,9 +319,14 @@ bool solve(Cnf* c) {
             }
         }
 
-        // Step D6: TODO: explain why l is set like it is...
-        // Clear l's watch list, iterate through all clauses that used to watch
-        // l and make them watch some other literal.
+        // Set the l to the negation of the literal we chose during this
+        // iteration. Since it resolves to false, l can't be the watched literal
+        // in any clauses now, so we need to clean up l's watch list. We
+        // actually know at this point that l isn't in any unit clauses, since
+        // at most one of l and -l are in unit clauses (we would have
+        // backtracked otherwise). So we can blindly forge ahead here, assuming
+        // that each clause that used to watch l has some other literal we can
+        // choose to be the watched literal.
         lit_t l = c->vals[k] & 1 ? k : -k;
         clause_t j = c->watch[l];
         c->watch[l] = clause_nil;

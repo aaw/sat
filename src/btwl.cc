@@ -1,4 +1,5 @@
-// Algorithm B from 7.2.2.2: Backtracking with a watchlist.
+// Algorithm B from Knuth's The Art of Computer Programming 7.2.2.2:
+// Enhanced backtracking using watched literals.
 
 #include <sstream>
 #include <vector>
@@ -51,7 +52,7 @@ struct Cnf {
     // One-indexed values of variables in the satisfying assignment.
     std::vector<State> vals;
 
-    // Number of variables in the problem. Valid variables range from 1 to
+    // Number of variables in the formula. Valid variables range from 1 to
     // nvars, inclusive.
     lit_t nvars;
 
@@ -62,6 +63,8 @@ struct Cnf {
         vals(nvars + 1, UNEXAMINED),
         nvars(nvars) {}
 
+    // These two methods give the begin/end index of the kth clause in the
+    // clauses vector. Used for iterating over all literals in the kth clause.
     inline lit_t clause_begin(clause_t c) const { return start[c]; }
     inline lit_t clause_end(clause_t c) const {
         return (c == start.size() - 1) ? clauses.size() : start[c + 1];
@@ -77,6 +80,20 @@ struct Cnf {
     std::string vals_debug_string() const {
         std::ostringstream oss;
         for(std::size_t i = 1; i < vals.size(); ++i) { oss << vals[i]; }
+        return oss.str();
+    }
+
+    std::string clauses_debug_string() const {
+        std::ostringstream oss;
+        for (clause_t i = 0; i < start.size(); ++i) {
+            lit_t end = clause_end(i);
+            oss << "(";
+            for (lit_t itr = clause_begin(i); itr != end; ++itr) {
+                oss << clauses[itr];
+                if (itr + 1 != end) oss << " ";
+            }
+            oss << ") ";
+        }
         return oss.str();
     }
 };
@@ -115,80 +132,83 @@ Cnf parse(const char* filename) {
     ASSERT_NO_OVERFLOW(lit_t, nvars);
     ASSERT_NO_OVERFLOW(clause_t, nclauses);
 
-    Cnf cnf(static_cast<lit_t>(nvars), static_cast<clause_t>(nclauses));
+    Cnf c(static_cast<lit_t>(nvars), static_cast<clause_t>(nclauses));
 
     // Read clauses until EOF.
     int lit;
     do {
         bool read_lit = false;
-        int start = cnf.clauses.size();
+        int start = c.clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
-            cnf.clauses.push_back(lit);
+            c.clauses.push_back(lit);
             read_lit = true;
         }
         if (!read_lit) break;
-        cnf.start.push_back(start);
-        clause_t old = cnf.watch[cnf.clauses[cnf.start.back()]];
-        cnf.watch[cnf.clauses[cnf.start.back()]] = cnf.start.size() - 1;
-        cnf.link[cnf.start.size() - 1] = old;
+        c.start.push_back(start);
+        clause_t old = c.watch[c.clauses[c.start.back()]];
+        c.watch[c.clauses[c.start.back()]] = c.start.size() - 1;
+        c.link[c.start.size() - 1] = old;
     } while (nc != EOF);
 
     fclose(f);
-    return cnf;
+    return c;
 }
 
-// Algorithm B from 7.2.2.2 (Satisfiability by watching).
-bool solve(Cnf* cnf) {
+// Returns true exactly when a satisfying assignment exists for c.
+bool solve(Cnf* c) {
     lit_t d = 1;  // Stage; Number of variables set in the partial assignment.
     lit_t l = 0;  // Current literal.
-    while (0 < d && d <= cnf->nvars) {
-        LOG(1) << "vals: " << cnf->vals_debug_string();
+    while (0 < d && d <= c->nvars) {
+        LOG(1) << "vals: " << c->vals_debug_string();
+        LOG(3) << "clauses: " << c->clauses_debug_string();
         // Choose a literal value.
-        if (cnf->vals[d] == UNEXAMINED &&
-            (cnf->watch[d] == clause_nil || cnf->watch[-d] != clause_nil)) {
-            cnf->vals[d] = FALSE;
-        } else if (cnf->vals[d] == UNEXAMINED) {
-            cnf->vals[d] = TRUE;
-        } else if (cnf->vals[d] == TRUE) {
-            cnf->vals[d] = FALSE_NOT_TRUE;
-        } else if (cnf->vals[d] == FALSE) {
-            cnf->vals[d] = TRUE_NOT_FALSE;
+        if (c->vals[d] == UNEXAMINED &&
+            (c->watch[d] == clause_nil || c->watch[-d] != clause_nil)) {
+            c->vals[d] = FALSE;
+        } else if (c->vals[d] == UNEXAMINED) {
+            c->vals[d] = TRUE;
+        } else if (c->vals[d] == TRUE) {
+            c->vals[d] = FALSE_NOT_TRUE;
+        } else if (c->vals[d] == FALSE) {
+            c->vals[d] = TRUE_NOT_FALSE;
         } else {
             // Backtrack.
             LOG(2) << "Backtracking from stage " << d;
-            cnf->vals[d] = UNEXAMINED;
+            c->vals[d] = UNEXAMINED;
             d--;
             continue;
         }
 
         // Set current literal value based on truth value chosen for d.
-        l = ((cnf->vals[d] & 1) ? -1 : 1) * d;
+        l = ((c->vals[d] & 1) ? -1 : 1) * d;
         LOG(3) << "Trying " << l;
 
         // Update watch list entries for -l if there are any.
-        clause_t watcher = cnf->watch[-l];
+        LOG(3) << "Trying to make " << -l << " unwatched by all clauses";
+        clause_t watcher = c->watch[-l];
         while (watcher != clause_nil) {
-            clause_t start = cnf->clause_begin(watcher);
-            clause_t end = cnf->clause_end(watcher);
-            clause_t next = cnf->link[watcher];
+            clause_t start = c->clause_begin(watcher);
+            clause_t end = c->clause_end(watcher);
+            clause_t next = c->link[watcher];
             clause_t k = start + 1;
             while (k < end) {
                 // Search for a non-false literal to watch from clause watcher
-                lit_t lit = cnf->clauses[k];
-                if (cnf->is_false(lit)) {
+                lit_t lit = c->clauses[k];
+                if (c->is_false(lit)) {
                     k++;
                     continue;
                 }
                 // Found a non-false literal, swap lit and -l in clauses array.
-                cnf->clauses[start] = lit;
-                cnf->clauses[k] = -l;
+                c->clauses[start] = lit;
+                c->clauses[k] = -l;
                 // Splice lit into the watch list and keep going.
-                cnf->link[watcher] = cnf->watch[lit];
-                cnf->watch[lit] = watcher;
+                c->link[watcher] = c->watch[lit];
+                c->watch[lit] = watcher;
                 watcher = next;
-                LOG(3) << "Successfully updated watch list for " << lit;
+                LOG(3) << "Successfully swapped in " << lit << " as watched "
+                       << "literal for " << -l << " in clause "<< c->watch[lit];
                 break;
             }
             if (k == end) {
@@ -197,11 +217,12 @@ bool solve(Cnf* cnf) {
                 // assignment created by l. We need to move on to the next
                 // search step for l, which could be either trying -l or
                 // backtracking.
-                LOG(3) << "Couldn't update watch list for " << -l;
+                LOG(3) << -l << " is a unit in clause " << watcher
+                       << ". Stopping attempt to update watch lists.";
                 break;
             }
         }
-        cnf->watch[-l] = watcher;
+        c->watch[-l] = watcher;
         // Move on to the next variable if watch list reassignment succeeded.
         if (watcher == clause_nil) d++;
     }
