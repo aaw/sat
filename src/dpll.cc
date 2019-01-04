@@ -8,9 +8,6 @@
 #include "logging.h"
 #include "types.h"
 
-// States used by both the search algorithm and the final assignment. The final
-// assignment only uses UNSET, FALSE, and TRUE. The search algorithm's
-// interpretation of these values is noted below.
 enum State {
     UNSET = 0,
     FALSE = 1,           // Trying false, haven't tried true yet.
@@ -87,8 +84,8 @@ struct Cnf {
 
     // These two methods give the begin/end index of the kth clause in the
     // clauses vector. Used for iterating over all literals in the kth clause.
-    inline lit_t clause_begin(clause_t k) const { return start[k]; }
-    inline lit_t clause_end(clause_t k) const {
+    inline clause_t clause_begin(clause_t k) const { return start[k]; }
+    inline clause_t clause_end(clause_t k) const {
         return (k == start.size() - 1) ? clauses.size() : start[k + 1];
     }
 
@@ -114,11 +111,10 @@ struct Cnf {
     // Is the literal x currently in a unit clause?
     bool is_unit(lit_t x) const {
         for (clause_t w = watch[x]; w != clause_nil; w = link[w]) {
-            lit_t itr = clause_begin(w) + 1;
-            lit_t end = clause_end(w);
+            clause_t itr = clause_begin(w) + 1;
+            clause_t end = clause_end(w);
             for (; itr != end; ++itr) {
-                lit_t lit = clauses[itr];
-                if (!is_false(lit)) break;
+                if (!is_false(clauses[itr])) break;
             }
             if (itr == end) return true;
         }
@@ -134,9 +130,9 @@ struct Cnf {
     std::string clauses_debug_string() const {
         std::ostringstream oss;
         for (clause_t i = 0; i < start.size(); ++i) {
-            lit_t end = clause_end(i);
+            clause_t end = clause_end(i);
             oss << "(";
-            for (lit_t itr = clause_begin(i); itr != end; ++itr) {
+            for (clause_t itr = clause_begin(i); itr != end; ++itr) {
                 oss << clauses[itr];
                 if (itr + 1 != end) oss << " ";
             }

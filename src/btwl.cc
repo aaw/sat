@@ -65,8 +65,8 @@ struct Cnf {
 
     // These two methods give the begin/end index of the kth clause in the
     // clauses vector. Used for iterating over all literals in the kth clause.
-    inline lit_t clause_begin(clause_t c) const { return start[c]; }
-    inline lit_t clause_end(clause_t c) const {
+    inline clause_t clause_begin(clause_t c) const { return start[c]; }
+    inline clause_t clause_end(clause_t c) const {
         return (c == start.size() - 1) ? clauses.size() : start[c + 1];
     }
 
@@ -86,9 +86,9 @@ struct Cnf {
     std::string clauses_debug_string() const {
         std::ostringstream oss;
         for (clause_t i = 0; i < start.size(); ++i) {
-            lit_t end = clause_end(i);
+            clause_t end = clause_end(i);
             oss << "(";
-            for (lit_t itr = clause_begin(i); itr != end; ++itr) {
+            for (clause_t itr = clause_begin(i); itr != end; ++itr) {
                 oss << clauses[itr];
                 if (itr + 1 != end) oss << " ";
             }
