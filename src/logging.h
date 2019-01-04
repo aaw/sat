@@ -5,36 +5,20 @@
 
 extern int FLAGS_verbosity;
 
-#define LOG(i) Logger(__FILE__,__LINE__,i)
+#define LOG(i) if (LOGGING && FLAGS_verbosity >= i) Logger(__FILE__,__LINE__,i)
 
 struct Logger {
-    Logger(const std::string& filename, int line, int level)
-#ifdef LOGGING
-      : enabled_(level <= FLAGS_verbosity) {
-        if (enabled_) std::cout << "c [" << filename << ":" << line << "] ";
-#else
-    {
-#endif  // LOGGING
+    Logger(const std::string& filename, int line, int level) {
+        std::cout << "c [" << filename << ":" << line << "] ";
     }
 
-    ~Logger() {
-#ifdef LOGGING
-        if (enabled_) std::cout << std::endl;
-#endif  // LOGGING
-    }
+    ~Logger() { std::cout << std::endl; }
 
     template<class T>
     Logger& operator<<(const T& msg) {
-#ifdef LOGGING
-        if (enabled_) std::cout << msg;
-#endif  // LOGGING
+        std::cout << msg;
         return *this;
     }
-
-#ifdef LOGGING
-private:
-    bool enabled_;
-#endif  // LOGGING
 };
 
 #define CHECK(expr) AbortLogger(__FILE__,__LINE__,expr)
