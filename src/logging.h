@@ -5,8 +5,13 @@
 
 extern int FLAGS_verbosity;
 
+#ifndef LOGGING
+#define LOGGING 0
+#endif
+
 #define LOG_ENABLED(i) (LOGGING && FLAGS_verbosity >= i)
 #define LOG(i) if (LOG_ENABLED(i)) Logger(__FILE__,__LINE__)
+#define CHECK(expr) AbortLogger(__FILE__,__LINE__,expr)
 
 struct Logger {
     Logger(const std::string& filename, int line) {
@@ -21,8 +26,6 @@ struct Logger {
         return *this;
     }
 };
-
-#define CHECK(expr) AbortLogger(__FILE__,__LINE__,expr)
 
 struct AbortLogger {
     AbortLogger(const std::string& filename, int line, bool check_passed) :
