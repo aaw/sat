@@ -20,10 +20,12 @@ Building
 --------
 
 You'll need `git` to clone this repo, `g++` and `make` to build and `python3` to run
-instance generators in the gen/ subdirectory. On a debian-based Linux distribution,
-you can ensure you have everything you need by running:
+instance generators in the gen/ subdirectory. `bash` is used as the shell for scripts.
 
-    apt-get update && apt-get install build-essential git python3
+On a debian-based Linux distribution, you can ensure you have everything you need by
+running:
+
+    apt-get update && apt-get install bash build-essential git python3
 
 Clone this repo:
 
@@ -70,3 +72,15 @@ instance, run the following from the top level of this repo:
 
 Using Instance Generators
 -------------------------
+
+Generators in the gen/ subdirectory are meant to be run at the command line and
+output the instance to `stdout`. Each generator takes a different set of arguments
+described in the header comments to the generator. To generate an instance file,
+for example, just redirect the output to a file:
+
+    ./gen/langford.py 5 > langford_5.cnf
+
+To run a SAT solver directly against the output of a generator without an intermediate
+file, use bash process substitution:
+
+    ./bin/dpll <(./gen/langford.py 5)
