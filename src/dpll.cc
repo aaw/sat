@@ -253,6 +253,7 @@ bool solve(Cnf* c) {
                 c->tail = k;
                 while (d > 0 && !c->freedom_at_stage(d)) {
                     k = c->heads[d];
+                    LOG(2) << "  Unsetting " << k;
                     c->vals[k] = UNSET;
                     // If variable k was active, remove it from the active ring.
                     if (c->watched(k) || c->watched(-k)) {
