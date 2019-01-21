@@ -8,6 +8,9 @@ all: bin/btwl bin/dpll
 bin/btwl: src/btwl.cc src/logging.h src/types.h src/flags.h
 	g++ $(CPPFLAGS) -o bin/btwl src/btwl.cc $(LDLIBS)
 
+bin/cdcl: src/cdcl.cc src/logging.h src/types.h src/flags.h
+	g++ $(CPPFLAGS) -o bin/cdcl src/cdcl.cc $(LDLIBS)
+
 bin/dpll: src/dpll.cc src/logging.h src/types.h src/flags.h
 	g++ $(CPPFLAGS) -o bin/dpll src/dpll.cc $(LDLIBS)
 

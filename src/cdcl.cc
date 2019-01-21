@@ -15,9 +15,15 @@ enum State {
 
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
-    std::vector<lit_t> mem;
+    std::vector<lit_t> clauses;
+
+    std::vector<clause_t> start;
 
     std::vector<State> vals;
+
+    clause_t maxl;
+
+    clause_t minl;
 
     clause_t nclauses;
 
@@ -70,14 +76,22 @@ Cnf parse(const char* filename) {
     int lit;
     do {
         bool read_lit = false;
+        int start = c.clauses.size();
+        c.clauses.push_back(lit_nil);  // watch list pointer
+        c.clauses.push_back(lit_nil);  // watch list pointer
+        c.clauses.push_back(lit_nil);  // size of clause
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
+            c.clauses.push_back(lit);
             read_lit = true;
         }
+        // Record the size of the clause in offset -1.
+        c.clauses[start - 1] = c.clauses.size() - start;
         if (!read_lit) break;
     } while (nc != EOF);
 
+    c.minl = c.maxl = c.start.size() + 1;
     fclose(f);
     return c;
 }
