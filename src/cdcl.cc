@@ -9,6 +9,8 @@
 #include "logging.h"
 #include "types.h"
 
+extern unsigned long FLAGS_seed;
+
 enum State {
     UNSET = 0,
     FALSE = 1,           // Trying false, haven't tried true yet.
@@ -58,7 +60,10 @@ struct Cnf {
       heap(nvars + 1),
       nclauses(nclauses),
       nvars(nvars) {
-        srand(time(NULL));
+        if (FLAGS_seed != 1) {
+            FLAGS_seed = time(NULL);
+        }
+        srand(FLAGS_seed);
         // Initialize hloc to a random permutation of [1,n]
         for (int i = 1; i < nvars; ++i) {
             int j = rand() % nvars + 1;
