@@ -1,5 +1,7 @@
 // Algorithm C from Knuth's The Art of Computer Programming 7.2.2.2: CDCL
 
+#include <ctime>
+#include <cstdlib>
 #include <sstream>
 #include <vector>
 
@@ -19,7 +21,22 @@ struct Cnf {
 
     std::vector<clause_t> start;
 
-    std::vector<State> vals;
+    std::vector<State> val;
+
+    std::vector<State> oval;
+
+    std::vector<unsigned long> stamp;  // TODO: what's the right type here?
+
+    std::vector<lit_t> tloc;
+
+    std::vector<double> act;
+
+    std::vector<clause_t> reason_storage;
+    clause_t* reason; // Keys: literals, values: clause indices
+
+    std::vector<lit_t> hloc;
+
+    std::vector<lit_t> heap;
 
     clause_t maxl;
 
@@ -30,9 +47,28 @@ struct Cnf {
     lit_t nvars;
 
     Cnf(lit_t nvars, clause_t nclauses) :
-        nclauses(nclauses),
-        nvars(nvars)
-        {}
+      val(nvars + 1, UNSET),
+      oval(nvars + 1, FALSE),
+      stamp(nvars + 1, 0),
+      tloc(nvars + 1, lit_nil),
+      act(nvars + 1, 0.0),
+      reason_storage(2 * nvars + 1, clause_nil),
+      reason(&reason_storage[nvars]),
+      hloc(nvars + 1),
+      heap(nvars + 1),
+      nclauses(nclauses),
+      nvars(nvars) {
+        srand(time(NULL));
+        // Initialize hloc to a random permutation of [1,n]
+        for (int i = 1; i < nvars; ++i) {
+            int j = rand() % nvars + 1;
+            hloc[i] = hloc[j];
+            hloc[j] = i;
+        }
+        for (int i = 1; i < nvars; ++i) {
+            heap[hloc[i]] = i;
+        }
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -76,10 +112,10 @@ Cnf parse(const char* filename) {
     int lit;
     do {
         bool read_lit = false;
-        int start = c.clauses.size();
         c.clauses.push_back(lit_nil);  // watch list pointer
         c.clauses.push_back(lit_nil);  // watch list pointer
         c.clauses.push_back(lit_nil);  // size of clause
+        int start = c.clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
@@ -112,9 +148,9 @@ int main(int argc, char** argv) {
     if (solve(&c)) {
         std::cout << "s SATISFIABLE" << std::endl;
         for (int i = 1, j = 0; i <= c.nvars; ++i) {
-            if (c.vals[i] == UNSET) continue;
+            if (c.val[i] == UNSET) continue;
             if (j % 10 == 0) std::cout << "v";
-            std::cout << ((c.vals[i] & 1) ? " -" : " ") << i;
+            std::cout << ((c.val[i] & 1) ? " -" : " ") << i;
             ++j;
             if (i == c.nvars) std::cout << " 0" << std::endl;
             else if (j > 0 && j % 10 == 0) std::cout << std::endl;

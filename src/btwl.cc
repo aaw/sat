@@ -50,7 +50,7 @@ struct Cnf {
     clause_t* watch;
 
     // One-indexed values of variables in the satisfying assignment.
-    std::vector<State> vals;
+    std::vector<State> val;
 
     // Number of variables in the formula. Valid variables range from 1 to
     // nvars, inclusive.
@@ -60,7 +60,7 @@ struct Cnf {
         watch_storage(2 * nvars + 1, clause_nil),
         link(nclauses, clause_nil),
         watch(&watch_storage[nvars]),
-        vals(nvars + 1, UNEXAMINED),
+        val(nvars + 1, UNEXAMINED),
         nvars(nvars) {}
 
     // These two methods give the begin/end index of the kth clause in the
@@ -72,14 +72,14 @@ struct Cnf {
 
     // Is the literal x currently false?
     inline bool is_false(lit_t x) const {
-        State s = vals[abs(x)];
+        State s = val[abs(x)];
         return (x > 0 && (s == FALSE || s == FALSE_NOT_TRUE)) ||
             (x < 0 && (s == TRUE || s == TRUE_NOT_FALSE));
     }
 
-    std::string vals_debug_string() const {
+    std::string val_debug_string() const {
         std::ostringstream oss;
-        for(std::size_t i = 1; i < vals.size(); ++i) { oss << vals[i]; }
+        for(std::size_t i = 1; i < val.size(); ++i) { oss << val[i]; }
         return oss.str();
     }
 
@@ -161,28 +161,28 @@ bool solve(Cnf* c) {
     lit_t d = 1;  // Stage; Number of variables set in the partial assignment.
     lit_t l = 0;  // Current literal.
     while (0 < d && d <= c->nvars) {
-        LOG(1) << "vals: " << c->vals_debug_string();
+        LOG(1) << "val: " << c->val_debug_string();
         LOG(3) << "clauses: " << c->clauses_debug_string();
         // Choose a literal value.
-        if (c->vals[d] == UNEXAMINED &&
+        if (c->val[d] == UNEXAMINED &&
             (c->watch[d] == clause_nil || c->watch[-d] != clause_nil)) {
-            c->vals[d] = FALSE;
-        } else if (c->vals[d] == UNEXAMINED) {
-            c->vals[d] = TRUE;
-        } else if (c->vals[d] == TRUE) {
-            c->vals[d] = FALSE_NOT_TRUE;
-        } else if (c->vals[d] == FALSE) {
-            c->vals[d] = TRUE_NOT_FALSE;
+            c->val[d] = FALSE;
+        } else if (c->val[d] == UNEXAMINED) {
+            c->val[d] = TRUE;
+        } else if (c->val[d] == TRUE) {
+            c->val[d] = FALSE_NOT_TRUE;
+        } else if (c->val[d] == FALSE) {
+            c->val[d] = TRUE_NOT_FALSE;
         } else {
             // Backtrack.
             LOG(2) << "Backtracking from stage " << d;
-            c->vals[d] = UNEXAMINED;
+            c->val[d] = UNEXAMINED;
             d--;
             continue;
         }
 
         // Set current literal value based on truth value chosen for d.
-        l = ((c->vals[d] & 1) ? -1 : 1) * d;
+        l = ((c->val[d] & 1) ? -1 : 1) * d;
         LOG(3) << "Trying " << l;
 
         // Update watch list entries for -l if there are any.
@@ -237,9 +237,9 @@ int main(int argc, char** argv) {
     if (!c.start.empty() && solve(&c)) {
         std::cout << "s SATISFIABLE" << std::endl;
         for (int i = 1, j = 0; i <= c.nvars; ++i) {
-            if (c.vals[i] == UNEXAMINED) continue;
+            if (c.val[i] == UNEXAMINED) continue;
             if (j % 10 == 0) std::cout << "v";
-            std::cout << ((c.vals[i] & 1) ? " -" : " ") << i;
+            std::cout << ((c.val[i] & 1) ? " -" : " ") << i;
             ++j;
             if (i == c.nvars) std::cout << " 0" << std::endl;
             else if (j > 0 && j % 10 == 0) std::cout << std::endl;

@@ -62,7 +62,7 @@ struct Cnf {
     lit_t tail;
 
     // One-indexed values of variables in the satisfying assignment.
-    std::vector<State> vals;
+    std::vector<State> val;
 
     // One-indexed current (partial) permutation of explored variables.
     std::vector<lit_t> heads;
@@ -78,7 +78,7 @@ struct Cnf {
         next(nvars + 1, lit_nil),
         head(lit_nil),
         tail(lit_nil),
-        vals(nvars + 1, UNSET),
+        val(nvars + 1, UNSET),
         heads(nvars + 1, lit_nil),
         nvars(nvars) {}
 
@@ -96,7 +96,7 @@ struct Cnf {
 
     // Is the literal x currently false?
     inline bool is_false(lit_t x) const {
-        State s = vals[abs(x)];
+        State s = val[abs(x)];
         return (x > 0 && s & 1) || (x < 0 && s > 0 && !(s & 1));
     }
 
@@ -105,7 +105,7 @@ struct Cnf {
     // been explored yet or only true/false has been tried and the other value
     // hasn't yet been considered.
     inline bool freedom_at_stage(lit_t d) const {
-        return vals[heads[d]] <= 2;
+        return val[heads[d]] <= 2;
     }
 
     // Is the literal x currently in a unit clause?
@@ -121,9 +121,9 @@ struct Cnf {
         return false;
     }
 
-    std::string vals_debug_string() const {
+    std::string val_debug_string() const {
         std::ostringstream oss;
-        for(std::size_t i = 1; i < vals.size(); ++i) { oss << vals[i]; }
+        for(std::size_t i = 1; i < val.size(); ++i) { oss << val[i]; }
         return oss.str();
     }
 
@@ -232,7 +232,7 @@ bool solve(Cnf* c) {
     // move the search forward towards a partial assignment or may require
     // several backtracking steps to find a feasible variable to set.
     while (c->tail != lit_nil) {
-        LOG(1) << "vals: " << c->vals_debug_string();
+        LOG(1) << "val: " << c->val_debug_string();
         LOG(3) << "clauses: " << c->clauses_debug_string();
         LOG(4) << "active ring: " << c->active_ring_debug_string();
 
@@ -254,7 +254,7 @@ bool solve(Cnf* c) {
                 while (d > 0 && !c->freedom_at_stage(d)) {
                     k = c->heads[d];
                     LOG(2) << "  Unsetting " << k;
-                    c->vals[k] = UNSET;
+                    c->val[k] = UNSET;
                     // If variable k was active, remove it from the active ring.
                     if (c->watched(k) || c->watched(-k)) {
                         c->next[k] = c->head;
@@ -267,17 +267,17 @@ bool solve(Cnf* c) {
                 if (d <= 0) return false;
                 // Otherwise, try the other truth value for step d > 0.
                 k = c->heads[d];
-                if (c->vals[k] == TRUE) c->vals[k] = FALSE_NOT_TRUE;
-                else if (c->vals[k] == FALSE) c->vals[k] = TRUE_NOT_FALSE;
+                if (c->val[k] == TRUE) c->val[k] = FALSE_NOT_TRUE;
+                else if (c->val[k] == FALSE) c->val[k] = TRUE_NOT_FALSE;
                 break;
             } else if (pos_unit) {
                 // Only the positive form of the variable appears in a unit.
-                c->vals[c->head] = TRUE_FORCED;
+                c->val[c->head] = TRUE_FORCED;
                 c->tail = k;
                 break;
             } else if (neg_unit) {
                 // Only the negated form of the variable appears in a unit.
-                c->vals[c->head] = FALSE_FORCED;
+                c->val[c->head] = FALSE_FORCED;
                 c->tail = k;
                 break;
             } else {
@@ -294,9 +294,9 @@ bool solve(Cnf* c) {
             LOG(2) << "Couldn't find a unit clause, resorting to branching";
             c->head = c->next[c->tail];
             if (!c->watched(c->head) || c->watched(-c->head)) {
-                c->vals[c->head] = TRUE;
+                c->val[c->head] = TRUE;
             } else {
-                c->vals[c->head] = FALSE;
+                c->val[c->head] = FALSE;
             }
         }
 
@@ -324,7 +324,7 @@ bool solve(Cnf* c) {
         // backtracked otherwise). So we can blindly forge ahead here, assuming
         // that each clause that used to watch l has some other literal we can
         // choose to be the watched literal.
-        lit_t l = c->vals[k] & 1 ? k : -k;
+        lit_t l = c->val[k] & 1 ? k : -k;
         clause_t j = c->watch[l];
         c->watch[l] = clause_nil;
         while (j != clause_nil) {
@@ -340,7 +340,7 @@ bool solve(Cnf* c) {
             // If setting lp as the watched literal for clause j causes lp to
             // become active, add lp to the active ring.
             if (!c->watched(lp) && !c->watched(-lp) &&
-                c->vals[abs(lp)] == UNSET) {
+                c->val[abs(lp)] == UNSET) {
                 if (c->tail == lit_nil) {
                     c->head = abs(lp);
                     c->tail = c->head;
@@ -371,9 +371,9 @@ int main(int argc, char** argv) {
     if (!c.start.empty() && solve(&c)) {
         std::cout << "s SATISFIABLE" << std::endl;
         for (int i = 1, j = 0; i <= c.nvars; ++i) {
-            if (c.vals[i] == UNSET) continue;
+            if (c.val[i] == UNSET) continue;
             if (j % 10 == 0) std::cout << "v";
-            std::cout << ((c.vals[i] & 1) ? " -" : " ") << i;
+            std::cout << ((c.val[i] & 1) ? " -" : " ") << i;
             ++j;
             if (i == c.nvars) std::cout << " 0" << std::endl;
             else if (j > 0 && j % 10 == 0) std::cout << std::endl;
