@@ -1,3 +1,4 @@
+c Different permutations of the same clause
 c label:satisfiable
 c label:easy
 p cnf 3 3

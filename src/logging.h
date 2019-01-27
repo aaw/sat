@@ -3,6 +3,8 @@
 
 #include <iostream>
 
+#include "types.h"
+
 extern int FLAGS_verbosity;
 
 #ifndef LOGGING
@@ -12,6 +14,7 @@ extern int FLAGS_verbosity;
 #define LOG_ENABLED(i) (LOGGING && FLAGS_verbosity >= i)
 #define LOG(i) if (LOG_ENABLED(i)) Logger(__FILE__,__LINE__)
 #define CHECK(expr) AbortLogger(__FILE__,__LINE__,expr)
+#define UNSAT_EXIT UnsatExit()
 
 struct Logger {
     Logger(const std::string& filename, int line) {
@@ -50,5 +53,10 @@ struct AbortLogger {
 private:
     bool enabled_;
 };
+
+void UnsatExit() {
+    std::cout << "s UNSATISFIABLE" << std::endl;
+    exit(UNSATISFIABLE);
+}
 
 #endif  // __LOGGING_H__

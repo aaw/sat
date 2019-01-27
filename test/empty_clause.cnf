@@ -1,0 +1,6 @@
+c label:unsatisfiable
+c label:easy
+p cnf 10 3
+1 2 3 0
+0
+4 5 0

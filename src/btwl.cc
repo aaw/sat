@@ -138,12 +138,16 @@ Cnf parse(const char* filename) {
     int lit;
     do {
         bool read_lit = false;
-        int start = c.clauses.size();
+        std::size_t start = c.clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
             c.clauses.push_back(lit);
             read_lit = true;
+        }
+        if (nc != EOF && start == c.clauses.size()) {
+            LOG(2) << "Empty clause in input file, unsatisfiable formula.";
+            UNSAT_EXIT;
         }
         if (!read_lit) break;
         c.start.push_back(start);

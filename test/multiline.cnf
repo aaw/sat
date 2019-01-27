@@ -1,0 +1,9 @@
+c label:satisfiable
+c label:easy
+c Test to make sure we handle multiline clauses. This formula is unsatisfiable
+c if we incorrectly parse each line as a clause.
+p cnf 6 3
+-1 -2 -3
+-4 -5
+-6 0
+6 0
