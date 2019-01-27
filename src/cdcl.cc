@@ -36,6 +36,9 @@ struct Cnf {
     std::vector<clause_t> reason_storage;
     clause_t* reason; // Keys: literals, values: clause indices
 
+    std::vector<clause_t> watch_storage;
+    clause_t* watch; // Keys: litarals, values: clause indices
+
     std::vector<lit_t> hloc;
 
     // Heap is zero-indexed.
@@ -49,6 +52,8 @@ struct Cnf {
 
     lit_t nvars;
 
+    lit_t f;
+
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
         oval(nvars + 1, FALSE),
@@ -57,10 +62,13 @@ struct Cnf {
         act(nvars + 1, 0.0),
         reason_storage(2 * nvars + 1, clause_nil),
         reason(&reason_storage[nvars]),
+        watch_storage(2 * nvars + 1, clause_nil),
+        watch(&watch_storage[nvars]),
         hloc(nvars + 1),
         heap(nvars + 1),
         nclauses(nclauses),
-        nvars(nvars) {
+        nvars(nvars),
+        f(0) {
         init_heap();
     }
 
@@ -122,9 +130,9 @@ Cnf parse(const char* filename) {
     int lit;
     do {
         bool read_lit = false;
-        c.clauses.push_back(lit_nil);  // watch list pointer
-        c.clauses.push_back(lit_nil);  // watch list pointer
-        c.clauses.push_back(lit_nil);  // size of clause -- don't know this yet.
+        c.clauses.push_back(lit_nil);  // watch list ptr for clause's second lit
+        c.clauses.push_back(lit_nil);  // watch list ptr for clause's first lit
+        c.clauses.push_back(lit_nil);  // size of clause -- don't know this yet
         std::size_t start = c.clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
@@ -145,10 +153,23 @@ Cnf parse(const char* filename) {
                 UNSAT_EXIT;
             }
             c.val[abs(x)] = s;
+            c.tloc[abs(x)] = c.f;
+            ++c.f;
         }
+        if (!read_lit) break;
+        CHECK(cs > 0);
         // Record the size of the clause in offset -1.
         c.clauses[start - 1] = cs;
-        if (!read_lit) break;
+        // TODO: do I need to update watch lists for unit clauses? Going
+        // ahead and doing so here until I can verify that I don't have to.
+        // Update watch list for the first lit in the clause.
+        c.clauses[start - 2] = c.watch[c.clauses[start]];
+        c.watch[c.clauses[start]] = start;
+        // Update watch list for the second lit in the clause, if one exists.
+        if (cs > 1) {
+            c.clauses[start - 3] = c.watch[c.clauses[start + 1]];
+            c.watch[c.clauses[start + 1]] = start;
+        }
     } while (nc != EOF);
 
     c.minl = c.maxl = c.start.size() + 1;
