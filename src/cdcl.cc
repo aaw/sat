@@ -21,15 +21,16 @@ enum State {
 struct Cnf {
     std::vector<lit_t> clauses;
 
-    std::vector<clause_t> start;
-
     std::vector<State> val;
 
     std::vector<State> oval;
 
     std::vector<unsigned long> stamp;  // TODO: what's the right type here?
 
-    std::vector<lit_t> tloc;
+    std::vector<lit_t> trail;
+    // inverse map from literal to trail index. -1 if there's no index in trail.
+    std::vector<size_t> tloc;
+    size_t g;  // index in trail
 
     std::vector<double> act;
 
@@ -58,7 +59,7 @@ struct Cnf {
         val(nvars + 1, UNSET),
         oval(nvars + 1, FALSE),
         stamp(nvars + 1, 0),
-        tloc(nvars + 1, lit_nil),
+        tloc(nvars + 1, -1),
         act(nvars + 1, 0.0),
         reason_storage(2 * nvars + 1, clause_nil),
         reason(&reason_storage[nvars]),
@@ -153,8 +154,8 @@ Cnf parse(const char* filename) {
                 UNSAT_EXIT;
             }
             c.val[abs(x)] = s;
-            c.tloc[abs(x)] = c.f;
-            ++c.f;
+            c.tloc[abs(x)] = c.trail.size();
+            c.trail.push_back(x);
         }
         if (!read_lit) break;
         CHECK(cs > 0);
@@ -172,7 +173,7 @@ Cnf parse(const char* filename) {
         }
     } while (nc != EOF);
 
-    c.minl = c.maxl = c.start.size() + 1;
+    c.minl = c.maxl = c.clauses.size() + 1;
     fclose(f);
     return c;
 }
@@ -180,7 +181,21 @@ Cnf parse(const char* filename) {
 
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
-    return false;
+    size_t g = 0;
+    while (c->trail.size() < static_cast<size_t>(c->nvars)) {
+        // (C2)
+        while (c->trail.size() == g) {
+            // C5
+
+            // C6
+        }
+
+        // C3
+
+        // C7
+    }
+
+    return true;
 }
 
 int main(int argc, char** argv) {
