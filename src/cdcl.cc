@@ -8,8 +8,7 @@
 #include "flags.h"
 #include "logging.h"
 #include "types.h"
-
-extern unsigned long FLAGS_seed;
+#include "heap.h"
 
 enum State {
     UNSET = 0,
@@ -27,23 +26,18 @@ struct Cnf {
 
     std::vector<unsigned long> stamp;  // TODO: what's the right type here?
 
+    Heap<2> heap;
+
     std::vector<lit_t> trail;
     // inverse map from literal to trail index. -1 if there's no index in trail.
-    std::vector<size_t> tloc;
+    std::vector<size_t> tloc;  // -1 == nil
     size_t g;  // index in trail
-
-    std::vector<double> act;
 
     std::vector<clause_t> reason_storage;
     clause_t* reason; // Keys: literals, values: clause indices
 
     std::vector<clause_t> watch_storage;
     clause_t* watch; // Keys: litarals, values: clause indices
-
-    std::vector<lit_t> hloc;
-
-    // Heap is zero-indexed.
-    std::vector<lit_t> heap;
 
     clause_t maxl;
 
@@ -59,34 +53,15 @@ struct Cnf {
         val(nvars + 1, UNSET),
         oval(nvars + 1, FALSE),
         stamp(nvars + 1, 0),
+        heap(nvars),
         tloc(nvars + 1, -1),
-        act(nvars + 1, 0.0),
         reason_storage(2 * nvars + 1, clause_nil),
         reason(&reason_storage[nvars]),
         watch_storage(2 * nvars + 1, clause_nil),
         watch(&watch_storage[nvars]),
-        hloc(nvars + 1),
-        heap(nvars + 1),
         nclauses(nclauses),
         nvars(nvars),
         f(0) {
-        init_heap();
-    }
-
-    void init_heap() {
-        if (FLAGS_seed != 1) {
-            FLAGS_seed = time(NULL);
-        }
-        srand(FLAGS_seed);
-        // Initialize hloc to a random permutation of [1,n]
-        for (int i = 1; i <= nvars; ++i) {
-            int r = rand() % i;
-            heap[i - 1] = heap[r];
-            heap[r] = i;
-        }
-        for (int i = 0; i < nvars; ++i) {
-            hloc[heap[i]] = i;
-        }
     }
 };
 
@@ -186,6 +161,8 @@ bool solve(Cnf* c) {
         // (C2)
         while (c->trail.size() == g) {
             // C5
+            // TODO: If needed, purge excess clauses
+            // TODO: If needed, flush literals and continue loop
 
             // C6
         }
