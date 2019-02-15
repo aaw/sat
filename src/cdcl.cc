@@ -63,6 +63,21 @@ struct Cnf {
         nvars(nvars),
         f(0) {
     }
+
+    // Is the literal x currently false?
+    inline bool is_false(lit_t x) const {
+        State s = val[abs(x)];
+        return (x > 0 && s == FALSE) || (x < 0 && s == TRUE);
+    }
+
+    std::string print_clause(clause_t c) {
+        std::ostringstream oss;
+        for (int i = 0; i < clauses[c - 1]; ++i) {
+            oss << clauses[c + i];
+            if (i != clauses[c - 1] - 1) oss << " ";
+        }
+        return oss.str();
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -156,20 +171,60 @@ Cnf parse(const char* filename) {
 
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
+    lit_t d = 0;
     size_t g = 0;
     while (c->trail.size() < static_cast<size_t>(c->nvars)) {
         // (C2)
         while (c->trail.size() == g) {
             // C5
-            // TODO: If needed, purge excess clauses
-            // TODO: If needed, flush literals and continue loop
+            if (c->trail.size() == static_cast<size_t>(c->nvars)) return true;
+            // TODO: If needed, purge excess clauses, else
+            // TODO: If needed, flush literals and continue loop, else
+            ++d;
+            // i_d = c->trail.size() ??
 
             // C6
+            lit_t k = c->heap.delete_max();
+            while (c->val[k] != UNSET) k = c->heap.delete_max();
+            LOG(3) << "Decided on variable " << k;
+            lit_t l = c->oval[k] == FALSE ? -k : k;
+            LOG(3) << "Adding " << l << " to the trail.";
+            c->tloc[k] = c->trail.size();
+            c->trail.push_back(l);
+            c->val[k] = l < 0 ? FALSE : TRUE;
+            c->reason[l] = clause_nil;
+            break;
         }
 
         // C3
+        lit_t l = c->trail[g];
+        LOG(3) << "Examining " << -l << "'s watch list";
+        ++g;
+        clause_t w = c->watch[-l];
+        bool found_conflict = false;
+        while (w != clause_nil) {
 
-        // C7
+            // C4
+            lit_t l0 = c->clauses[w] == -l ? c->clauses[w+1] : c->clauses[w];
+            LOG(3) << "Looking at watched clause " << c->print_clause(w)
+                   << " to see if it forces a unit (" << l0 << ")";
+            if (c->val[abs(l0)] == UNSET) {
+                LOG(3) << "Adding " << l0 << " to the trail as " << (l0 < 0 ? FALSE : TRUE);
+                c->tloc[abs(l0)] = c->trail.size();
+                c->trail.push_back(l0);
+                c->val[abs(l0)] = l0 < 0 ? FALSE : TRUE;
+                c->reason[l] = w;
+            } else if (c->is_false(l0)) {
+
+            } else {
+                LOG(3) << l0 << " is true, moving on to next watchee";
+            }
+            w = c->clauses[w] == -l ? c->clauses[w - 2] : c->clauses[w - 3];
+        }
+
+        if (found_conflict) {
+            // C7
+        }
     }
 
     return true;

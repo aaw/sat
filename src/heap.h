@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <vector>
 
+#include <sstream>
+
 #include "flags.h"
 #include "logging.h"
 #include "types.h"
@@ -43,9 +45,12 @@ struct Heap {
     lit_t delete_max() {
         if (heap.empty()) return lit_nil;
         hloc[heap[0]] = -1;
+        lit_t m = heap[0];
         heap[0] = heap[heap.size() - 1];
+        heap.pop_back();
         hloc[heap[0]] = 0;
         siftdown(0);
+        return m;
     }
 
     void increase_key(lit_t l, double delta) {
@@ -55,12 +60,14 @@ struct Heap {
     }
 
     void siftup(size_t i) {
+        if (i == 0) return;
         lit_t v = heap[i];
         size_t p = (i - 1) / D;
-        while (p != 0 && key[heap[p]] < key[heap[i]]) {
+        while (key[heap[p]] < key[heap[i]]) {
             heap[i] = heap[p];
             hloc[heap[i]] = i;
             i = p;
+            if (p == 0) break;
             p = (p - 1) / D;
         }
         heap[i] = v;
@@ -93,6 +100,23 @@ struct Heap {
             }
         }
         return max_index;
+    }
+
+    std::string debug() {
+        std::ostringstream s;
+        s << std::endl << "hloc: ";
+        for (size_t i = 1; i < hloc.size(); ++i) {
+            s << "[" << i << ":" << hloc[i] << "]";
+        }
+        s << std::endl << "heap: ";
+        for (size_t i = 0; i < heap.size(); ++i) {
+            s << "[" << heap[i] << "]";
+        }
+        s << std::endl << "act: ";
+        for (size_t i = 1; i < key.size(); ++i) {
+            s << "[" << i << ":" << key[i] << "]";
+        }
+        return s.str();
     }
 
     std::vector<size_t> hloc; // -1 == nil, hloc is 1-indexed.
