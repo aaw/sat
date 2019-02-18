@@ -70,6 +70,12 @@ struct Cnf {
         return (x > 0 && s == FALSE) || (x < 0 && s == TRUE);
     }
 
+    // Is the literal x currently true?
+    inline bool is_true(lit_t x) const {
+        State s = val[abs(x)];
+        return (x > 0 && s == TRUE) || (x < 0 && s == FALSE);
+    }    
+
     std::string print_clause(clause_t c) {
         std::ostringstream oss;
         for (int i = 0; i < clauses[c - 1]; ++i) {
@@ -205,24 +211,51 @@ bool solve(Cnf* c) {
         while (w != clause_nil) {
 
             // C4
-            lit_t l0 = c->clauses[w] == -l ? c->clauses[w+1] : c->clauses[w];
+            size_t l0_i = c->clauses[w] == -l ? w+1 : w;
+            lit_t l0 = c->clauses[l0_i];
             LOG(3) << "Looking at watched clause " << c->print_clause(w)
                    << " to see if it forces a unit (" << l0 << ")";
-            if (c->val[abs(l0)] == UNSET) {
-                LOG(3) << "Adding " << l0 << " to the trail as " << (l0 < 0 ? FALSE : TRUE);
-                c->tloc[abs(l0)] = c->trail.size();
-                c->trail.push_back(l0);
-                c->val[abs(l0)] = l0 < 0 ? FALSE : TRUE;
-                c->reason[l] = w;
-            } else if (c->is_false(l0)) {
-
-            } else {
-                LOG(3) << l0 << " is true, moving on to next watchee";
+            if (!c->is_true(l0)) {
+                bool all_false = true;
+                for(int i = 2; i < c->clauses[w - 1]; ++i) {
+                    if (!c->is_false(c->clauses[w + i])) {
+                        all_false = false;
+                        lit_t ln = c->clauses[w + i];
+                        LOG(3) << "Resetting " << ln
+                               << " as the watched literal in " << c->print_clause(w);
+                        // swap ln and l0
+                        std::swap(c->clauses[l0_i], c->clauses[w + i]);
+                        // move w onto watch list of ln
+                        // TODO: clauses and watch are lit_t and clause_t, resp.
+                        //       clean up so we can std::swap here.
+                        size_t wl_i = c->clauses[w] == -l ? w - 2 : w - 3;
+                        size_t tmp = c->watch[ln];
+                        c->watch[ln] = c->clauses[wl_i];
+                        c->clauses[wl_i] = tmp;
+                        break;
+                    }
+                }
+                if (all_false) {
+                    if (c->is_false(l0)) {
+                        LOG(3) << l0 << " is false, everything false! (-> C7)";
+                        break;
+                    } else { // l0 is free
+                        LOG(3) << "Adding " << l0 << " to the trail as "
+                               << (l0 < 0 ? FALSE : TRUE);
+                        c->tloc[abs(l0)] = c->trail.size();
+                        c->trail.push_back(l0);
+                        c->val[abs(l0)] = l0 < 0 ? FALSE : TRUE;
+                        c->reason[l] = w;
+                    }
+                }
             }
             w = c->clauses[w] == -l ? c->clauses[w - 2] : c->clauses[w - 3];
         }
 
-        if (found_conflict) {
+        if (!found_conflict) {
+            LOG(3) << "Emptying " << -l << "'s watch list";
+            c->watch[-l] = clause_nil;
+        } else {
             // C7
         }
     }
