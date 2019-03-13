@@ -13,13 +13,16 @@
 
 extern unsigned long FLAGS_seed;
 
+const double kRho = 0.95;
+
 // max heap, stores variables
 template <unsigned int D>
 struct Heap {
     Heap(lit_t nvars) :
       hloc(nvars + 1),
       heap(nvars),
-      key(nvars + 1, 0.0) {
+      key(nvars + 1, 0.0),
+      delta(1.0) {
         if (FLAGS_seed != 1) {
             FLAGS_seed = time(NULL);
         }
@@ -53,12 +56,15 @@ struct Heap {
         return m;
     }
 
-    void increase_key(lit_t l, double delta) {
-        CHECK(delta > 0);
+    void bump(lit_t l) {
         key[l] += delta;
         siftup(hloc[l]);
     }
 
+    void rescale_delta() {
+        delta /= kRho;
+    }
+    
     void siftup(size_t i) {
         if (i == 0) return;
         lit_t v = heap[i];
@@ -122,6 +128,7 @@ struct Heap {
     std::vector<size_t> hloc; // -1 == nil, hloc is 1-indexed.
     std::vector<lit_t> heap;  // heap is 0-indexed.
     std::vector<double> key;  // key is 1-indexed
+    double delta;
 };
 
 #endif  // __HEAP_H__

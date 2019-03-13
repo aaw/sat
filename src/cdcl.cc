@@ -22,13 +22,15 @@ struct Cnf {
 
     std::vector<State> val;
 
+    std::vector<lit_t> lev;  // maps variable to level it was set on.
+    
     std::vector<State> oval;
 
     std::vector<unsigned long> stamp;  // TODO: what's the right type here?
 
     Heap<2> heap;
 
-    std::vector<lit_t> trail;
+    std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
     // inverse map from literal to trail index. -1 if there's no index in trail.
     std::vector<size_t> tloc;  // -1 == nil
     size_t g;  // index in trail
@@ -39,6 +41,8 @@ struct Cnf {
     std::vector<clause_t> watch_storage;
     clause_t* watch; // Keys: litarals, values: clause indices
 
+    std::vector<lit_t> b;  // temp storage for learned clause
+    
     clause_t maxl;
 
     clause_t minl;
@@ -49,8 +53,11 @@ struct Cnf {
 
     lit_t f;
 
+    unsigned long epoch;
+    
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
+        lev(nvars + 1, -1),
         oval(nvars + 1, FALSE),
         stamp(nvars + 1, 0),
         heap(nvars),
@@ -61,7 +68,8 @@ struct Cnf {
         watch(&watch_storage[nvars]),
         nclauses(nclauses),
         nvars(nvars),
-        f(0) {
+        f(0),
+        epoch(0) {
     }
 
     // Is the literal x currently false?
@@ -81,6 +89,14 @@ struct Cnf {
         for (int i = 0; i < clauses[c - 1]; ++i) {
             oss << clauses[c + i];
             if (i != clauses[c - 1] - 1) oss << " ";
+        }
+        return oss.str();
+    }
+
+    std::string print_trail() {
+        std::ostringstream oss;
+        for (const auto& l : trail) {
+            oss << "[" << l << "]";
         }
         return oss.str();
     }
@@ -189,6 +205,7 @@ bool solve(Cnf* c) {
             ++d;
             // i_d = c->trail.size() ??
 
+            
             // C6
             lit_t k = c->heap.delete_max();
             while (c->val[k] != UNSET) k = c->heap.delete_max();
@@ -198,6 +215,7 @@ bool solve(Cnf* c) {
             c->tloc[k] = c->trail.size();
             c->trail.push_back(l);
             c->val[k] = l < 0 ? FALSE : TRUE;
+            c->lev[k] = d;
             c->reason[l] = clause_nil;
             break;
         }
@@ -211,11 +229,14 @@ bool solve(Cnf* c) {
         while (w != clause_nil) {
 
             // C4
-            size_t l0_i = c->clauses[w] == -l ? w+1 : w;
-            lit_t l0 = c->clauses[l0_i];
+            if (c->clauses[w] != -l) {
+                // Make l0 first literal in the clause instead of the second.
+                std::swap(c->clauses[w], c->clauses[w+1]);
+                std::swap(c->clauses[w-2], c->clauses[w-3]);
+            }
             LOG(3) << "Looking at watched clause " << c->print_clause(w)
-                   << " to see if it forces a unit (" << l0 << ")";
-            if (!c->is_true(l0)) {
+                   << " to see if it forces a unit (" << c->clauses[w] << ")";
+            if (!c->is_true(c->clauses[w])) {
                 bool all_false = true;
                 for(int i = 2; i < c->clauses[w - 1]; ++i) {
                     if (!c->is_false(c->clauses[w + i])) {
@@ -224,7 +245,7 @@ bool solve(Cnf* c) {
                         LOG(3) << "Resetting " << ln
                                << " as the watched literal in " << c->print_clause(w);
                         // swap ln and l0
-                        std::swap(c->clauses[l0_i], c->clauses[w + i]);
+                        std::swap(c->clauses[w], c->clauses[w + i]);
                         // move w onto watch list of ln
                         // TODO: clauses and watch are lit_t and clause_t, resp.
                         //       clean up so we can std::swap here.
@@ -236,15 +257,20 @@ bool solve(Cnf* c) {
                     }
                 }
                 if (all_false) {
-                    if (c->is_false(l0)) {
-                        LOG(3) << l0 << " is false, everything false! (-> C7)";
+                    if (c->is_false(c->clauses[w])) {
+                        LOG(3) << c->clauses[w]
+                               << " false, everything false! (-> C7)";
+                        found_conflict = true;
                         break;
                     } else { // l0 is free
-                        LOG(3) << "Adding " << l0 << " to the trail as "
-                               << (l0 < 0 ? FALSE : TRUE);
+                        LOG(3) << "Adding " << c->clauses[w]
+                               << " to the trail as "
+                               << (c->clauses[w] < 0 ? "FALSE" : "TRUE");
+                        lit_t l0 = c->clauses[w];
                         c->tloc[abs(l0)] = c->trail.size();
                         c->trail.push_back(l0);
                         c->val[abs(l0)] = l0 < 0 ? FALSE : TRUE;
+                        c->lev[abs(l0)] = d;
                         c->reason[l] = w;
                     }
                 }
@@ -257,6 +283,48 @@ bool solve(Cnf* c) {
             c->watch[-l] = clause_nil;
         } else {
             // C7
+            LOG(3) << "Found a conflict with d = " << d;
+            if (d == 0) return false;
+            lit_t dp = 0;
+            lit_t q = 0;
+            lit_t r = 0;
+            c->epoch++;
+            LOG(3) << "Bumping epoch to " << c->epoch << " at " << c->print_clause(w);
+            LOG(3) << "Trail is " << c->print_trail();
+            c->stamp[abs(c->clauses[w])] = c->epoch;
+            c->heap.bump(abs(c->clauses[w]));
+            size_t t = -1;
+            for(size_t j = 1; j < static_cast<size_t>(c->clauses[w-1]); ++j) {
+                lit_t m = c->clauses[w+j];
+                if (c->tloc[m] > t) t = c->tloc[m];
+                if (c->stamp[abs(m)] != c->epoch) continue;
+                c->stamp[abs(m)] = c->epoch;
+                lit_t p = c->lev[d];
+                if (p > 0) c->heap.bump(abs(m));
+                if (p == d) {
+                    q++;
+                } else {
+                    r++;
+                    LOG(3) << "Adding " << -m << " to learned clause.";
+                    c->b[r] = -m;
+                    dp = std::max(dp, p);
+                }
+            }
+
+            while (q > 0) {
+                lit_t l = c->trail[t];
+                t--;
+                if (c->stamp[abs(l)] == c->epoch) {
+                    LOG(3) << "Stamped this epoch: " << l;
+                    q--;
+                    if (c->reason[l] != clause_nil) {
+                        c->reason[l] = w;
+                        // blit everything
+                    }
+                }
+            }
+            
+            // C8
         }
     }
 
