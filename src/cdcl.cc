@@ -32,7 +32,7 @@ struct Cnf {
 
     std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
     // inverse map from literal to trail index. -1 if there's no index in trail.
-    std::vector<size_t> tloc;  // -1 == nil
+    std::vector<lit_t> tloc;  // -1 == nil
     size_t g;  // index in trail
 
     std::vector<clause_t> reason_storage;
@@ -86,17 +86,19 @@ struct Cnf {
 
     std::string print_clause(clause_t c) {
         std::ostringstream oss;
+        oss << "(";
         for (int i = 0; i < clauses[c - 1]; ++i) {
             oss << clauses[c + i];
             if (i != clauses[c - 1] - 1) oss << " ";
         }
+        oss << ")";
         return oss.str();
     }
 
     std::string print_trail() {
         std::ostringstream oss;
-        for (const auto& l : trail) {
-            oss << "[" << l << "]";
+        for (size_t i = 0; i < trail.size(); ++i) {
+            oss << "[" << trail[i] << ":" << lev[abs(trail[i])] << "]";
         }
         return oss.str();
     }
@@ -289,19 +291,23 @@ bool solve(Cnf* c) {
             lit_t q = 0;
             lit_t r = 0;
             c->epoch++;
-            LOG(3) << "Bumping epoch to " << c->epoch << " at " << c->print_clause(w);
+            LOG(3) << "Bumping epoch to " << c->epoch << " at "
+                   << c->print_clause(w);
             LOG(3) << "Trail is " << c->print_trail();
             c->stamp[abs(c->clauses[w])] = c->epoch;
             c->heap.bump(abs(c->clauses[w]));
-            size_t t = -1;
+            lit_t t = -1;
             for(size_t j = 1; j < static_cast<size_t>(c->clauses[w-1]); ++j) {
                 lit_t m = c->clauses[w+j];
-                if (c->tloc[m] > t) t = c->tloc[m];
-                if (c->stamp[abs(m)] != c->epoch) continue;
+                if (c->tloc[m] >= t) t = c->tloc[m];
+                // TODO: technically don't need this next line, but it's part of
+                // the blit subroutine
+                if (c->stamp[abs(m)] == c->epoch) continue;
                 c->stamp[abs(m)] = c->epoch;
-                lit_t p = c->lev[d];
+                lit_t p = c->lev[abs(m)];
                 if (p > 0) c->heap.bump(abs(m));
                 if (p == d) {
+                    LOG(3) << m << " is at level " << d;
                     q++;
                 } else {
                     r++;
@@ -312,17 +318,37 @@ bool solve(Cnf* c) {
             }
 
             while (q > 0) {
+                LOG(3) << "t= " << t;
                 lit_t l = c->trail[t];
+                LOG(3) << "Up trail, q=" << q << ", t=" << t << ", l=" << l;
                 t--;
                 if (c->stamp[abs(l)] == c->epoch) {
                     LOG(3) << "Stamped this epoch: " << l;
                     q--;
                     if (c->reason[l] != clause_nil) {
-                        c->reason[l] = w;
-                        // blit everything
+                        clause_t r = c->reason[l];
+                        LOG(3) << "Reason for " << l << ": " << c->print_clause(r);
+                        for (size_t j = 1; j < static_cast<size_t>(c->clauses[r-1]); ++j) {
+                            lit_t m = c->clauses[w+j];
+                            if (c->stamp[abs(m)] == c->epoch) continue;
+                            c->stamp[abs(m)] = c->epoch;
+                            lit_t p = c->lev[abs(m)];
+                            if (p > 0) c->heap.bump(abs(m));
+                            if (p == d) {
+                                q++;
+                            } else {
+                                r++;
+                                LOG(3) << "Adding " << -m << " to learned clause.";
+                                c->b[r] = -m;
+                                dp = std::max(dp, p);
+                            }
+                        }
                     }
                 }
             }
+
+            lit_t lp = c->trail[t];
+            while (c->stamp[abs(lp)] != c->epoch) { lp = c->trail[--t]; }
             
             // C8
         }
