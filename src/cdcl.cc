@@ -32,7 +32,8 @@ struct Cnf {
 
     std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
     // inverse map from literal to trail index. -1 if there's no index in trail.
-    std::vector<lit_t> tloc;  // -1 == nil
+    std::vector<lit_t> tloc;  // variables -> trail locations; -1 == nil
+    size_t f;  // trail length
     size_t g;  // index in trail
 
     std::vector<clause_t> reason_storage;
@@ -51,8 +52,6 @@ struct Cnf {
 
     lit_t nvars;
 
-    lit_t f;
-
     unsigned long epoch;
     
     Cnf(lit_t nvars, clause_t nclauses) :
@@ -61,14 +60,16 @@ struct Cnf {
         oval(nvars + 1, FALSE),
         stamp(nvars + 1, 0),
         heap(nvars),
+        trail(nvars, -1),
         tloc(nvars + 1, -1),
+        f(0),
+        g(0),
         reason_storage(2 * nvars + 1, clause_nil),
         reason(&reason_storage[nvars]),
         watch_storage(2 * nvars + 1, clause_nil),
         watch(&watch_storage[nvars]),
         nclauses(nclauses),
         nvars(nvars),
-        f(0),
         epoch(0) {
     }
 
@@ -97,7 +98,7 @@ struct Cnf {
 
     std::string print_trail() {
         std::ostringstream oss;
-        for (size_t i = 0; i < trail.size(); ++i) {
+        for (size_t i = 0; i < f; ++i) {
             oss << "[" << trail[i] << ":" << lev[abs(trail[i])] << "]";
         }
         return oss.str();
@@ -196,16 +197,15 @@ Cnf parse(const char* filename) {
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     lit_t d = 0;
-    size_t g = 0;
-    while (c->trail.size() < static_cast<size_t>(c->nvars)) {
+    while (c->f < static_cast<size_t>(c->nvars)) {
         // (C2)
-        while (c->trail.size() == g) {
+        while (c->f == c->g) {
             // C5
-            if (c->trail.size() == static_cast<size_t>(c->nvars)) return true;
+            if (c->f == static_cast<size_t>(c->nvars)) return true;
             // TODO: If needed, purge excess clauses, else
             // TODO: If needed, flush literals and continue loop, else
             ++d;
-            // i_d = c->trail.size() ??
+            // i_d = f ??
 
             
             // C6
@@ -214,8 +214,10 @@ bool solve(Cnf* c) {
             LOG(3) << "Decided on variable " << k;
             lit_t l = c->oval[k] == FALSE ? -k : k;
             LOG(3) << "Adding " << l << " to the trail.";
-            c->tloc[k] = c->trail.size();
-            c->trail.push_back(l);
+
+            c->tloc[k] = c->f;
+            c->trail[c->f] = l;
+            ++c->f;
             c->val[k] = l < 0 ? FALSE : TRUE;
             c->lev[k] = d;
             c->reason[l] = clause_nil;
@@ -223,9 +225,9 @@ bool solve(Cnf* c) {
         }
 
         // C3
-        lit_t l = c->trail[g];
+        lit_t l = c->trail[c->g];
         LOG(3) << "Examining " << -l << "'s watch list";
-        ++g;
+        ++c->g;
         clause_t w = c->watch[-l];
         bool found_conflict = false;
         while (w != clause_nil) {
@@ -269,8 +271,9 @@ bool solve(Cnf* c) {
                                << " to the trail as "
                                << (c->clauses[w] < 0 ? "FALSE" : "TRUE");
                         lit_t l0 = c->clauses[w];
-                        c->tloc[abs(l0)] = c->trail.size();
-                        c->trail.push_back(l0);
+                        c->tloc[abs(l0)] = c->f;
+                        c->trail[c->f] = l0;
+                        ++c->f;
                         c->val[abs(l0)] = l0 < 0 ? FALSE : TRUE;
                         c->lev[abs(l0)] = d;
                         c->reason[l] = w;
@@ -299,7 +302,7 @@ bool solve(Cnf* c) {
             lit_t t = -1;
             for(size_t j = 1; j < static_cast<size_t>(c->clauses[w-1]); ++j) {
                 lit_t m = c->clauses[w+j];
-                if (c->tloc[m] >= t) t = c->tloc[m];
+                if (c->tloc[abs(m)] >= t) t = c->tloc[abs(m)];
                 // TODO: technically don't need this next line, but it's part of
                 // the blit subroutine
                 if (c->stamp[abs(m)] == c->epoch) continue;
@@ -349,7 +352,8 @@ bool solve(Cnf* c) {
 
             lit_t lp = c->trail[t];
             while (c->stamp[abs(lp)] != c->epoch) { lp = c->trail[--t]; }
-            
+
+            LOG(3) << "stopping C7 with l'=" << lp;
             // C8
         }
     }
