@@ -240,7 +240,7 @@ bool solve(Cnf* c) {
             }
             LOG(3) << "Looking at watched clause " << c->print_clause(w)
                    << " to see if it forces a unit (" << c->clauses[w] << ")";
-            if (!c->is_true(c->clauses[w])) {
+            if (!c->is_true(c->clauses[w+1])) {
                 bool all_false = true;
                 for(int i = 2; i < c->clauses[w - 1]; ++i) {
                     if (!c->is_false(c->clauses[w + i])) {
@@ -261,22 +261,22 @@ bool solve(Cnf* c) {
                     }
                 }
                 if (all_false) {
-                    if (c->is_false(c->clauses[w])) {
+                    if (c->is_false(c->clauses[w+1])) {
                         LOG(3) << c->clauses[w]
                                << " false, everything false! (-> C7)";
                         found_conflict = true;
                         break;
-                    } else { // l0 is free
-                        LOG(3) << "Adding " << c->clauses[w]
+                    } else { // l1 is free
+                        LOG(3) << "Adding " << c->clauses[w+1]
                                << " to the trail as "
-                               << (c->clauses[w] < 0 ? "FALSE" : "TRUE");
-                        lit_t l0 = c->clauses[w];
-                        c->tloc[abs(l0)] = c->f;
-                        c->trail[c->f] = l0;
+                               << (c->clauses[w+1] < 0 ? "FALSE" : "TRUE");
+                        lit_t l1 = c->clauses[w+1];
+                        c->tloc[abs(l1)] = c->f;
+                        c->trail[c->f] = l1;
                         ++c->f;
-                        c->val[abs(l0)] = l0 < 0 ? FALSE : TRUE;
-                        c->lev[abs(l0)] = d;
-                        c->reason[l] = w;
+                        c->val[abs(l1)] = l1 < 0 ? FALSE : TRUE;
+                        c->lev[abs(l1)] = d;
+                        c->reason[l1] = w;
                     }
                 }
             }
@@ -350,6 +350,12 @@ bool solve(Cnf* c) {
                 }
             }
 
+            std::ostringstream oss;
+            for(int i = 0; i < r; i++) {
+                oss << c->b[i];
+            }
+            LOG(3) << "learned clause is: " << oss.str();
+            
             lit_t lp = c->trail[t];
             while (c->stamp[abs(lp)] != c->epoch) { lp = c->trail[--t]; }
 
