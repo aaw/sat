@@ -169,8 +169,8 @@ Cnf parse(const char* filename) {
                 UNSAT_EXIT;
             }
             c.val[abs(x)] = s;
-            c.tloc[abs(x)] = c.trail.size();
-            c.trail.push_back(x);
+            c.tloc[abs(x)] = c.f;
+            c.trail[c.f++] = x;
         }
         if (!read_lit) break;
         CHECK(cs > 0);
@@ -197,7 +197,7 @@ Cnf parse(const char* filename) {
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     lit_t d = 0;
-    while (c->f < static_cast<size_t>(c->nvars)) {
+    do {
         // (C2)
         while (c->f == c->g) {
             // C5
@@ -225,6 +225,7 @@ bool solve(Cnf* c) {
         }
 
         // C3
+        LOG(4) << "C3";
         lit_t l = c->trail[c->g];
         LOG(3) << "Examining " << -l << "'s watch list";
         ++c->g;
@@ -314,7 +315,7 @@ bool solve(Cnf* c) {
                     q++;
                 } else {
                     r++;
-                    LOG(3) << "Adding " << -m << " to learned clause.";
+                    LOG(3) << "Adding " << -m << " (level " << p << ") to learned clause.";
                     c->b[r] = -m;
                     dp = std::max(dp, p);
                 }
@@ -354,7 +355,7 @@ bool solve(Cnf* c) {
             for(int i = 0; i < r; i++) {
                 oss << c->b[i];
             }
-            LOG(3) << "learned clause is: " << oss.str();
+            LOG(3) << "dp = " << dp << ", learned clause is: " << oss.str();
             
             lit_t lp = c->trail[t];
             while (c->stamp[abs(lp)] != c->epoch) { lp = c->trail[--t]; }
@@ -362,7 +363,7 @@ bool solve(Cnf* c) {
             LOG(3) << "stopping C7 with l'=" << lp;
             // C8
         }
-    }
+    } while (c->f < static_cast<size_t>(c->nvars));
 
     return true;
 }
