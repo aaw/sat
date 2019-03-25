@@ -39,7 +39,7 @@ struct Heap {
     }
 
     void insert(lit_t l) {
-        if (hloc[l] == -1) return;
+        if (hloc[l] == std::numeric_limits<size_t>::max()) return;
         hloc[l] = heap.size();
         heap.push_back(l);
         siftup(heap.size() - 1);
@@ -47,7 +47,7 @@ struct Heap {
 
     lit_t delete_max() {
         if (heap.empty()) return lit_nil;
-        hloc[heap[0]] = -1;
+        hloc[heap[0]] = std::numeric_limits<size_t>::max();;
         lit_t m = heap[0];
         heap[0] = heap[heap.size() - 1];
         heap.pop_back();
@@ -125,7 +125,7 @@ struct Heap {
         return s.str();
     }
 
-    std::vector<size_t> hloc; // -1 == nil, hloc is 1-indexed.
+    std::vector<size_t> hloc; // std::numeric_limits<size_t>::max() == nil, hloc is 1-indexed.
     std::vector<lit_t> heap;  // heap is 0-indexed.
     std::vector<double> key;  // key is 1-indexed
     double delta;
