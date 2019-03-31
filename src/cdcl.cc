@@ -274,7 +274,9 @@ bool solve(Cnf* c) {
                         found_conflict = true;
                         break;
                     } else { // l1 is free
-                        lit_t l1 = c->clauses[w+1];
+                        std::swap(c->clauses[w], c->clauses[w + 1]);
+                        std::swap(c->clauses[w - 2], c->clauses[w - 3]);
+                        lit_t l1 = c->clauses[w];
                         LOG(3) << "Adding " << l1 << " to the trail, "
                                << "forced by " << c->print_clause(w);
                         c->tloc[abs(l1)] = c->f;
@@ -299,6 +301,25 @@ bool solve(Cnf* c) {
             // C7
             LOG(3) << "Found a conflict with d = " << d;
             if (d == 0) return false;
+
+            // Not mentioned in Knuth's description, but we need to make sure
+            // that the rightmost literal on the trail is the first literal
+            // in the clause here.
+            // TODO: i think it's okay to blindly swap out the watchlist here
+            // without regard to splicing the singly linked list since all
+            // literals in the clause are false?
+            size_t rl = c->f;
+            size_t cs = static_cast<size_t>(c->clauses[w-1]);
+            for (bool done = false; !done; --rl) {
+                for (size_t j = 0; j < cs; ++j) {
+                    if (abs(c->trail[rl]) == abs(c->clauses[w+j])) {
+                        done = true;
+                        std::swap(c->clauses[w], c->clauses[w+j]);
+                        break;
+                    }
+                }
+            }
+
             lit_t dp = 0;
             lit_t q = 0;
             lit_t r = 0;
@@ -329,11 +350,14 @@ bool solve(Cnf* c) {
                 }
             }
 
-            while (q > 0) {
+            // TODO: knuth says q > 0?
+            while (q > 1) {
                 LOG(3) << "q=" << q << ",t=" << t;
                 lit_t l = c->trail[t];
-                LOG(3) << "Up trail, q=" << q << ", t=" << t << ", l=" << l;
+                LOG(3) << "Up trail, q=" << q << ", t=" << t << ", l=" << l
+                       << "L_t = " << c->trail[t];
                 t--;
+                LOG(3) << "New L_t = " << c->trail[t];
                 if (c->stamp[abs(l)] == c->epoch) {
                     LOG(3) << "Stamped this epoch: " << l;
                     q--;
@@ -344,7 +368,7 @@ bool solve(Cnf* c) {
                             std::swap(c->clauses[rc], c->clauses[rc+1]);
                             std::swap(c->clauses[rc-2], c->clauses[rc-3]);
                         }                        
-                        LOG(3) << "Reason for " << l << ": " << c->print_clause(r);
+                        LOG(3) << "Reason for " << l << ": " << c->print_clause(rc);
                         for (size_t j = 1; j < static_cast<size_t>(c->clauses[rc-1]); ++j) {
                             lit_t m = c->clauses[rc+j];
                             LOG(3) << "considering " << abs(m);
@@ -365,17 +389,22 @@ bool solve(Cnf* c) {
                 }
             }
 
-            std::ostringstream oss;
-            for(int i = 0; i < r; i++) {
-                oss << c->b[i];
-            }
-            LOG(3) << "dp = " << dp << ", learned clause is: " << oss.str();
-            
             lit_t lp = c->trail[t];
-            while (c->stamp[abs(lp)] != c->epoch) { lp = c->trail[--t]; }
+            LOG(4) << "lp = " << lp;
+            // TODO: knuth says "while S(|l'|) != s set t = t-1 and l' <- L_t"
+            // in answer to #263, but in his impl he has "o,l=trail[tl--];"
+            while (c->stamp[abs(lp)] != c->epoch) { t--; lp = c->trail[t]; }
 
             LOG(4) << "stopping C7 with l'=" << lp;
 
+            // Debugging for learned clause:
+            std::ostringstream oss;
+            oss << -lp << " ";
+            for(int i = 0; i < r; i++) {
+                oss << -c->b[i] << " ";
+            }
+            LOG(3) << "[*] dp = " << dp << ", learned clause is: " << oss.str();
+            
             // C8: backjump
             while (c->f > c->di[dp+1]) {
                 c->f--;
@@ -393,6 +422,7 @@ bool solve(Cnf* c) {
             
             // C9: learn
             if (d == 0) return false;
+            
             
         }
     } while (c->f < static_cast<size_t>(c->nvars));
