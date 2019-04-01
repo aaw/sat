@@ -204,6 +204,7 @@ bool solve(Cnf* c) {
     do {
         // (C2)
         while (c->f == c->g) {
+            LOG(4) << "C5";
             // C5
             if (c->f == static_cast<size_t>(c->nvars)) return true;
             // TODO: If needed, purge excess clauses, else
@@ -415,15 +416,45 @@ bool solve(Cnf* c) {
                 c->val[k] = UNSET;
                 c->reason[k] = clause_nil;
                 c->heap.insert(k);
-                c->g = c->f;
-                d = dp;
             }
+            c->g = c->f;
+            d = dp;
             LOG(3) << "After backjump, trail is " << c->print_trail();
             
             // C9: learn
+            //TODO: Knuth has "if d > 0 do step C9". what is else clause?
+            // assuming it's "return false" here.
             if (d == 0) return false;
             
-            
+            c->clauses.push_back(clause_nil); // watch list for l1
+            c->clauses.push_back(c->watch[-lp]); // watch list for l0
+            c->clauses.push_back(r+1); // size
+            LOG(3) << "adding a clause of size " << r+1;
+            clause_t lc = c->clauses.size();
+            c->clauses.push_back(-lp);
+            c->watch[-lp] = lc;
+            bool found_watch = false;
+            for (lit_t j = 0; j < r; ++j) {
+                if (found_watch || c->lev[abs(c->b[j])] < dp) {
+                    c->clauses.push_back(-c->b[j]);
+                } else {
+                    c->clauses[lc+1] = -c->b[j];
+                    c->clauses[lc-3] = c->watch[-c->b[j]];
+                    c->watch[-c->b[j]] = lc;
+                    found_watch = true;
+                }
+            }
+            LOG(3) << "*** Successfully added clause " << c->print_clause(lc);
+
+            c->trail[c->f] = lp;
+            c->val[abs(lp)] = lp < 0 ? FALSE : TRUE;
+            c->lev[abs(lp)] = d;
+            c->tloc[abs(lp)] = c->f;
+            c->reason[abs(lp)] = lc;
+            c->f++;
+            // TODO: DEL = DEL / rho;
+
+            LOG(3) << "After clause install, trail is " << c->print_trail();
         }
     } while (c->f < static_cast<size_t>(c->nvars));
 
