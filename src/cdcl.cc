@@ -100,10 +100,31 @@ struct Cnf {
         return oss.str();
     }
 
+    std::string dump_clauses() {
+        std::ostringstream oss;
+        for(clause_t i = 2; i < clauses.size(); i += clauses[i] + 3) {
+            oss << "(";
+            for(clause_t j = 1; j < clauses[i]; ++j) {
+                oss << clauses[i+j] << " ";
+            }
+            oss << clauses[i+clauses[i]] << ") ";
+        }
+        return oss.str();
+    }
+    
     std::string print_trail() {
         std::ostringstream oss;
         for (size_t i = 0; i < f; ++i) {
             oss << "[" << trail[i] << ":" << lev[abs(trail[i])] << "]";
+        }
+        return oss.str();
+    }
+
+    std::string print_watchlist(lit_t l) {
+        std::ostringstream oss;
+        for (clause_t c = watch[l]; c != clause_nil;
+             clauses[c] == l ? c = clauses[c-2] : c = clauses[c-3]) {
+            oss << print_clause(c) << " ";
         }
         return oss.str();
     }
@@ -231,6 +252,7 @@ bool solve(Cnf* c) {
 
         // C3
         LOG(4) << "C3";
+        LOG(3) << "Clauses: " << c->dump_clauses();
         lit_t l = c->trail[c->g];
         LOG(3) << "Examining " << -l << "'s watch list";
         ++c->g;
@@ -263,8 +285,9 @@ bool solve(Cnf* c) {
                         // TODO: clauses and watch are lit_t and clause_t, resp.
                         //       clean up so we can std::swap here.
                         size_t tmp = c->watch[ln];
-                        c->watch[ln] = c->clauses[w - 2];
+                        c->watch[ln] = w;
                         c->clauses[w - 2] = tmp;
+                        LOG(3) << ln << "'s watch list: " << c->print_watchlist(ln);
                         break;
                     }
                 }
@@ -425,7 +448,7 @@ bool solve(Cnf* c) {
             //TODO: Knuth has "if d > 0 do step C9". what is else clause?
             // assuming it's "return false" here.
             if (d == 0) return false;
-            
+
             c->clauses.push_back(clause_nil); // watch list for l1
             c->clauses.push_back(c->watch[-lp]); // watch list for l0
             c->clauses.push_back(r+1); // size
@@ -446,8 +469,9 @@ bool solve(Cnf* c) {
             }
             LOG(3) << "*** Successfully added clause " << c->print_clause(lc);
 
-            c->trail[c->f] = lp;
-            c->val[abs(lp)] = lp < 0 ? FALSE : TRUE;
+            // TODO: Knuth says "lp" here, but I think it's "-lp"?
+            c->trail[c->f] = -lp;
+            c->val[abs(lp)] = -lp < 0 ? FALSE : TRUE;
             c->lev[abs(lp)] = d;
             c->tloc[abs(lp)] = c->f;
             c->reason[abs(lp)] = lc;
