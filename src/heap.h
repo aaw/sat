@@ -23,7 +23,7 @@ struct Heap {
       heap(nvars),
       key(nvars + 1, 0.0),
       delta(1.0) {
-        if (FLAGS_seed != 1) {
+        if (FLAGS_seed == 0) {
             FLAGS_seed = time(NULL);
         }
         srand(FLAGS_seed);

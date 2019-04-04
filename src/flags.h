@@ -14,7 +14,7 @@
 // (4) Add a case in the switch statement below to handle setting the flag.
 
 int FLAGS_verbosity = 0;
-unsigned long FLAGS_seed = 1;
+unsigned long FLAGS_seed = 0;
 
 bool parse_flags(int argc, char* argv[], int* option_index) {
     *option_index = 0;
