@@ -39,7 +39,9 @@ struct Heap {
     }
 
     void insert(lit_t l) {
-        if (hloc[l] == std::numeric_limits<size_t>::max()) return;
+        LOG(4) << "HEAP inserting " << l;
+        if (hloc[l] != std::numeric_limits<size_t>::max()) return;
+        LOG(4) << "HEAP inserted " << l;
         hloc[l] = heap.size();
         heap.push_back(l);
         siftup(heap.size() - 1);
@@ -53,6 +55,7 @@ struct Heap {
         heap.pop_back();
         hloc[heap[0]] = 0;
         siftdown(0);
+        LOG(4) << "HEAP deleting " << m;
         return m;
     }
 

@@ -185,6 +185,9 @@ Cnf parse(const char* filename) {
         if (cs == 0 && nc != EOF) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
+        } else if (cs == 0 && nc == EOF) {
+            // Clean up.
+            for(int i = 0; i < 3; ++i) { c.clauses.pop_back(); }
         } else if (cs == 1) {
             lit_t x = c.clauses[c.clauses.size() - 1];
             LOG(3) << "Found unit clause " << x;
@@ -236,8 +239,10 @@ bool solve(Cnf* c) {
 
             
             // C6
+            LOG(4) << "Heap is: " << c->heap.debug();
             lit_t k = c->heap.delete_max();
-            while (c->val[k] != UNSET) k = c->heap.delete_max();
+            while (c->val[k] != UNSET) { LOG(3) << k << " unset, rolling again"; k = c->heap.delete_max(); }
+            CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
             LOG(3) << "Decided on variable " << k;
             lit_t l = c->oval[k] == FALSE ? -k : k;
             LOG(3) << "Adding " << l << " to the trail.";
@@ -248,6 +253,7 @@ bool solve(Cnf* c) {
             c->val[k] = l < 0 ? FALSE : TRUE;
             c->lev[k] = d;
             c->reason[l] = clause_nil;
+            LOG(3) << "Now trail is " << c->print_trail();
             break;
         }
 
@@ -356,9 +362,13 @@ bool solve(Cnf* c) {
         LOG(3) << "Trail is " << c->print_trail();
         c->stamp[abs(c->clauses[w])] = c->epoch;
         c->heap.bump(abs(c->clauses[w]));
-        lit_t t = -1;
+        // TODO: knuth says t shouldn't be init to tloc[l0]???
+        // lit_t t = -1;
+        lit_t t = c->tloc[abs(c->clauses[w])];
+        LOG(3) << "RESOLVING [A] " << c->print_clause(w);
         for(size_t j = 1; j < static_cast<size_t>(c->clauses[w-1]); ++j) {
             lit_t m = c->clauses[w+j];
+            LOG(4) << "tloc[" << abs(m) << "] = " << c->tloc[abs(m)];
             if (c->tloc[abs(m)] >= t) t = c->tloc[abs(m)];
             // TODO: technically don't need this next line, but it's part of
             // the blit subroutine
@@ -378,13 +388,14 @@ bool solve(Cnf* c) {
         }
         
         // TODO: knuth says q > 0?
-        while (q > 1) {
+        while (q > 0) {
             LOG(3) << "q=" << q << ",t=" << t;
             lit_t l = c->trail[t];
             LOG(3) << "Up trail, q=" << q << ", t=" << t << ", l=" << l
-                   << "L_t = " << c->trail[t];
+                   << ", L_t=" << c->trail[t];
             t--;
             LOG(3) << "New L_t = " << c->trail[t];
+            LOG(3) << "RESOLVING [B] " << c->print_clause(c->reason[l]);
             if (c->stamp[abs(l)] == c->epoch) {
                 LOG(3) << "Stamped this epoch: " << l;
                 q--;
@@ -450,7 +461,7 @@ bool solve(Cnf* c) {
         // C9: learn
         //TODO: Knuth has "if d > 0 do step C9". what is else clause?
         // assuming it's "return false" here.
-        if (d == 0) return false;
+        //if (d == 0) return false;
         
         c->clauses.push_back(clause_nil); // watch list for l1
         c->clauses.push_back(c->watch[-lp]); // watch list for l0
@@ -459,6 +470,7 @@ bool solve(Cnf* c) {
         clause_t lc = c->clauses.size();
         c->clauses.push_back(-lp);
         c->watch[-lp] = lc;
+        c->clauses.push_back(clause_nil); // to be set in else below
         bool found_watch = false;
         for (lit_t j = 0; j < r; ++j) {
             if (found_watch || c->lev[abs(c->b[j])] < dp) {
