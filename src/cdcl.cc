@@ -38,8 +38,7 @@ struct Cnf {
 
     std::vector<size_t> di; // maps d -> last trail position before level d.
     
-    std::vector<clause_t> reason_storage;
-    clause_t* reason; // Keys: literals, values: clause indices
+    std::vector<clause_t> reason;  // Keys: variables, values: clause indices
 
     std::vector<clause_t> watch_storage;
     clause_t* watch; // Keys: litarals, values: clause indices
@@ -67,8 +66,7 @@ struct Cnf {
         f(0),
         g(0),
         di(nvars, 0),
-        reason_storage(2 * nvars + 1, clause_nil),
-        reason(&reason_storage[nvars]),
+        reason(nvars + 1, clause_nil),
         watch_storage(2 * nvars + 1, clause_nil),
         watch(&watch_storage[nvars]),
         b(nvars, -1),
@@ -108,6 +106,7 @@ struct Cnf {
                 oss << clauses[i+j] << " ";
             }
             oss << clauses[i+clauses[i]] << ") ";
+            if (clauses[i] == 1) ++i;  // Skip second (null) entry for units.
         }
         return oss.str();
     }
@@ -252,7 +251,7 @@ bool solve(Cnf* c) {
             ++c->f;
             c->val[k] = l < 0 ? FALSE : TRUE;
             c->lev[k] = d;
-            c->reason[l] = clause_nil;
+            c->reason[k] = clause_nil;
             LOG(3) << "Now trail is " << c->print_trail();
             break;
         }
@@ -315,7 +314,7 @@ bool solve(Cnf* c) {
                         ++c->f;
                         c->val[abs(l1)] = l1 < 0 ? FALSE : TRUE;
                         c->lev[abs(l1)] = d;
-                        c->reason[l1] = w;
+                        c->reason[abs(l1)] = w;
                     }
                 }
             }
@@ -395,12 +394,12 @@ bool solve(Cnf* c) {
                    << ", L_t=" << c->trail[t];
             t--;
             LOG(3) << "New L_t = " << c->trail[t];
-            LOG(3) << "RESOLVING [B] " << c->print_clause(c->reason[l]);
             if (c->stamp[abs(l)] == c->epoch) {
                 LOG(3) << "Stamped this epoch: " << l;
                 q--;
-                if (c->reason[l] != clause_nil) {
-                    clause_t rc = c->reason[l];
+                clause_t rc = c->reason[abs(l)];
+                if (rc != clause_nil) {
+                    LOG(3) << "RESOLVING [B] " << c->print_clause(rc);
                     if (c->clauses[rc] != l) {
                         // TODO: don't swap here (or similar swap above) 
                         std::swap(c->clauses[rc], c->clauses[rc+1]);
