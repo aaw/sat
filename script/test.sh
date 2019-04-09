@@ -7,15 +7,19 @@ UNSATISFIABLE=20
 BINARY=btwl
 DIFFICULTY=easy
 TIMEOUT=30s
+SEED=0
 
 # Process any overrides from command-line flags.
-while getopts ":b:d:t:" opt; do
+while getopts ":b:d:t:s:" opt; do
     case $opt in
         b)
             BINARY="${OPTARG}"
             ;;
         d)
             DIFFICULTY="${OPTARG}"
+            ;;
+        s)
+            SEED="${OPTARG}"
             ;;
         t)
             TIMEOUT="${OPTARG}"
@@ -45,7 +49,7 @@ NTIMEOUT=0
 echo "Testing label:satisfiable, ${LABEL}:"
 for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:satisfiable'); do
     printf "${filename} "
-    output="$(timeout ${TIMEOUT} ${BINARY} ${filename} 1>/dev/null 2>&1)"
+    output="$(timeout ${TIMEOUT} ${BINARY} -s${SEED} ${filename} 1>/dev/null 2>&1)"
     result="$?"
     if [ "$result" -eq "124" ]; then
         printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
@@ -63,7 +67,7 @@ echo ""
 echo "Testing label:unsatisfiable, ${LABEL}:"
 for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:unsatisfiable'); do
     printf "${filename} "
-    output="$(timeout ${TIMEOUT} ${BINARY} ${filename} 1>/dev/null 2>&1)"
+    output="$(timeout ${TIMEOUT} ${BINARY} -s${SEED} ${filename} 1>/dev/null 2>&1)"
     result="$?"
     if [ "$result" -eq "124" ]; then
         printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
