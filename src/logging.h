@@ -15,17 +15,18 @@ extern int FLAGS_verbosity;
 #define LOG(i) if (LOG_ENABLED(i)) Logger(__FILE__,__LINE__)
 #define CHECK(expr) AbortLogger(__FILE__,__LINE__,expr)
 #define UNSAT_EXIT UnsatExit()
+#define PRINT std::cerr
 
 struct Logger {
     Logger(const std::string& filename, int line) {
-        std::cout << "c [" << filename << ":" << line << "] ";
+        PRINT << "c [" << filename << ":" << line << "] ";
     }
 
-    ~Logger() { std::cout << std::endl; }
+    ~Logger() { PRINT << std::endl; }
 
     template<class T>
     Logger& operator<<(const T& msg) {
-        std::cout << msg;
+        PRINT << msg;
         return *this;
     }
 };
@@ -34,19 +35,19 @@ struct AbortLogger {
     AbortLogger(const std::string& filename, int line, bool check_passed) :
       enabled_(!check_passed) {
         if (!enabled_) return;
-        std::cout << "s UNKNOWN" << std::endl;
-        std::cout << "c [FATAL " << filename << ":" << line << "] ";
+        PRINT << "s UNKNOWN" << std::endl;
+        PRINT << "c [FATAL " << filename << ":" << line << "] ";
     }
 
     ~AbortLogger() {
         if (!enabled_) return;
-        std::cout << std::endl;
+        PRINT << std::endl;
         exit(EXIT_FAILURE);
     }
 
     template<class T>
     AbortLogger& operator<<(const T& msg) {
-        if (enabled_) std::cout << msg;
+        if (enabled_) PRINT << msg;
         return *this;
     }
 
@@ -55,7 +56,7 @@ private:
 };
 
 void UnsatExit() {
-    std::cout << "s UNSATISFIABLE" << std::endl;
+    PRINT << "s UNSATISFIABLE" << std::endl;
     exit(UNSATISFIABLE);
 }
 

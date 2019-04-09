@@ -100,13 +100,21 @@ struct Cnf {
 
     std::string dump_clauses() {
         std::ostringstream oss;
-        for(clause_t i = 2; i < clauses.size(); i += clauses[i] + 3) {
+        for(clause_t i = 2; i < clauses.size();
+            i += clauses[i] + (clauses[i] == 1 ? 2 : 3)) {
             oss << "(";
             for(clause_t j = 1; j < clauses[i]; ++j) {
                 oss << clauses[i+j] << " ";
             }
             oss << clauses[i+clauses[i]] << ") ";
-            if (clauses[i] == 1) ++i;  // Skip second (null) entry for units.
+        }
+        return oss.str();
+    }
+
+    std::string raw_clauses() {
+        std::ostringstream oss;
+        for(const auto& c : clauses) {
+            oss << "[" << c << "]";
         }
         return oss.str();
     }
@@ -122,7 +130,8 @@ struct Cnf {
     std::string print_watchlist(lit_t l) {
         std::ostringstream oss;
         for (clause_t c = watch[l]; c != clause_nil;
-             clauses[c] == l ? c = clauses[c-2] : c = clauses[c-3]) {
+             clauses[c] == l ? (c = clauses[c-2]) : (c = clauses[c-3])) {
+            LOG(3) << c << ": " << clauses[c-2] << ", " << clauses[c-3] << ": " << print_clause(c);
             oss << print_clause(c) << " ";
         }
         return oss.str();
@@ -258,6 +267,7 @@ bool solve(Cnf* c) {
 
         // C3
         LOG(4) << "C3";
+        LOG(3) << "Raw: " << c->raw_clauses();
         LOG(3) << "Clauses: " << c->dump_clauses();
         lit_t l = c->trail[c->g];
         LOG(3) << "Examining " << -l << "'s watch list";
@@ -293,6 +303,7 @@ bool solve(Cnf* c) {
                         size_t tmp = c->watch[ln];
                         c->watch[ln] = w;
                         c->clauses[w - 2] = tmp;
+                        LOG(3) << ln;
                         LOG(3) << ln << "'s watch list: " << c->print_watchlist(ln);
                         break;
                     }
@@ -318,6 +329,7 @@ bool solve(Cnf* c) {
                     }
                 }
             }
+            LOG(3) << "advancing " << w << " -> " << nw;
             w = nw;  // advance watch list traversal.
             
             if (w == clause_nil) { LOG(3) << "Hit clause_nil in watch list"; }
@@ -337,16 +349,22 @@ bool solve(Cnf* c) {
         // Not mentioned in Knuth's description, but we need to make sure
         // that the rightmost literal on the trail is the first literal
         // in the clause here.
-        // TODO: i think it's okay to blindly swap out the watchlist here
-        // without regard to splicing the singly linked list since all
-        // literals in the clause are false?
+        // TODO: write a subroutine that swaps a literal in a clause into
+        // one of the first two positions.
         size_t rl = c->f;
         size_t cs = static_cast<size_t>(c->clauses[w-1]);
         for (bool done = false; !done; --rl) {
             for (size_t j = 0; j < cs; ++j) {
                 if (abs(c->trail[rl]) == abs(c->clauses[w+j])) {
                     done = true;
+                    if (j == 0) break;
                     std::swap(c->clauses[w], c->clauses[w+j]);
+                    if (j == 1) {
+                        std::swap(c->clauses[w-2], c->clauses[w-3]);
+                    } else {
+                        c->clauses[w-2] = c->watch[c->clauses[w]];
+                        c->watch[c->clauses[w]] = w;
+                    }
                     break;
                 }
             }
