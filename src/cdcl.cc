@@ -131,7 +131,6 @@ struct Cnf {
         std::ostringstream oss;
         for (clause_t c = watch[l]; c != clause_nil;
              clauses[c] == l ? (c = clauses[c-2]) : (c = clauses[c-3])) {
-            LOG(3) << c << ": " << clauses[c-2] << ", " << clauses[c-3] << ": " << print_clause(c);
             oss << print_clause(c) << " ";
         }
         return oss.str();
@@ -269,10 +268,15 @@ bool solve(Cnf* c) {
         LOG(4) << "C3";
         LOG(3) << "Raw: " << c->raw_clauses();
         LOG(3) << "Clauses: " << c->dump_clauses();
+        for (int ii = 1; ii <= c->nvars; ++ii) {
+            LOG(3) << ii << "'s watch list: " << c->print_watchlist(ii);
+            LOG(3) << -ii << "'s watch list: " << c->print_watchlist(-ii);
+        }
         lit_t l = c->trail[c->g];
         LOG(3) << "Examining " << -l << "'s watch list";
         ++c->g;
         clause_t w = c->watch[-l];
+        clause_t wll = clause_nil;
         bool found_conflict = false;
         while (w != clause_nil) {
 
@@ -300,6 +304,9 @@ bool solve(Cnf* c) {
                         // move w onto watch list of ln
                         // TODO: clauses and watch are lit_t and clause_t, resp.
                         //       clean up so we can std::swap here.
+                        LOG(3) << "Before putting " << c->print_clause(w)
+                               << " on " << ln << "'s watch list: "
+                               << c->print_watchlist(ln);
                         size_t tmp = c->watch[ln];
                         c->watch[ln] = w;
                         c->clauses[w - 2] = tmp;
@@ -328,17 +335,42 @@ bool solve(Cnf* c) {
                         c->reason[abs(l1)] = w;
                     }
                 }
+            } else {
+                if (wll == clause_nil) {
+                    LOG(3) << "Setting watch[" << -l << "] = "
+                           << c->print_clause(w);
+                    c->watch[-l] = w;
+                }
+                else {
+                    LOG(3) << "Linking watchlist: " << c->print_clause(wll)
+                           << " -> " << c->print_clause(w);
+                    c->clauses[wll-2] = w;
+                }
+                wll = w;
             }
-            LOG(3) << "advancing " << w << " -> " << nw;
+            LOG(3) << "advancing " << w << " -> " << nw << " with wll=" << wll;
             w = nw;  // advance watch list traversal.
             
             if (w == clause_nil) { LOG(3) << "Hit clause_nil in watch list"; }
             else { LOG(3) << "Moving on to " << c->print_clause(w); }
         }
 
+        // Finish surgery on watchlist
+        if (wll == clause_nil) {
+            LOG(3) << "Final: Setting watch[" << -l << "] = "
+                   << ((w == clause_nil) ? "0" : c->print_clause(w));
+            c->watch[-l] = w;
+        }
+        else {
+            LOG(3) << "Final: Linking watchlist: " << c->print_clause(wll)
+                   << " -> " << ((w == clause_nil) ? "0" : c->print_clause(w));
+            c->clauses[wll-2] = w;
+        }
+        
         if (!found_conflict) {
-            LOG(3) << "Emptying " << -l << "'s watch list";
-            c->watch[-l] = clause_nil;
+            //LOG(3) << "Emptying " << -l << "'s watch list";
+            //c->watch[-l] = clause_nil;
+            LOG(3) << "Didn't find conflict, moving on.";
             continue;
         }
 
@@ -346,25 +378,19 @@ bool solve(Cnf* c) {
         LOG(3) << "Found a conflict with d = " << d;
         if (d == 0) return false;
         
-        // Not mentioned in Knuth's description, but we need to make sure
+        // (*) Not mentioned in Knuth's description, but we need to make sure
         // that the rightmost literal on the trail is the first literal
-        // in the clause here.
-        // TODO: write a subroutine that swaps a literal in a clause into
-        // one of the first two positions.
+        // in the clause here. We'll undo this after the first resolution
+        // step below, otherwise watchlists get corrupted.
         size_t rl = c->f;
         size_t cs = static_cast<size_t>(c->clauses[w-1]);
+        size_t rl_pos = 0;
         for (bool done = false; !done; --rl) {
-            for (size_t j = 0; j < cs; ++j) {
-                if (abs(c->trail[rl]) == abs(c->clauses[w+j])) {
+            for (rl_pos = 0; rl_pos < cs; ++rl_pos) {
+                if (abs(c->trail[rl]) == abs(c->clauses[w+rl_pos])) {
                     done = true;
-                    if (j == 0) break;
-                    std::swap(c->clauses[w], c->clauses[w+j]);
-                    if (j == 1) {
-                        std::swap(c->clauses[w-2], c->clauses[w-3]);
-                    } else {
-                        c->clauses[w-2] = c->watch[c->clauses[w]];
-                        c->watch[c->clauses[w]] = w;
-                    }
+                    LOG(3) << "rl_pos = " << rl_pos;
+                    std::swap(c->clauses[w], c->clauses[w+rl_pos]);
                     break;
                 }
             }
@@ -403,6 +429,9 @@ bool solve(Cnf* c) {
                 dp = std::max(dp, p);
             }
         }
+        LOG(3) << "swapping back: " << c->print_clause(w);
+        std::swap(c->clauses[w], c->clauses[w+rl_pos]);
+        LOG(3) << "now: " << c->print_clause(w);
         
         // TODO: knuth says q > 0?
         while (q > 0) {
