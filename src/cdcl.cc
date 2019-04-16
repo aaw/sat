@@ -205,6 +205,7 @@ Cnf parse(const char* filename) {
             c.val[abs(x)] = s;
             c.tloc[abs(x)] = c.f;
             c.trail[c.f++] = x;
+            c.lev[abs(x)] = 0;
         }
         if (!read_lit) break;
         CHECK(cs > 0);
