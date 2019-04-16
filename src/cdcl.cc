@@ -100,8 +100,7 @@ struct Cnf {
 
     std::string dump_clauses() {
         std::ostringstream oss;
-        for(clause_t i = 2; i < clauses.size();
-            i += clauses[i] + (clauses[i] == 1 ? 2 : 3)) {
+        for(clause_t i = 2; i < clauses.size(); i += clauses[i] + 3) {
             oss << "(";
             for(clause_t j = 1; j < clauses[i]; ++j) {
                 oss << clauses[i+j] << " ";
