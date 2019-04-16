@@ -291,8 +291,8 @@ bool solve(Cnf* c) {
             LOG(3) << "Looking at watched clause " << c->print_clause(w)
                    << " to see if it forces a unit";
             
+            bool all_false = true;
             if (!c->is_true(c->clauses[w+1])) {
-                bool all_false = true;
                 for(int i = 2; i < c->clauses[w - 1]; ++i) {
                     if (!c->is_false(c->clauses[w + i])) {
                         all_false = false;
@@ -322,9 +322,7 @@ bool solve(Cnf* c) {
                         found_conflict = true;
                         break;
                     } else { // l1 is free
-                        std::swap(c->clauses[w], c->clauses[w + 1]);
-                        std::swap(c->clauses[w - 2], c->clauses[w - 3]);
-                        lit_t l1 = c->clauses[w];
+                        lit_t l1 = c->clauses[w+1];
                         LOG(3) << "Adding " << l1 << " to the trail, "
                                << "forced by " << c->print_clause(w);
                         c->tloc[abs(l1)] = c->f;
@@ -335,19 +333,25 @@ bool solve(Cnf* c) {
                         c->reason[abs(l1)] = w;
                     }
                 }
-            } else {
+
+            }
+
+            if (all_false) {
                 if (wll == clause_nil) {
                     LOG(3) << "Setting watch[" << -l << "] = "
                            << c->print_clause(w);
                     c->watch[-l] = w;
                 }
                 else {
-                    LOG(3) << "Linking watchlist: " << c->print_clause(wll)
-                           << " -> " << c->print_clause(w);
+                    LOG(3) << "Linking " << -l << "'s watchlist: "
+                           << c->print_clause(wll) << " -> " << c->print_clause(w);
                     c->clauses[wll-2] = w;
                 }
                 wll = w;
             }
+                
+
+            
             LOG(3) << "advancing " << w << " -> " << nw << " with wll=" << wll;
             w = nw;  // advance watch list traversal.
             
@@ -362,7 +366,8 @@ bool solve(Cnf* c) {
             c->watch[-l] = w;
         }
         else {
-            LOG(3) << "Final: Linking watchlist: " << c->print_clause(wll)
+            LOG(3) << "Final: Linking " << -l << "'s watchlist: "
+                   << c->print_clause(wll)
                    << " -> " << ((w == clause_nil) ? "0" : c->print_clause(w));
             c->clauses[wll-2] = w;
         }
