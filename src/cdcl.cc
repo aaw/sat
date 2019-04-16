@@ -193,7 +193,7 @@ Cnf parse(const char* filename) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
         } else if (cs == 0 && nc == EOF) {
-            // Clean up.
+            // Clean up from (now unnecessary) c.clauses.push_backs above.
             for(int i = 0; i < 3; ++i) { c.clauses.pop_back(); }
         } else if (cs == 1) {
             lit_t x = c.clauses[c.clauses.size() - 1];
@@ -223,6 +223,10 @@ Cnf parse(const char* filename) {
         }
     } while (nc != EOF);
 
+    if (c.clauses.empty()) {
+        LOG(2) << "No clauses, unsatisfiable.";
+        UNSAT_EXIT;
+    }
     c.minl = c.maxl = c.clauses.size() + 1;
     fclose(f);
     return c;
