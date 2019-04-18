@@ -270,12 +270,14 @@ bool solve(Cnf* c) {
 
         // C3
         LOG(4) << "C3";
-        LOG(3) << "Raw: " << c->raw_clauses();
+        LOG(3) << "Trail: " << c->print_trail();
+        //LOG(3) << "Raw: " << c->raw_clauses();
         LOG(3) << "Clauses: " << c->dump_clauses();
+        /*
         for (int ii = 1; ii <= c->nvars; ++ii) {
             LOG(3) << ii << "'s watch list: " << c->print_watchlist(ii);
             LOG(3) << -ii << "'s watch list: " << c->print_watchlist(-ii);
-        }
+            }*/
         lit_t l = c->trail[c->g];
         LOG(3) << "Examining " << -l << "'s watch list";
         ++c->g;
@@ -391,14 +393,13 @@ bool solve(Cnf* c) {
         // that the rightmost literal on the trail is the first literal
         // in the clause here. We'll undo this after the first resolution
         // step below, otherwise watchlists get corrupted.
-        size_t rl = c->f;
+        size_t rl = c->f - 1;
         size_t cs = static_cast<size_t>(c->clauses[w-1]);
         size_t rl_pos = 0;
         for (bool done = false; !done; --rl) {
             for (rl_pos = 0; rl_pos < cs; ++rl_pos) {
                 if (abs(c->trail[rl]) == abs(c->clauses[w+rl_pos])) {
                     done = true;
-                    LOG(3) << "rl_pos = " << rl_pos;
                     std::swap(c->clauses[w], c->clauses[w+rl_pos]);
                     break;
                 }
