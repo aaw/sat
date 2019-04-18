@@ -69,7 +69,7 @@ struct Heap {
     }
     
     void siftup(size_t i) {
-        if (i == std::numeric_limits<size_t>::max()) return;
+        if (i == 0 || i == std::numeric_limits<size_t>::max()) return;
         lit_t v = heap[i];
         size_t p = (i - 1) / D;
         while (key[heap[p]] < key[heap[i]]) {
