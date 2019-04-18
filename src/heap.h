@@ -49,7 +49,7 @@ struct Heap {
 
     lit_t delete_max() {
         if (heap.empty()) return lit_nil;
-        hloc[heap[0]] = std::numeric_limits<size_t>::max();;
+        hloc[heap[0]] = std::numeric_limits<size_t>::max();
         lit_t m = heap[0];
         heap[0] = heap[heap.size() - 1];
         heap.pop_back();
@@ -69,7 +69,7 @@ struct Heap {
     }
     
     void siftup(size_t i) {
-        if (i == 0) return;
+        if (i == std::numeric_limits<size_t>::max()) return;
         lit_t v = heap[i];
         size_t p = (i - 1) / D;
         while (key[heap[p]] < key[heap[i]]) {

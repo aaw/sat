@@ -269,10 +269,10 @@ bool solve(Cnf* c) {
         }
 
         // C3
-        LOG(4) << "C3";
+        LOG(3) << "C3";
         LOG(3) << "Trail: " << c->print_trail();
         //LOG(3) << "Raw: " << c->raw_clauses();
-        LOG(3) << "Clauses: " << c->dump_clauses();
+        LOG(4) << "Clauses: " << c->dump_clauses();
         /*
         for (int ii = 1; ii <= c->nvars; ++ii) {
             LOG(3) << ii << "'s watch list: " << c->print_watchlist(ii);
@@ -310,7 +310,7 @@ bool solve(Cnf* c) {
                         // move w onto watch list of ln
                         // TODO: clauses and watch are lit_t and clause_t, resp.
                         //       clean up so we can std::swap here.
-                        LOG(3) << "Before putting " << c->print_clause(w)
+                        LOG(4) << "Before putting " << c->print_clause(w)
                                << " on " << ln << "'s watch list: "
                                << c->print_watchlist(ln);
                         size_t tmp = c->watch[ln];
@@ -344,12 +344,12 @@ bool solve(Cnf* c) {
 
             if (all_false) {
                 if (wll == clause_nil) {
-                    LOG(3) << "Setting watch[" << -l << "] = "
+                    LOG(4) << "Setting watch[" << -l << "] = "
                            << c->print_clause(w);
                     c->watch[-l] = w;
                 }
                 else {
-                    LOG(3) << "Linking " << -l << "'s watchlist: "
+                    LOG(4) << "Linking " << -l << "'s watchlist: "
                            << c->print_clause(wll) << " -> " << c->print_clause(w);
                     c->clauses[wll-2] = w;
                 }
@@ -428,6 +428,8 @@ bool solve(Cnf* c) {
             if (c->stamp[abs(m)] == c->epoch) continue;
             c->stamp[abs(m)] = c->epoch;
             lit_t p = c->lev[abs(m)];
+            LOG(4) << "Heap is: " << c->heap.debug();
+            LOG(4) << "bumping " << abs(m);
             if (p > 0) c->heap.bump(abs(m));
             if (p == d) {
                 LOG(3) << m << " is at level " << d;
@@ -447,8 +449,6 @@ bool solve(Cnf* c) {
         while (q > 0) {
             LOG(3) << "q=" << q << ",t=" << t;
             lit_t l = c->trail[t];
-            LOG(3) << "Up trail, q=" << q << ", t=" << t << ", l=" << l
-                   << ", L_t=" << c->trail[t];
             t--;
             LOG(3) << "New L_t = " << c->trail[t];
             if (c->stamp[abs(l)] == c->epoch) {
