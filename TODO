@@ -1,1 +1,2 @@
+* clean up signed/unsigned types, check-fail when adding new clauses that overflow in cdcl
 * Make a script to test consistency (clause count, var count) and formatting of all test files
