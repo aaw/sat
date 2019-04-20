@@ -102,7 +102,7 @@ struct Cnf {
         std::ostringstream oss;
         for(clause_t i = 2; i < clauses.size(); i += clauses[i] + 3) {
             oss << "(";
-            for(clause_t j = 1; j < clauses[i]; ++j) {
+            for(lit_t j = 1; j < clauses[i]; ++j) {
                 oss << clauses[i+j] << " ";
             }
             oss << clauses[i+clauses[i]] << ") ";
@@ -466,6 +466,17 @@ bool solve(Cnf* c) {
                     for (size_t j = 1; j < static_cast<size_t>(c->clauses[rc-1]); ++j) {
                         lit_t m = c->clauses[rc+j];
                         LOG(3) << "considering " << abs(m);
+                        // start debug only
+                        if (abs(m) > c->nvars) {
+                            LOG(1) << "weird clause! with " << m;
+                            //LOG(1) << c->raw_clauses();
+                            LOG(1) << c->print_clause(rc);
+                            LOG(1) << "size: " << c->clauses[rc-1];
+                            for (clause_t jj = rc - 3; jj < rc + 5; ++jj) {
+                                LOG(1) << jj << ": " << c->clauses[jj];
+                            }
+                        }
+                        // end debug only
                         if (c->stamp[abs(m)] == c->epoch) continue;
                         c->stamp[abs(m)] = c->epoch;
                         lit_t p = c->lev[abs(m)];
@@ -497,7 +508,8 @@ bool solve(Cnf* c) {
         for(int i = 0; i < r; i++) {
             oss << -c->b[i] << " ";
         }
-        LOG(3) << "[*] dp = " << dp << ", learned clause is: " << oss.str();
+        LOG(3) << "[*] dp = " << dp << ", r = " << r
+               << ", learned clause is: " << oss.str();
         
         // C8: backjump
         while (c->f > c->di[dp+1]) {
@@ -538,7 +550,11 @@ bool solve(Cnf* c) {
                 found_watch = true;
             }
         }
-        LOG(3) << "*** Successfully added clause " << c->print_clause(lc);
+        LOG(1) << "*** Successfully added clause " << c->print_clause(lc);
+        LOG(1) << "    [" << c->clauses[lc-3]
+               <<    "][" << c->clauses[lc-2]
+               <<    "][" << c->clauses[lc-1]
+               <<    "][" << c->clauses[lc] << "]";
         
         // TODO: Knuth says "lp" here, but I think it's "-lp"?
         c->trail[c->f] = -lp;
