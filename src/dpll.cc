@@ -179,10 +179,10 @@ Cnf parse(const char* filename) {
         if (nc > 0 && nc != EOF) break;
         nc = fscanf(f, "%*s\n");
     } while (nc != 2 && nc != EOF);
-    assert(nvars >= 0);
-    assert(nclauses >= 0);
-    ASSERT_NO_OVERFLOW(lit_t, nvars);
-    ASSERT_NO_OVERFLOW(clause_t, nclauses);
+    CHECK(nvars >= 0);
+    CHECK(nclauses >= 0);
+    CHECK_NO_OVERFLOW(lit_t, nvars);
+    CHECK_NO_OVERFLOW(clause_t, nclauses);
 
     // Initialize data structures now that we know nvars and nclauses.
     Cnf c(static_cast<lit_t>(nvars), static_cast<clause_t>(nclauses));

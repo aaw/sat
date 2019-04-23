@@ -14,6 +14,12 @@ extern int FLAGS_verbosity;
 #define LOG_ENABLED(i) (LOGGING && FLAGS_verbosity >= i)
 #define LOG(i) if (LOG_ENABLED(i)) Logger(__FILE__,__LINE__)
 #define CHECK(expr) AbortLogger(__FILE__,__LINE__,expr)
+#define CHECK_NO_OVERFLOW(x, y) \
+    AbortLogger(__FILE__,__LINE__,\
+                std::numeric_limits<x>::min() <= (y) &&  \
+                std::numeric_limits<x>::max() >= (y)) << \
+    "Overflow/underflow detected setting variable of type " << #x \
+    << ": " << #y << " = " << y << ". "
 #define UNSAT_EXIT UnsatExit()
 #define PRINT std::cerr
 

@@ -165,10 +165,10 @@ Cnf parse(const char* filename) {
         if (nc > 0 && nc != EOF) break;
         nc = fscanf(f, "%*s\n");
     } while (nc != 2 && nc != EOF);
-    assert(nvars >= 0);
-    assert(nclauses >= 0);
-    ASSERT_NO_OVERFLOW(lit_t, nvars);
-    ASSERT_NO_OVERFLOW(clause_t, nclauses);
+    CHECK(nvars >= 0);
+    CHECK(nclauses >= 0);
+    CHECK_NO_OVERFLOW(lit_t, nvars);
+    CHECK_NO_OVERFLOW(clause_t, nclauses);
 
     // Initialize data structures now that we know nvars and nclauses.
     Cnf c(static_cast<lit_t>(nvars), static_cast<clause_t>(nclauses));
@@ -416,7 +416,7 @@ bool solve(Cnf* c) {
         c->stamp[abs(c->clauses[w])] = c->epoch;
         c->heap.bump(abs(c->clauses[w]));
         // TODO: knuth says t shouldn't be init to tloc[l0]???
-        // lit_t t = -1;
+        //lit_t t = -1;
         lit_t t = c->tloc[abs(c->clauses[w])];
         LOG(3) << "RESOLVING [A] " << c->print_clause(w);
         for(size_t j = 1; j < static_cast<size_t>(c->clauses[w-1]); ++j) {
@@ -445,7 +445,6 @@ bool solve(Cnf* c) {
         std::swap(c->clauses[w], c->clauses[w+rl_pos]);
         LOG(3) << "now: " << c->print_clause(w);
         
-        // TODO: knuth says q > 0?
         while (q > 0) {
             LOG(3) << "q=" << q << ",t=" << t;
             lit_t l = c->trail[t];
@@ -496,8 +495,6 @@ bool solve(Cnf* c) {
 
         lit_t lp = c->trail[t];
         LOG(4) << "lp = " << lp;
-        // TODO: knuth says "while S(|l'|) != s set t = t-1 and l' <- L_t"
-        // in answer to #263, but in his impl he has "o,l=trail[tl--];"
         while (c->stamp[abs(lp)] != c->epoch) { t--; lp = c->trail[t]; }
         
         LOG(4) << "stopping C7 with l'=" << lp;
@@ -550,6 +547,7 @@ bool solve(Cnf* c) {
                 found_watch = true;
             }
         }
+        CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
         LOG(1) << "*** Successfully added clause " << c->print_clause(lc);
         LOG(1) << "    [" << c->clauses[lc-3]
                <<    "][" << c->clauses[lc-2]

@@ -7,8 +7,8 @@
 // TODO: do this lit/clause size ifdef below better
 // TODO: CLAUSE_64 doesn't work yet...
 
-#define LIT_32 1
-#define CLAUSE_32 1
+#define LIT_16 1
+#define CLAUSE_16 1
 
 #ifdef LIT_8
 typedef int8_t lit_t;
@@ -39,10 +39,6 @@ typedef uint64_t clause_t;
 
 constexpr lit_t lit_nil = lit_t(0);
 constexpr clause_t clause_nil = std::numeric_limits<clause_t>::max();
-
-#define ASSERT_NO_OVERFLOW(x, y) \
-    assert(std::numeric_limits<x>::min() <= (y) && \
-           std::numeric_limits<x>::max() >= (y));
 
 enum ReturnValue {
     UNKNOWN = 0,
