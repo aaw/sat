@@ -561,7 +561,7 @@ bool solve(Cnf* c) {
         c->tloc[abs(lp)] = c->f;
         c->reason[abs(lp)] = lc;
         c->f++;
-        // TODO: DEL = DEL / rho;
+        c->heap.rescale_delta();
         
         LOG(3) << "After clause install, trail is " << c->print_trail();
     }
