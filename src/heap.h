@@ -53,8 +53,10 @@ struct Heap {
         lit_t m = heap[0];
         heap[0] = heap[heap.size() - 1];
         heap.pop_back();
-        hloc[heap[0]] = 0;
-        siftdown(0);
+        if (heap.size() > 0) {
+            hloc[heap[0]] = 0;
+            siftdown(0);
+        }
         LOG(4) << "HEAP deleting " << m;
         return m;
     }
