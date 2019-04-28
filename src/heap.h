@@ -1,6 +1,7 @@
 #ifndef __HEAP_H__
 #define __HEAP_H__
 
+#include <cmath>
 #include <ctime>
 #include <cstdlib>
 #include <vector>
@@ -13,7 +14,8 @@
 
 extern unsigned long FLAGS_seed;
 
-const double kRho = 0.95;
+constexpr double kRho = 0.95;
+constexpr double kMaxScore = pow(10,100);
 
 // max heap, stores variables
 template <unsigned int D>
@@ -63,11 +65,21 @@ struct Heap {
 
     void bump(lit_t l) {
         key[l] += delta;
+        if (key[l] > max_key) {
+            max_key = key[l];
+        }
         siftup(hloc[l]);
     }
 
     void rescale_delta() {
         delta /= kRho;
+        if (max_key >= kMaxScore) {
+            LOG(2) << "Scaling all heap scores down.";
+            for (size_t i = 1; i < key.size(); ++i) {
+                key[i] /= kMaxScore;
+            }
+            delta /= kMaxScore;
+        }
     }
     
     void siftup(size_t i) {
@@ -134,6 +146,7 @@ struct Heap {
     std::vector<lit_t> heap;  // heap is 0-indexed.
     std::vector<double> key;  // key is 1-indexed
     double delta;
+    double max_key;
 };
 
 #endif  // __HEAP_H__
