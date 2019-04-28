@@ -61,15 +61,10 @@ TEST(multiple_bumps,
      // 8 has been bumped 150 times,
      // 7 has been bumped 100 times,
      // 6 has been bumped 30 times.
-     LOG(1) << h.debug();
      EXPECT_EQ(h.delete_max(), 10);
-     LOG(1) << h.debug();
      EXPECT_EQ(h.delete_max(), 9);
-     LOG(1) << h.debug();
      EXPECT_EQ(h.delete_max(), 8);
-     LOG(1) << h.debug();
      EXPECT_EQ(h.delete_max(), 7);
-     LOG(1) << h.debug();
      EXPECT_EQ(h.delete_max(), 6);
     )
      

@@ -88,7 +88,7 @@ struct Heap {
     void siftdown(size_t i) {
         lit_t v = heap[i];
         size_t c = max_child(i);
-        while (c != 0 && key[heap[c]] > key[heap[i]]) {
+        while (c != 0 && key[heap[c]] > key[v]) {
             heap[i] = heap[c];
             hloc[heap[i]] = i;
             i = c;
