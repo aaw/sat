@@ -7,8 +7,8 @@
 // TODO: do this lit/clause size ifdef below better
 // TODO: CLAUSE_64 doesn't work yet...
 
-#define LIT_16 1
-#define CLAUSE_16 1
+#define LIT_32 1
+#define CLAUSE_32 1
 
 #ifdef LIT_8
 typedef int8_t lit_t;

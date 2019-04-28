@@ -1,3 +1,4 @@
+* implement fsnark generator
 * implement non-redundant clauses in cdcl
 * implement clause purging in cdcl
 * make sure delta scaling works correctly in cdcl

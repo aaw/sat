@@ -250,7 +250,7 @@ bool solve(Cnf* c) {
 
             
             // C6
-            LOG(4) << "Heap is: " << c->heap.debug();
+            LOG(1) << "Heap is: " << c->heap.debug();
             lit_t k = c->heap.delete_max();
             while (c->val[k] != UNSET) { LOG(3) << k << " unset, rolling again"; k = c->heap.delete_max(); }
             CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
@@ -465,17 +465,6 @@ bool solve(Cnf* c) {
                     for (size_t j = 1; j < static_cast<size_t>(c->clauses[rc-1]); ++j) {
                         lit_t m = c->clauses[rc+j];
                         LOG(3) << "considering " << abs(m);
-                        // start debug only
-                        if (abs(m) > c->nvars) {
-                            LOG(1) << "weird clause! with " << m;
-                            //LOG(1) << c->raw_clauses();
-                            LOG(1) << c->print_clause(rc);
-                            LOG(1) << "size: " << c->clauses[rc-1];
-                            for (clause_t jj = rc - 3; jj < rc + 5; ++jj) {
-                                LOG(1) << jj << ": " << c->clauses[jj];
-                            }
-                        }
-                        // end debug only
                         if (c->stamp[abs(m)] == c->epoch) continue;
                         c->stamp[abs(m)] = c->epoch;
                         lit_t p = c->lev[abs(m)];
@@ -548,11 +537,7 @@ bool solve(Cnf* c) {
             }
         }
         CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
-        LOG(1) << "*** Successfully added clause " << c->print_clause(lc);
-        LOG(1) << "    [" << c->clauses[lc-3]
-               <<    "][" << c->clauses[lc-2]
-               <<    "][" << c->clauses[lc-1]
-               <<    "][" << c->clauses[lc] << "]";
+        LOG(2) << "*** Successfully added clause " << c->print_clause(lc);
         
         // TODO: Knuth says "lp" here, but I think it's "-lp"?
         c->trail[c->f] = -lp;
