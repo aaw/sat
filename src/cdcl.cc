@@ -134,6 +134,29 @@ struct Cnf {
         }
         return oss.str();
     }
+
+    std::string val_debug_string() const {
+        std::ostringstream oss;
+        for(std::size_t i = 1; i < val.size(); ++i) { oss << val[i]; }
+        return oss.str();
+    }
+
+    std::string clause_stats(int buckets) const {
+        std::ostringstream oss;
+        std::vector<int> hist(buckets, 0);
+        size_t total = 0;
+        for(clause_t i = 2; i < clauses.size(); i += clauses[i] + 3) {
+            size_t v = static_cast<size_t>(clauses[i]);
+            int b = v > hist.size() - 1 ? hist.size() - 1 : v;
+            hist[b] += 1;
+            total++;
+        }
+        oss << "(" << total << ") ";
+        for(const auto& b : hist) {
+            oss << b << " ";
+        }
+        return oss.str();
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -239,6 +262,10 @@ bool solve(Cnf* c) {
     while (true) {
         // (C2)
         LOG(4) << "C2";
+
+        LOG(1) << c->clause_stats(40);
+        //LOG(1) << c->val_debug_string();
+        
         while (c->f == c->g) {
             LOG(4) << "C5";
             // C5
@@ -250,7 +277,6 @@ bool solve(Cnf* c) {
 
             
             // C6
-            LOG(1) << "Heap is: " << c->heap.debug();
             lit_t k = c->heap.delete_max();
             while (c->val[k] != UNSET) { LOG(3) << k << " unset, rolling again"; k = c->heap.delete_max(); }
             CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
