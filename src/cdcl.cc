@@ -141,19 +141,24 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string clause_stats(int buckets) const {
+    std::string clause_stats(size_t numb, size_t maxb) const {
         std::ostringstream oss;
-        std::vector<int> hist(buckets, 0);
+        std::vector<int> hist(numb, 0);
         size_t total = 0;
         for(clause_t i = 2; i < clauses.size(); i += clauses[i] + 3) {
             size_t v = static_cast<size_t>(clauses[i]);
-            int b = v > hist.size() - 1 ? hist.size() - 1 : v;
-            hist[b] += 1;
+            size_t vt = v > maxb ? maxb : v;
+            hist[vt / numb] += 1;
             total++;
         }
         oss << "(" << total << ") ";
+        size_t lower = 0;
         for(const auto& b : hist) {
-            oss << b << " ";
+            size_t upper = lower + maxb / numb;
+            oss << "[" << lower << ", ";
+            if (upper == maxb) { oss << "-"; } else { oss << upper; }
+            oss << "): " << b << " ";
+            lower = upper;
         }
         return oss.str();
     }
@@ -263,7 +268,7 @@ bool solve(Cnf* c) {
         // (C2)
         LOG(4) << "C2";
 
-        LOG(1) << c->clause_stats(40);
+        LOG(1) << c->clause_stats(8, 400);
         //LOG(1) << c->val_debug_string();
         
         while (c->f == c->g) {
