@@ -166,6 +166,26 @@ struct Cnf {
         }
         return oss.str();
     }
+
+    bool redundant(lit_t l) {
+        //if (stamp[abs(l)] == epoch + 1) return true;
+        lit_t k = abs(l);
+        clause_t r = reason[k];
+        if (r == clause_nil) return false;
+        for (lit_t i = 0; i < clauses[r-1]; ++i) {
+            lit_t a = clauses[r+i];
+            if (k == abs(a)) continue;
+            if (lev[abs(a)] == 0) continue;
+            if (stamp[abs(a)] == epoch + 2) return false;
+            if (stamp[abs(a)] < epoch &&
+                (lstamp[lev[abs(a)]] < epoch || !redundant(a))) {
+                stamp[abs(a)] = epoch + 2;
+                return false;
+            }
+        }
+        stamp[abs(l)] = epoch + 1;
+        return true;
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -272,8 +292,7 @@ bool solve(Cnf* c) {
         // (C2)
         LOG(4) << "C2";
 
-        LOG(1) << c->clause_stats(8, 128);
-        //LOG(1) << c->val_debug_string();
+        //LOG(1) << c->clause_stats(8, 128);
         
         while (c->f == c->g) {
             LOG(4) << "C5";
@@ -492,7 +511,7 @@ bool solve(Cnf* c) {
             LOG(3) << "q=" << q << ",t=" << t;
             lit_t l = c->trail[t];
             t--;
-            LOG(3) << "New L_t = " << c->trail[t];
+            //LOG(3) << "New L_t = " << c->trail[t];
             if (c->stamp[abs(l)] == c->epoch) {
                 LOG(3) << "Stamped this epoch: " << l;
                 q--;
@@ -544,8 +563,31 @@ bool solve(Cnf* c) {
         for(int i = 0; i < r; i++) {
             oss << -c->b[i] << " ";
         }
-        LOG(3) << "[*] dp = " << dp << ", r = " << r
+        LOG(2) << "[*] dp = " << dp << ", r = " << r
                << ", learned clause is: " << oss.str();
+
+        // Remove redundant literals from clause
+        lit_t rr = 0;
+        for(int i = 0; i < r; ++i) {
+            // TODO: do i need to pass -c->b[i] below? don't think negation matters...
+            if (c->lstamp[c->lev[abs(c->b[i])]] == c->epoch + 1
+                && c->redundant(-c->b[i])) {
+                LOG(2) << "Found redundant literal! " << -c->b[i];
+                continue;
+            }
+            c->b[rr] = c->b[i];
+            ++rr;
+        }
+        r = rr;
+
+        // Debugging for learned clause (again...)
+        std::ostringstream xss;
+        xss << -lp << " ";
+        for(int i = 0; i < r; i++) {
+            xss << -c->b[i] << " ";
+        }
+        LOG(2) << "[**] dp = " << dp << ", r = " << r
+               << ", learned clause is: " << xss.str();
         
         // C8: backjump
         while (c->f > c->di[dp+1]) {
