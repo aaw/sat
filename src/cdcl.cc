@@ -145,16 +145,17 @@ struct Cnf {
         std::ostringstream oss;
         std::vector<int> hist(numb, 0);
         size_t total = 0;
+        size_t bucket_size = maxb / numb;
         for(clause_t i = 2; i < clauses.size(); i += clauses[i] + 3) {
             size_t v = static_cast<size_t>(clauses[i]);
             size_t vt = v > maxb ? maxb : v;
-            hist[vt / numb] += 1;
+            hist[vt / bucket_size] += 1;
             total++;
         }
         oss << "(" << total << ") ";
         size_t lower = 0;
         for(const auto& b : hist) {
-            size_t upper = lower + maxb / numb;
+            size_t upper = lower + bucket_size;
             oss << "[" << lower << ", ";
             if (upper == maxb) { oss << "-"; } else { oss << upper; }
             oss << "): " << b << " ";
@@ -268,7 +269,7 @@ bool solve(Cnf* c) {
         // (C2)
         LOG(4) << "C2";
 
-        LOG(1) << c->clause_stats(8, 400);
+        LOG(1) << c->clause_stats(8, 128);
         //LOG(1) << c->val_debug_string();
         
         while (c->f == c->g) {
