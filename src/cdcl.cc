@@ -28,6 +28,8 @@ struct Cnf {
 
     std::vector<unsigned long> stamp;  // TODO: what's the right type here?
 
+    std::vector<unsigned long> lstamp;
+
     Heap<2> heap;
 
     std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
@@ -53,6 +55,7 @@ struct Cnf {
 
     lit_t nvars;
 
+    // TODO: explain epoch values here, why they're bumped by 3 each time.
     unsigned long epoch;
     
     Cnf(lit_t nvars, clause_t nclauses) :
@@ -441,7 +444,7 @@ bool solve(Cnf* c) {
         lit_t dp = 0;
         lit_t q = 0;
         lit_t r = 0;
-        c->epoch++;
+        c->epoch += 3;
         LOG(3) << "Bumping epoch to " << c->epoch << " at "
                << c->print_clause(w);
         LOG(3) << "Trail is " << c->print_trail();
@@ -471,6 +474,14 @@ bool solve(Cnf* c) {
                 c->b[r] = -m;
                 r++;
                 dp = std::max(dp, p);
+                // TODO: remove this resize once clause purging implemented,
+                // since we'll have an upper bound on # levels then and can
+                // initialize this correctly instead of resizing.
+                c->lstamp.resize(p + 1, 0);
+                if (c->lstamp[p] <= c->epoch) {
+                    c->lstamp[p] =
+                        c->epoch + (c->lstamp[p] == c->epoch ? 1 : 0);
+                }
             }
         }
         LOG(3) << "swapping back: " << c->print_clause(w);
@@ -508,6 +519,13 @@ bool solve(Cnf* c) {
                             c->b[r] = -m;
                             r++;
                             dp = std::max(dp, p);
+                            // TODO: remove this resize once clause purging
+                            // implemented. See other resize above for notes.
+                            c->lstamp.resize(p + 1, 0);
+                            if (c->lstamp[p] <= c->epoch) {
+                                c->lstamp[p] = c->epoch +
+                                    (c->lstamp[p] == c->epoch ? 1 : 0);
+                            }                            
                         }
                     }
                 }
