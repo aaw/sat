@@ -90,7 +90,7 @@ struct Cnf {
         return (x > 0 && s == TRUE) || (x < 0 && s == FALSE);
     }    
 
-    std::string print_clause(clause_t c) {
+    std::string print_clause(clause_t c) const {
         std::ostringstream oss;
         oss << "(";
         for (int i = 0; i < clauses[c - 1]; ++i) {
@@ -101,9 +101,10 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string dump_clauses() {
+    std::string dump_clauses() const {
         std::ostringstream oss;
-        for(clause_t i = 2; i < clauses.size(); i += clauses[i] + 3) {
+        for(clause_t i = 2; i < clauses.size();
+            i += clauses[i] + 3 + (clauses[i] == 1 ? 1 : 0)) {
             oss << "(";
             for(lit_t j = 1; j < clauses[i]; ++j) {
                 oss << clauses[i+j] << " ";
@@ -149,7 +150,8 @@ struct Cnf {
         std::vector<int> hist(numb, 0);
         size_t total = 0;
         size_t bucket_size = maxb / numb;
-        for(clause_t i = 2; i < clauses.size(); i += clauses[i] + 3) {
+        for(clause_t i = 2; i < clauses.size(); 
+            i += clauses[i] + 3 + (clauses[i] == 1 ? 1 : 0)) {
             size_t v = static_cast<size_t>(clauses[i]);
             size_t vt = v > maxb ? maxb : v;
             hist[vt / bucket_size] += 1;
@@ -168,7 +170,8 @@ struct Cnf {
     }
 
     bool redundant(lit_t l) {
-        //if (stamp[abs(l)] == epoch + 1) return true;
+        // TODO: okay to do this early exit?
+        if (stamp[abs(l)] == epoch + 1) return true;
         lit_t k = abs(l);
         clause_t r = reason[k];
         if (r == clause_nil) return false;
@@ -178,6 +181,7 @@ struct Cnf {
             if (lev[abs(a)] == 0) continue;
             if (stamp[abs(a)] == epoch + 2) return false;
             if (stamp[abs(a)] < epoch &&
+                // TODO: < or <= below?
                 (lstamp[lev[abs(a)]] < epoch || !redundant(a))) {
                 stamp[abs(a)] = epoch + 2;
                 return false;
@@ -292,7 +296,7 @@ bool solve(Cnf* c) {
         // (C2)
         LOG(4) << "C2";
 
-        //LOG(1) << c->clause_stats(8, 128);
+        LOG(1) << c->clause_stats(8, 16);
         
         while (c->f == c->g) {
             LOG(4) << "C5";
