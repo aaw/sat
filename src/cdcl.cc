@@ -180,8 +180,8 @@ struct Cnf {
             if (k == abs(a)) continue;
             if (lev[abs(a)] == 0) continue;
             if (stamp[abs(a)] == epoch + 2) return false;
+            // TODO: this condition not quite right?
             if (stamp[abs(a)] < epoch &&
-                // TODO: < or <= below?
                 (lstamp[lev[abs(a)]] < epoch || !redundant(a))) {
                 stamp[abs(a)] = epoch + 2;
                 return false;
@@ -225,7 +225,7 @@ Cnf parse(const char* filename) {
     CHECK(nclauses >= 0);
     CHECK_NO_OVERFLOW(lit_t, nvars);
     CHECK_NO_OVERFLOW(clause_t, nclauses);
-
+    
     // Initialize data structures now that we know nvars and nclauses.
     Cnf c(static_cast<lit_t>(nvars), static_cast<clause_t>(nclauses));
 

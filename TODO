@@ -3,3 +3,4 @@
 * implement clause purging in cdcl
 * clean up signed/unsigned types, check-fail when adding new clauses that overflow in cdcl
 * Make a script to test consistency (clause count, var count) and formatting of all test files
+* ignore comments correctly in input. right now, "c p cnf 1 2" will fool us in preamble.
