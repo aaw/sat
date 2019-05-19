@@ -6,6 +6,7 @@
 
 #include "flags.h"
 #include "logging.h"
+#include "timer.h"
 #include "types.h"
 
 // States used by both the search algorithm and the final assignment. If the

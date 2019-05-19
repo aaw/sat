@@ -6,6 +6,7 @@
 
 #include "flags.h"
 #include "logging.h"
+#include "timer.h"
 #include "types.h"
 
 enum State {
