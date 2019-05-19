@@ -225,6 +225,8 @@ Cnf parse(const char* filename) {
 
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
+    Timer t;
+
     // The search for a satisfying assignment proceeds in stages from d = 1 to
     // d = c->nvars. As long as a consistent partial assignment is found, d
     // is incremented. If a conflict is found, we backtrack by decrementing d.

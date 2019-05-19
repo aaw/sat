@@ -162,6 +162,7 @@ Cnf parse(const char* filename) {
 
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
+    Timer t;
     lit_t d = 1;  // Stage; Number of variables set in the partial assignment.
     lit_t l = 0;  // Current literal.
     while (0 < d && d <= c->nvars) {

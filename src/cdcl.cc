@@ -6,9 +6,10 @@
 #include <vector>
 
 #include "flags.h"
-#include "logging.h"
-#include "types.h"
 #include "heap.h"
+#include "logging.h"
+#include "timer.h"
+#include "types.h"
 
 enum State {
     UNSET = 0,
@@ -291,6 +292,7 @@ Cnf parse(const char* filename) {
 
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
+    Timer t;
     lit_t d = 0;
     while (true) {
         // (C2)

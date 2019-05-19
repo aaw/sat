@@ -15,6 +15,7 @@
 
 int FLAGS_verbosity = 0;
 unsigned long FLAGS_seed = 0;
+bool FLAGS_time = false;
 
 bool parse_flags(int argc, char* argv[], int* option_index) {
     *option_index = 0;
@@ -23,10 +24,11 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
     struct option long_options[] = {
         { "verbosity",      required_argument,  NULL, 'v' },
         { "seed",           required_argument,  NULL, 's' },
+        { "time",           no_argument,        NULL, 't' },
         { 0, 0, 0, 0}
     };
 
-    char optstring[] = "v:s:";
+    char optstring[] = "v:s:t";
 
     while (1) {
         c = getopt_long(argc, argv, optstring, long_options, nullptr);
@@ -46,6 +48,9 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
                 << std::numeric_limits<unsigned int>::max();
             std::cout << "c Setting random seed = " << FLAGS_seed
                       << std::endl;
+            break;
+        case 't':
+            FLAGS_time = true;
             break;
         default:
             return false;
