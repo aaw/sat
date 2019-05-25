@@ -564,13 +564,13 @@ bool solve(Cnf* c) {
         LOG(4) << "stopping C7 with l'=" << lp;
         
         // Debugging for learned clause:
-        std::ostringstream oss;
+        /*std::ostringstream oss;
         oss << -lp << " ";
         for(int i = 0; i < r; i++) {
             oss << -c->b[i] << " ";
         }
         LOG(2) << "[*] dp = " << dp << ", r = " << r
-               << ", learned clause is: " << oss.str();
+        << ", learned clause is: " << oss.str();*/
 
         // Remove redundant literals from clause
         lit_t rr = 0;
@@ -587,13 +587,13 @@ bool solve(Cnf* c) {
         r = rr;
 
         // Debugging for learned clause (again...)
-        std::ostringstream xss;
+        /*std::ostringstream xss;
         xss << -lp << " ";
         for(int i = 0; i < r; i++) {
             xss << -c->b[i] << " ";
         }
         LOG(2) << "[**] dp = " << dp << ", r = " << r
-               << ", learned clause is: " << xss.str();
+        << ", learned clause is: " << xss.str();*/
         
         // C8: backjump
         while (c->f > c->di[dp+1]) {
