@@ -29,7 +29,7 @@ struct Cnf {
 
     std::vector<unsigned long> stamp;  // TODO: what's the right type here?
 
-    std::vector<unsigned long> lstamp;
+    std::vector<unsigned long> lstamp;  // maps levels to stamp values
 
     Heap<2> heap;
 
@@ -64,6 +64,7 @@ struct Cnf {
         lev(nvars + 1, -1),
         oval(nvars + 1, FALSE),
         stamp(nvars + 1, 0),
+        lstamp(nvars + 1, 0),
         heap(nvars),
         trail(nvars, -1),
         tloc(nvars + 1, -1),
@@ -504,11 +505,8 @@ bool solve(Cnf* c) {
                 // TODO: remove this resize once clause purging implemented,
                 // since we'll have an upper bound on # levels then and can
                 // initialize this correctly instead of resizing.
-                c->lstamp.resize(p + 1, 0);
-                if (c->lstamp[p] <= c->epoch) {
-                    c->lstamp[p] =
-                        c->epoch + (c->lstamp[p] == c->epoch ? 1 : 0);
-                }
+                c->lstamp[p] =
+                    (c->lstamp[p] == c->epoch) ? c->epoch + 1 : c->epoch;
             }
         }
         LOG(3) << "swapping back: " << c->print_clause(w);
@@ -546,13 +544,8 @@ bool solve(Cnf* c) {
                             c->b[r] = -m;
                             r++;
                             dp = std::max(dp, p);
-                            // TODO: remove this resize once clause purging
-                            // implemented. See other resize above for notes.
-                            c->lstamp.resize(p + 1, 0);
-                            if (c->lstamp[p] <= c->epoch) {
-                                c->lstamp[p] = c->epoch +
-                                    (c->lstamp[p] == c->epoch ? 1 : 0);
-                            }                            
+                            c->lstamp[p] = (c->lstamp[p] == c->epoch) ? 
+                                c->epoch + 1 : c->epoch;
                         }
                     }
                 }
