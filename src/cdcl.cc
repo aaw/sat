@@ -171,17 +171,18 @@ struct Cnf {
     }
 
     bool redundant(lit_t l) {
-        // TODO: okay to do this early exit?
-        if (stamp[abs(l)] == epoch + 1) return true;
         lit_t k = abs(l);
         clause_t r = reason[k];
-        if (r == clause_nil) return false;
+        if (r == clause_nil) {
+            return false;
+        }
         for (lit_t i = 0; i < clauses[r-1]; ++i) {
             lit_t a = clauses[r+i];
             if (k == abs(a)) continue;
             if (lev[abs(a)] == 0) continue;
-            if (stamp[abs(a)] == epoch + 2) return false;
-            // TODO: this condition not quite right?
+            if (stamp[abs(a)] == epoch + 2) {
+                return false;
+            }
             if (stamp[abs(a)] < epoch &&
                 (lstamp[lev[abs(a)]] < epoch || !redundant(a))) {
                 stamp[abs(a)] = epoch + 2;
@@ -294,6 +295,7 @@ Cnf parse(const char* filename) {
 bool solve(Cnf* c) {
     Timer t;
     lit_t d = 0;
+
     while (true) {
         // (C2)
         LOG(4) << "C2";
@@ -569,15 +571,15 @@ bool solve(Cnf* c) {
         for(int i = 0; i < r; i++) {
             oss << -c->b[i] << " ";
         }
-        LOG(2) << "[*] dp = " << dp << ", r = " << r
+        LOG(2) << "[**] before redundant literal elimination, "        
         << ", learned clause is: " << oss.str();*/
 
         // Remove redundant literals from clause
         lit_t rr = 0;
         for(int i = 0; i < r; ++i) {
             // TODO: do i need to pass -c->b[i] below? don't think negation matters...
-            if (c->lstamp[c->lev[abs(c->b[i])]] == c->epoch + 1
-                && c->redundant(-c->b[i])) {
+            if (c->lstamp[c->lev[abs(c->b[i])]] == c->epoch + 1 &&
+                c->redundant(-c->b[i])) {
                 LOG(2) << "Found redundant literal! " << -c->b[i];
                 continue;
             }
@@ -592,7 +594,7 @@ bool solve(Cnf* c) {
         for(int i = 0; i < r; i++) {
             xss << -c->b[i] << " ";
         }
-        LOG(2) << "[**] dp = " << dp << ", r = " << r
+        LOG(2) << "[**] after redundant literal elimination, "
         << ", learned clause is: " << xss.str();*/
         
         // C8: backjump
