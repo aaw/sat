@@ -301,7 +301,7 @@ bool solve(Cnf* c) {
         // (C2)
         LOG(4) << "C2";
 
-        LOG(1) << c->clause_stats(8, 16);
+        //LOG(1) << c->clause_stats(8, 16);
         
         while (c->f == c->g) {
             LOG(4) << "C5";
@@ -478,8 +478,7 @@ bool solve(Cnf* c) {
         LOG(3) << "Trail is " << c->print_trail();
         c->stamp[abs(c->clauses[w])] = c->epoch;
         c->heap.bump(abs(c->clauses[w]));
-        // TODO: knuth says t shouldn't be init to tloc[l0]???
-        //lit_t t = -1;
+
         lit_t t = c->tloc[abs(c->clauses[w])];
         LOG(3) << "RESOLVING [A] " << c->print_clause(w);
         for(size_t j = 1; j < static_cast<size_t>(c->clauses[w-1]); ++j) {
@@ -502,9 +501,6 @@ bool solve(Cnf* c) {
                 c->b[r] = -m;
                 r++;
                 dp = std::max(dp, p);
-                // TODO: remove this resize once clause purging implemented,
-                // since we'll have an upper bound on # levels then and can
-                // initialize this correctly instead of resizing.
                 c->lstamp[p] =
                     (c->lstamp[p] == c->epoch) ? c->epoch + 1 : c->epoch;
             }
@@ -606,10 +602,6 @@ bool solve(Cnf* c) {
         LOG(3) << "After backjump, trail is " << c->print_trail();
         
         // C9: learn
-        //TODO: Knuth has "if d > 0 do step C9". what is else clause?
-        // assuming it's "return false" here.
-        //if (d == 0) return false;
-        
         c->clauses.push_back(clause_nil); // watch list for l1
         c->clauses.push_back(c->watch[-lp]); // watch list for l0
         c->clauses.push_back(r+1); // size
@@ -630,9 +622,8 @@ bool solve(Cnf* c) {
             }
         }
         CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
-        LOG(2) << "*** Successfully added clause " << c->print_clause(lc);
+        LOG(1) << "Successfully added clause " << c->print_clause(lc);
         
-        // TODO: Knuth says "lp" here, but I think it's "-lp"?
         c->trail[c->f] = -lp;
         c->val[abs(lp)] = -lp < 0 ? FALSE : TRUE;
         c->lev[abs(lp)] = d;
