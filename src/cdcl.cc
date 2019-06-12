@@ -297,6 +297,7 @@ bool solve(Cnf* c) {
     Timer t;
     lit_t d = 0;
 
+    clause_t lc = clause_nil;  // The most recent learned clause
     while (true) {
         // (C2)
         LOG(4) << "C2";
@@ -553,17 +554,10 @@ bool solve(Cnf* c) {
         while (c->stamp[abs(lp)] != c->epoch) { t--; lp = c->trail[t]; }
         
         LOG(4) << "stopping C7 with l'=" << lp;
-        
-        // Debugging for learned clause:
-        /*std::ostringstream oss;
-        oss << -lp << " ";
-        for(int i = 0; i < r; i++) {
-            oss << -c->b[i] << " ";
-        }
-        LOG(2) << "[**] before redundant literal elimination, "        
-        << ", learned clause is: " << oss.str();*/
 
         // Remove redundant literals from clause
+        // TODO: move this down so that we only process learned clause once? But
+        // would also have to do subsumption check in single loop...
         lit_t rr = 0;
         for(int i = 0; i < r; ++i) {
             // TODO: do i need to pass -c->b[i] below? don't think negation matters...
@@ -577,14 +571,47 @@ bool solve(Cnf* c) {
         }
         r = rr;
 
-        // Debugging for learned clause (again...)
-        /*std::ostringstream xss;
-        xss << -lp << " ";
-        for(int i = 0; i < r; i++) {
-            xss << -c->b[i] << " ";
+        // Does this clause subsume the previous learned clause? If so, we can
+        // "just" overwrite it. lc is the most recent learned clause from a
+        // previous iteration.
+        if (lc != clause_nil) {
+            lit_t q = r+1;
+            for (int j = c->clauses[lc-1] - 1; q > 0 && j >= q; --j) {
+                if (c->clauses[lc + j] == -lp ||
+                    (c->stamp[abs(c->clauses[lc + j])] == c->epoch &&
+                     c->val[abs(c->clauses[lc + j])] != UNSET &&
+                     // TODO: do we need all lits on level <= dp or just one?
+                     c->lev[abs(c->clauses[lc + j])] <= dp)) {
+                    --q;
+                }
+            }
+            // TODO: also need to bail out if lc is reason
+            if (q == 0) {
+                // TODO: extract this watchlist surgery into a function
+                clause_t *x = &c->watch[c->clauses[lc]];
+                while (*x != lc) {
+                    if (c->clauses[*x] == c->clauses[lc]) {
+                        x = (clause_t*)(&c->clauses[*x-2]);
+                    } else /* c->clauses[*x+1] == c->clauses[lc] */ {
+                        x = (clause_t*)(&c->clauses[*x-3]);
+                    }
+                }
+                *x = c->clauses[*x-(c->clauses[*x] == c->clauses[lc] ? 2 : 3)];
+
+                if (c->clauses[lc-1] != 1) {
+                    clause_t *x = &c->watch[c->clauses[lc+1]];
+                    while (*x != lc) {
+                        if (c->clauses[*x] == c->clauses[lc+1]) {
+                            x = (clause_t*)(&c->clauses[*x-2]);
+                        } else /* c->clauses[*x+1] == lc */ {
+                            x = (clause_t*)(&c->clauses[*x-3]);
+                        }
+                    }
+                    *x = c->clauses[*x-(c->clauses[*x] == c->clauses[lc+1] ? 2 : 3)];
+                }
+                c->clauses.resize(lc-3);
+            }
         }
-        LOG(2) << "[**] after redundant literal elimination, "
-        << ", learned clause is: " << xss.str();*/
         
         // C8: backjump
         while (c->f > c->di[dp+1]) {
@@ -606,7 +633,7 @@ bool solve(Cnf* c) {
         c->clauses.push_back(c->watch[-lp]); // watch list for l0
         c->clauses.push_back(r+1); // size
         LOG(3) << "adding a clause of size " << r+1;
-        clause_t lc = c->clauses.size();
+        lc = c->clauses.size();
         c->clauses.push_back(-lp);
         c->watch[-lp] = lc;
         c->clauses.push_back(clause_nil); // to be set in else below
@@ -621,6 +648,7 @@ bool solve(Cnf* c) {
                 found_watch = true;
             }
         }
+        CHECK(r == 0 || found_watch) << "Didn't find watched lit in new clause";
         CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
         LOG(1) << "Successfully added clause " << c->print_clause(lc);
         
