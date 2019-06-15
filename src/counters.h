@@ -19,7 +19,7 @@ public:
     ~Counters() {
         if (!FLAGS_counters) return;
         for(const auto& kv : sums_) {
-            PRINT << "c counter:" << kv.first << " = " << kv.second;
+            PRINT << "c counter: [" << kv.first << "] = " << kv.second;
             if (counts_[kv.first] != kv.second) {
                 PRINT << " (avg: " << double(kv.second) / counts_[kv.first]
                       << ")";
