@@ -1,4 +1,4 @@
-* implement counters that get compiled out in optimized mode (# subsumed clauses, etc.)
+* compile out counters, timers, logging in OPT mode
 * implement clause purging in cdcl
 * implement literal flushing in cdcl
 * implement on-the-fly subsumption in cdcl

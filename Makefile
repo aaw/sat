@@ -7,13 +7,13 @@ all: bin/btwl bin/dpll bin/cdcl
 
 test: tbin/heap_test
 
-bin/btwl: src/btwl.cc src/logging.h src/types.h src/flags.h src/timer.h
+bin/btwl: src/btwl.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h
 	g++ $(CPPFLAGS) -o bin/btwl src/btwl.cc $(LDLIBS)
 
-bin/cdcl: src/cdcl.cc src/logging.h src/types.h src/flags.h src/heap.h src/timer.h
+bin/cdcl: src/cdcl.cc src/logging.h src/types.h src/flags.h src/heap.h src/timer.h src/counters.h
 	g++ $(CPPFLAGS) -o bin/cdcl src/cdcl.cc $(LDLIBS)
 
-bin/dpll: src/dpll.cc src/logging.h src/types.h src/flags.h src/timer.h
+bin/dpll: src/dpll.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h
 	g++ $(CPPFLAGS) -o bin/dpll src/dpll.cc $(LDLIBS)
 
 tbin/heap_test: src/heap_test.cc src/heap.h

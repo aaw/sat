@@ -5,6 +5,7 @@
 #include <sstream>
 #include <vector>
 
+#include "counters.h"
 #include "flags.h"
 #include "heap.h"
 #include "logging.h"
@@ -19,6 +20,8 @@ enum State {
 
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
+    Counters counters;
+
     std::vector<lit_t> clauses;
 
     std::vector<State> val;
@@ -192,6 +195,10 @@ struct Cnf {
         }
         stamp[abs(l)] = epoch + 1;
         return true;
+    }
+
+    void inc(const char* counter, uint64_t delta=1) {
+        counters.inc(counter, delta);
     }
 };
 
@@ -563,12 +570,12 @@ bool solve(Cnf* c) {
             // TODO: do i need to pass -c->b[i] below? don't think negation matters...
             if (c->lstamp[c->lev[abs(c->b[i])]] == c->epoch + 1 &&
                 c->redundant(-c->b[i])) {
-                LOG(2) << "Found redundant literal! " << -c->b[i];
                 continue;
             }
             c->b[rr] = c->b[i];
             ++rr;
         }
+        c->inc("redundant literals", r - rr);
         r = rr;
 
         // Does this clause subsume the previous learned clause? If so, we can
@@ -586,7 +593,7 @@ bool solve(Cnf* c) {
                 }
             }
             // TODO: also need to bail out if lc is reason
-            if (q == 0) {
+            if (q == 0 && c->reason[abs(lp)] != lc) {
                 // TODO: extract this watchlist surgery into a function
                 clause_t *x = &c->watch[c->clauses[lc]];
                 while (*x != lc) {
@@ -610,6 +617,7 @@ bool solve(Cnf* c) {
                     *x = c->clauses[*x-(c->clauses[*x] == c->clauses[lc+1] ? 2 : 3)];
                 }
                 c->clauses.resize(lc-3);
+                c->inc("subsumed clauses");
             }
         }
         
@@ -651,6 +659,8 @@ bool solve(Cnf* c) {
         CHECK(r == 0 || found_watch) << "Didn't find watched lit in new clause";
         CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
         LOG(1) << "Successfully added clause " << c->print_clause(lc);
+        c->inc("learned clause literals", r+1);
+        c->inc("learned clauses");
         
         c->trail[c->f] = -lp;
         c->val[abs(lp)] = -lp < 0 ? FALSE : TRUE;

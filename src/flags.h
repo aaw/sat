@@ -16,6 +16,7 @@
 int FLAGS_verbosity = 0;
 unsigned long FLAGS_seed = 0;
 bool FLAGS_time = false;
+bool FLAGS_counters = false;
 
 bool parse_flags(int argc, char* argv[], int* option_index) {
     *option_index = 0;
@@ -25,10 +26,11 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
         { "verbosity",      required_argument,  NULL, 'v' },
         { "seed",           required_argument,  NULL, 's' },
         { "time",           no_argument,        NULL, 't' },
+        { "counters",       no_argument,        NULL, 'c' },
         { 0, 0, 0, 0}
     };
 
-    char optstring[] = "v:s:t";
+    char optstring[] = "v:s:tc";
 
     while (1) {
         c = getopt_long(argc, argv, optstring, long_options, nullptr);
@@ -38,19 +40,24 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
         switch (c) {
         case 'v':
             FLAGS_verbosity = atoi(optarg);
-            std::cout << "c Setting verbosity = " << FLAGS_verbosity
-                      << std::endl;
+            PRINT << "c Setting verbosity = " << FLAGS_verbosity
+                  << std::endl;
             break;
         case 's':
             FLAGS_seed = strtoul(optarg, NULL, 0);
             CHECK(FLAGS_seed <= std::numeric_limits<unsigned int>::max())
                 << "Seed " << FLAGS_seed << " must be between 0 and "
                 << std::numeric_limits<unsigned int>::max();
-            std::cout << "c Setting random seed = " << FLAGS_seed
-                      << std::endl;
+            PRINT << "c Setting random seed = " << FLAGS_seed
+                  << std::endl;
             break;
         case 't':
+            PRINT << "c Timing enabled" << std::endl;
             FLAGS_time = true;
+            break;
+        case 'c':
+            PRINT << "c Counters enabled" << std::endl;
+            FLAGS_counters = true;
             break;
         default:
             return false;
