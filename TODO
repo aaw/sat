@@ -1,3 +1,4 @@
+* output counters on SIGINT
 * compile out counters, timers, logging in OPT mode
 * implement clause purging in cdcl
 * implement literal flushing in cdcl

@@ -29,7 +29,7 @@ public:
     }
 private:
     std::map<std::string, uint64_t> sums_;
-    std::map<std::string, double> counts_;
+    std::map<std::string, uint64_t> counts_;
 };
 
 #endif  // __COUNTERS_H__

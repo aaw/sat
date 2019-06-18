@@ -1,4 +1,9 @@
 // Algorithm C from Knuth's The Art of Computer Programming 7.2.2.2: CDCL
+//
+// This implementation also includes improvements discussed in various 
+// exercises, including:
+//   - Ex. 257: Redundant literal detection within learned clauses
+//   - Ex. 271: Subsumption of immediate predecessor learned clauses
 
 #include <ctime>
 #include <cstdlib>
