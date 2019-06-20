@@ -21,7 +21,7 @@ public:
               << " seconds" << std::endl;
     }
 private:
-    clock_t begin_;
+    clock_t begin_=0;  // 0-initialized to avoid gcc warning.
 };
 
 #endif  // __TIMER_H__

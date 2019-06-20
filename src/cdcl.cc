@@ -3,6 +3,7 @@
 // This implementation also includes improvements discussed in various 
 // exercises, including:
 //   - Ex. 257: Redundant literal detection within learned clauses
+//   - Ex. 268: Lazy removal of level 0 false lits from clauses
 //   - Ex. 271: Subsumption of immediate predecessor learned clauses
 
 #include <ctime>
@@ -113,13 +114,16 @@ struct Cnf {
 
     std::string dump_clauses() const {
         std::ostringstream oss;
+        lit_t ts = 0;  // tombstone count
         for(clause_t i = 2; i < clauses.size();
-            i += clauses[i] + 3 + (clauses[i] == 1 ? 1 : 0)) {
+            i += clauses[i] + ts + 3 + (clauses[i] == 1 ? 1 : 0)) {
+            ts = 0;
             oss << "(";
             for(lit_t j = 1; j < clauses[i]; ++j) {
                 oss << clauses[i+j] << " ";
             }
             oss << clauses[i+clauses[i]] << ") ";
+            while (clauses[i+clauses[i]+1+ts] == lit_nil) ++ts;
         }
         return oss.str();
     }
@@ -374,9 +378,18 @@ bool solve(Cnf* c) {
                    << " to see if it forces a unit";
             
             bool all_false = true;
+            bool tombstones = false;
             if (!c->is_true(c->clauses[w+1])) {
                 for(int i = 2; i < c->clauses[w - 1]; ++i) {
-                    if (!c->is_false(c->clauses[w + i])) {
+                    // If we see a false literal from level zero, go ahead and
+                    // and remove it from the clause now by replacing it with a
+                    // tombstone (Ex. 268)
+                    if (c->is_false(c->clauses[w + i]) &&
+                        c->lev[abs(c->clauses[w + i])] == 0) {
+                        c->clauses[w + i] = lit_nil;
+                        tombstones = true;
+                        continue;
+                    } else if (!c->is_false(c->clauses[w + i])) {
                         all_false = false;
                         lit_t ln = c->clauses[w + i];
                         LOG(3) << "Resetting " << ln
@@ -397,6 +410,24 @@ bool solve(Cnf* c) {
                         break;
                     }
                 }
+                // Compact any tombstones we just added to the clause
+                if (tombstones) {
+                    int j = 2;
+                    for(int i = 2; i < c->clauses[w - 1]; ++i) {
+                        if (c->clauses[w + i] != lit_nil) {
+                            if (i != j) c->clauses[w + j] = c->clauses[w + i];
+                            ++j;
+                        }
+                    }
+                    for(int i = j; i < c->clauses[w - 1]; ++i) {
+                        c->clauses[w+i] = lit_nil;
+                    }
+                    if (j < c->clauses[w - 1]) {
+                        c->inc("tombstoned-level-0-literals", c->clauses[w-1] - j);
+                        c->clauses[w - 1] = j;
+                    }
+                }
+                
                 if (all_false) {
                     if (c->is_false(c->clauses[w+1])) {
                         LOG(3) << c->clauses[w]
