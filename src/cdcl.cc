@@ -641,11 +641,7 @@ bool solve(Cnf* c) {
                 }
             }
 
-            // Subsume the clause only if we've verified that (1) the new clause
-            // TODO: finish sentence
             if (q == 0 && c->val[abs(c->clauses[lc])] == UNSET) {
-                LOG(1) << "SUBSUMING " << c->print_clause(lc);
-                LOG(1) << "trail: " << c->print_trail();
                 // TODO: extract this watchlist surgery into a function
                 clause_t *x = &c->watch[c->clauses[lc]];
                 while (*x != lc) {
