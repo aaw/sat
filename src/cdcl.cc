@@ -423,8 +423,8 @@ bool solve(Cnf* c) {
                         c->clauses[w+i] = lit_nil;
                     }
                     if (j < c->clauses[w - 1]) {
-                        c->inc("tombstoned-level-0-literals", c->clauses[w-1] - j);
-                        c->clauses[w - 1] = j;
+                        c->inc("tombstoned-level-0-lits", c->clauses[w-1] - j);
+                        c->clauses[w-1] = j;
                     }
                 }
                 
@@ -463,8 +463,6 @@ bool solve(Cnf* c) {
                 wll = w;
             }
                 
-
-            
             LOG(3) << "advancing " << w << " -> " << nw << " with wll=" << wll;
             w = nw;  // advance watch list traversal.
             
@@ -614,22 +612,40 @@ bool solve(Cnf* c) {
         c->inc("redundant literals", r - rr);
         r = rr;
 
-        // Does this clause subsume the previous learned clause? If so, we can
-        // "just" overwrite it. lc is the most recent learned clause from a
-        // previous iteration.
+        // C8: backjump
+        while (c->f > c->di[dp+1]) {
+            c->f--;
+            lit_t l = c->trail[c->f];
+            LOG(3) << "Backjumping: " << l;
+            lit_t k = abs(l);
+            c->oval[k] = c->val[k];
+            c->val[k] = UNSET;
+            c->reason[k] = clause_nil;
+            c->heap.insert(k);
+        }
+        c->g = c->f;
+        d = dp;
+        LOG(3) << "After backjump, trail is " << c->print_trail();
+
+        // Ex. 271: Does this clause subsume the previous learned clause? If
+        // so, we can "just" overwrite it. lc is the most recent learned clause
+        // from a previous iteration.
         if (lc != clause_nil) {
             lit_t q = r+1;
             for (int j = c->clauses[lc-1] - 1; q > 0 && j >= q; --j) {
                 if (c->clauses[lc + j] == -lp ||
                     (c->stamp[abs(c->clauses[lc + j])] == c->epoch &&
                      c->val[abs(c->clauses[lc + j])] != UNSET &&
-                     // TODO: do we need all lits on level <= dp or just one?
                      c->lev[abs(c->clauses[lc + j])] <= dp)) {
                     --q;
                 }
             }
-            // TODO: also need to bail out if lc is reason
-            if (q == 0 && c->reason[abs(lp)] != lc) {
+
+            // Subsume the clause only if we've verified that (1) the new clause
+            // TODO: finish sentence
+            if (q == 0 && c->val[abs(c->clauses[lc])] == UNSET) {
+                LOG(1) << "SUBSUMING " << c->print_clause(lc);
+                LOG(1) << "trail: " << c->print_trail();
                 // TODO: extract this watchlist surgery into a function
                 clause_t *x = &c->watch[c->clauses[lc]];
                 while (*x != lc) {
@@ -657,21 +673,6 @@ bool solve(Cnf* c) {
             }
         }
         
-        // C8: backjump
-        while (c->f > c->di[dp+1]) {
-            c->f--;
-            lit_t l = c->trail[c->f];
-            LOG(3) << "Backjumping: " << l;
-            lit_t k = abs(l);
-            c->oval[k] = c->val[k];
-            c->val[k] = UNSET;
-            c->reason[k] = clause_nil;
-            c->heap.insert(k);
-        }
-        c->g = c->f;
-        d = dp;
-        LOG(3) << "After backjump, trail is " << c->print_trail();
-        
         // C9: learn
         c->clauses.push_back(clause_nil); // watch list for l1
         c->clauses.push_back(c->watch[-lp]); // watch list for l0
@@ -695,6 +696,7 @@ bool solve(Cnf* c) {
         CHECK(r == 0 || found_watch) << "Didn't find watched lit in new clause";
         CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
         LOG(1) << "Successfully added clause " << c->print_clause(lc);
+        LOG(1) << "trail: " << c->print_trail();
         c->inc("learned clause literals", r+1);
         c->inc("learned clauses");
         

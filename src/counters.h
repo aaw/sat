@@ -16,7 +16,9 @@ public:
         counts_[name] += 1;
     }
 
-    ~Counters() {
+    ~Counters() {/* print();*/ }
+
+    void print() {
         if (!FLAGS_counters) return;
         for(const auto& kv : sums_) {
             PRINT << "c counter: [" << kv.first << "] = " << kv.second;
@@ -27,6 +29,7 @@ public:
             PRINT << std::endl;
         }
     }
+    
 private:
     std::map<std::string, uint64_t> sums_;
     std::map<std::string, uint64_t> counts_;
