@@ -26,6 +26,12 @@ public:
             PRINT << std::endl;
         }
     }
+
+    void dump() {
+        print();
+        sums_.clear();
+        counts_.clear();
+    }
     
 private:
     std::map<std::string, uint64_t> sums_;
@@ -36,8 +42,8 @@ static Counters _counters;
 
 void init_counters() {
     if (!FLAGS_counters) return;
-    std::atexit([]{ _counters.print(); });
-    std::signal(SIGINT, [](int signum) { PRINT << std::endl; exit(UNKNOWN); });
+    std::atexit([]{ _counters.dump(); });
+    std::signal(SIGINT, [](int signum) { _counters.dump(); exit(UNKNOWN); });
 }
 
 #define INC(...) if (FLAGS_counters) { _counters.inc(__VA_ARGS__); }
