@@ -15,7 +15,7 @@
 extern unsigned long FLAGS_seed;
 
 constexpr double kRho = 0.95;
-constexpr double kMaxScore = pow(10,100);
+const double kMaxScore = pow(10,100);
 
 // max heap, stores variables
 template <unsigned int D>
