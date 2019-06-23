@@ -24,7 +24,8 @@ struct Heap {
       hloc(nvars + 1),
       heap(nvars),
       key(nvars + 1, 0.0),
-      delta(1.0) {
+      delta(1.0),
+      max_key(std::numeric_limits<double>::min()) {
         if (FLAGS_seed == 0) {
             FLAGS_seed = time(NULL);
         }
