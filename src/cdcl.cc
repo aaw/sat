@@ -151,12 +151,6 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string val_debug_string() const {
-        std::ostringstream oss;
-        for(std::size_t i = 1; i < val.size(); ++i) { oss << val[i]; }
-        return oss.str();
-    }
-
     std::string clause_stats(size_t numb, size_t maxb) const {
         std::ostringstream oss;
         std::vector<int> hist(numb, 0);
