@@ -1,8 +1,7 @@
-* output counters on SIGINT
+* implement on-the-fly subsumption in cdcl
 * compile out counters, timers, logging in OPT mode
 * implement clause purging in cdcl
 * implement literal flushing in cdcl
-* implement on-the-fly subsumption in cdcl
 * implement fsnark generator
 * clean up signed/unsigned types, check-fail when adding new clauses that overflow in cdcl
 * Make a script to test consistency (clause count, var count) and formatting of all test files

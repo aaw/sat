@@ -1,6 +1,7 @@
 #ifndef __COUNTERS_H__
 #define __COUNTERS_H__
 
+#include <csignal>
 #include <map>
 #include <string>
 
@@ -11,15 +12,11 @@ extern bool FLAGS_counters;
 class Counters {
 public:
     void inc(const char* name, uint64_t delta=1UL) {
-        if (!FLAGS_counters) return;
         sums_[name] += delta;
         counts_[name] += 1;
     }
 
-    ~Counters() {/* print();*/ }
-
     void print() {
-        if (!FLAGS_counters) return;
         for(const auto& kv : sums_) {
             PRINT << "c counter: [" << kv.first << "] = " << kv.second;
             if (counts_[kv.first] != kv.second) {
@@ -34,5 +31,15 @@ private:
     std::map<std::string, uint64_t> sums_;
     std::map<std::string, uint64_t> counts_;
 };
+
+static Counters _counters;
+
+void init_counters() {
+    if (!FLAGS_counters) return;
+    std::atexit([]{ _counters.print(); });
+    std::signal(SIGINT, [](int signum) { PRINT << std::endl; exit(UNKNOWN); });
+}
+
+#define INC(...) if (FLAGS_counters) { _counters.inc(__VA_ARGS__); }
 
 #endif  // __COUNTERS_H__

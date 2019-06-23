@@ -26,8 +26,6 @@ enum State {
 
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
-    Counters counters;
-
     std::vector<lit_t> clauses;
 
     std::vector<State> val;
@@ -204,10 +202,6 @@ struct Cnf {
         }
         stamp[abs(l)] = epoch + 1;
         return true;
-    }
-
-    void inc(const char* counter, uint64_t delta=1) {
-        counters.inc(counter, delta);
     }
 };
 
@@ -423,7 +417,7 @@ bool solve(Cnf* c) {
                         c->clauses[w+i] = lit_nil;
                     }
                     if (j < c->clauses[w - 1]) {
-                        c->inc("tombstoned-level-0-lits", c->clauses[w-1] - j);
+                        INC("tombstoned-level-0-lits", c->clauses[w-1] - j);
                         c->clauses[w-1] = j;
                     }
                 }
@@ -609,7 +603,7 @@ bool solve(Cnf* c) {
             c->b[rr] = c->b[i];
             ++rr;
         }
-        c->inc("redundant literals", r - rr);
+        INC("redundant literals", r - rr);
         r = rr;
 
         // C8: backjump
@@ -665,7 +659,7 @@ bool solve(Cnf* c) {
                     *x = c->clauses[*x-(c->clauses[*x] == c->clauses[lc+1] ? 2 : 3)];
                 }
                 c->clauses.resize(lc-3);
-                c->inc("subsumed clauses");
+                INC("subsumed clauses");
             }
         }
         
@@ -693,8 +687,8 @@ bool solve(Cnf* c) {
         CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
         LOG(1) << "Successfully added clause " << c->print_clause(lc);
         LOG(1) << "trail: " << c->print_trail();
-        c->inc("learned clause literals", r+1);
-        c->inc("learned clauses");
+        INC("learned clause literals", r+1);
+        INC("learned clauses");
         
         c->trail[c->f] = -lp;
         c->val[abs(lp)] = -lp < 0 ? FALSE : TRUE;
@@ -714,6 +708,7 @@ int main(int argc, char** argv) {
     int oidx;
     CHECK(parse_flags(argc, argv, &oidx)) <<
         "Usage: " << argv[0] << " <filename>";
+    init_counters();
     Cnf c = parse(argv[oidx]);
     // TODO: also check for no clauses (unsatisfiable) in the if
     // statement below.
