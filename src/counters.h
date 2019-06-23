@@ -1,7 +1,8 @@
 #ifndef __COUNTERS_H__
 #define __COUNTERS_H__
 
-#include <csignal>
+#include "signal.h"
+
 #include <map>
 #include <string>
 
@@ -43,7 +44,11 @@ static Counters _counters;
 void init_counters() {
     if (!FLAGS_counters) return;
     std::atexit([]{ _counters.dump(); });
-    std::signal(SIGINT, [](int signum) { _counters.dump(); exit(UNKNOWN); });
+    struct sigaction sigbreak;
+    sigbreak.sa_handler = [](int signum) { _counters.dump(); exit(UNKNOWN); };
+    sigemptyset(&sigbreak.sa_mask);
+    sigbreak.sa_flags = 0;
+    CHECK(sigaction(SIGINT, &sigbreak, NULL) == 0);
 }
 
 #define INC(...) if (FLAGS_counters) { _counters.inc(__VA_ARGS__); }
