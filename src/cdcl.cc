@@ -574,6 +574,11 @@ bool solve(Cnf* c) {
                                 c->epoch + 1 : c->epoch;
                         }
                     }
+                    if (q + r + 1 < c->clauses[rc-1] && q > 0) {
+                        LOG(1) << "ON-THE-FLY SUBSUMPTION: "
+                               << c->print_clause(rc);
+                        INC("on-the-fly subsumptions");
+                    }
                 }
             }
         }
@@ -680,7 +685,7 @@ bool solve(Cnf* c) {
         CHECK(r == 0 || found_watch) << "Didn't find watched lit in new clause";
         CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
         LOG(1) << "Successfully added clause " << c->print_clause(lc);
-        LOG(1) << "trail: " << c->print_trail();
+        LOG(2) << "trail: " << c->print_trail();
         INC("learned clause literals", r+1);
         INC("learned clauses");
         
