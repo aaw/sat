@@ -197,6 +197,23 @@ struct Cnf {
         stamp[abs(l)] = epoch + 1;
         return true;
     }
+
+    // For a clause c = l_0 l_1 ... l_k at index cindex in the clauses array,
+    // removes either l_0 (if offset is 0) or l_1 (if offset is 1) from its
+    // watchlist. No-op if k == 0.
+    void remove_from_watchlist(lit_t cindex, lit_t offset) {
+        if (offset == 1 && clauses[cindex-1] == 1) return;
+        lit_t l = cindex + offset;
+        clause_t *x = &watch[clauses[l]];
+        while (*x != static_cast<clause_t>(cindex)) {
+            if (clauses[*x] == clauses[l]) {
+                x = (clause_t*)(&clauses[*x-2]);
+            } else /* clauses[*x+1] == clauses[l] */ {
+                x = (clause_t*)(&clauses[*x-3]);
+            }
+        }
+        *x = clauses[*x-(clauses[*x] == clauses[l] ? 2 : 3)];        
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -578,6 +595,10 @@ bool solve(Cnf* c) {
                         LOG(1) << "ON-THE-FLY SUBSUMPTION: "
                                << c->print_clause(rc);
                         INC("on-the-fly subsumptions");
+                        c->remove_from_watchlist(rc, 0);
+                        // TODO: find lit of max level in clause, swap to
+                        // clauses[rc], nil out last element of clause and
+                        // decrement clauses[rc-1].
                     }
                 }
             }
@@ -635,28 +656,8 @@ bool solve(Cnf* c) {
             }
 
             if (q == 0 && c->val[abs(c->clauses[lc])] == UNSET) {
-                // TODO: extract this watchlist surgery into a function
-                clause_t *x = &c->watch[c->clauses[lc]];
-                while (*x != lc) {
-                    if (c->clauses[*x] == c->clauses[lc]) {
-                        x = (clause_t*)(&c->clauses[*x-2]);
-                    } else /* c->clauses[*x+1] == c->clauses[lc] */ {
-                        x = (clause_t*)(&c->clauses[*x-3]);
-                    }
-                }
-                *x = c->clauses[*x-(c->clauses[*x] == c->clauses[lc] ? 2 : 3)];
-
-                if (c->clauses[lc-1] != 1) {
-                    clause_t *x = &c->watch[c->clauses[lc+1]];
-                    while (*x != lc) {
-                        if (c->clauses[*x] == c->clauses[lc+1]) {
-                            x = (clause_t*)(&c->clauses[*x-2]);
-                        } else /* c->clauses[*x+1] == lc */ {
-                            x = (clause_t*)(&c->clauses[*x-3]);
-                        }
-                    }
-                    *x = c->clauses[*x-(c->clauses[*x] == c->clauses[lc+1] ? 2 : 3)];
-                }
+                c->remove_from_watchlist(lc, 0);
+                c->remove_from_watchlist(lc, 1);
                 c->clauses.resize(lc-3);
                 INC("subsumed clauses");
             }
