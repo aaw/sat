@@ -146,7 +146,7 @@ struct Cnf {
         std::ostringstream oss;
         for (clause_t c = watch[l]; c != clause_nil;
              clauses[c] == l ? (c = clauses[c-2]) : (c = clauses[c-3])) {
-            oss << print_clause(c) << " ";
+            oss << "[" << c << "] " << print_clause(c) << " ";
         }
         return oss.str();
     }
@@ -202,9 +202,12 @@ struct Cnf {
     // removes either l_0 (if offset is 0) or l_1 (if offset is 1) from its
     // watchlist. No-op if k == 0.
     void remove_from_watchlist(lit_t cindex, lit_t offset) {
+        LOG(1) << "offset = " << offset << ", clauses[cindex-1] = "
+               << clauses[cindex-1];
         if (offset == 1 && clauses[cindex-1] == 1) return;
         lit_t l = cindex + offset;
-        clause_t *x = &watch[clauses[l]];
+        LOG(1) << "watchlist[" << clauses[l] << "] = " << print_watchlist(clauses[l]);
+        clause_t* x = &watch[clauses[l]];
         while (*x != static_cast<clause_t>(cindex)) {
             if (clauses[*x] == clauses[l]) {
                 x = (clause_t*)(&clauses[*x-2]);
@@ -596,9 +599,28 @@ bool solve(Cnf* c) {
                                << c->print_clause(rc);
                         INC("on-the-fly subsumptions");
                         c->remove_from_watchlist(rc, 0);
-                        // TODO: find lit of max level in clause, swap to
-                        // clauses[rc], nil out last element of clause and
-                        // decrement clauses[rc-1].
+                        LOG(1) << "removed from watchlist";
+                        lit_t li = lit_nil;
+                        lit_t len = c->clauses[rc-1];
+                        // Avoid j == 1 below because we'd have to do more
+                        // watchlist surgery. A lit of level >= d always
+                        // exists in l_2 ... l_k anyway (why?)
+                        for (lit_t j = len - 1; j >= 2; --j) {
+                            if (c->lev[abs(c->clauses[rc+j])] >= d) {
+                                li = j;
+                                break;
+                            }
+                        }
+                        CHECK(li != lit_nil) <<
+                            "No level " << d << " lit for subsumption";
+                        LOG(1) << "found it in index " << li;
+                        c->clauses[rc] = c->clauses[rc+li];
+                        c->clauses[rc+li] = c->clauses[rc+len-1];
+                        c->clauses[rc+len-1] = lit_nil;
+                        c->clauses[rc-1]--;
+                        c->clauses[rc-2] = c->watch[c->clauses[rc]];
+                        c->watch[c->clauses[rc]] = rc;
+                        LOG(1) << "donzo";
                     }
                 }
             }
