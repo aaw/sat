@@ -4,6 +4,7 @@
 // exercises, including:
 //   - Ex. 257: Redundant literal detection within learned clauses
 //   - Ex. 268: Lazy removal of level 0 false lits from clauses
+//   - Ex. 270: On-the-fly subsumption
 //   - Ex. 271: Subsumption of immediate predecessor learned clauses
 
 #include <ctime>
@@ -595,16 +596,12 @@ bool solve(Cnf* c) {
                         }
                     }
                     if (q + r + 1 < c->clauses[rc-1] && q > 0) {
-                        LOG(1) << "ON-THE-FLY SUBSUMPTION: "
-                               << c->print_clause(rc);
-                        INC("on-the-fly subsumptions");
                         c->remove_from_watchlist(rc, 0);
-                        LOG(1) << "removed from watchlist";
                         lit_t li = lit_nil;
                         lit_t len = c->clauses[rc-1];
                         // Avoid j == 1 below because we'd have to do more
                         // watchlist surgery. A lit of level >= d always
-                        // exists in l_2 ... l_k anyway (why?)
+                        // exists in l_2 ... l_k since q > 0.
                         for (lit_t j = len - 1; j >= 2; --j) {
                             if (c->lev[abs(c->clauses[rc+j])] >= d) {
                                 li = j;
@@ -613,14 +610,13 @@ bool solve(Cnf* c) {
                         }
                         CHECK(li != lit_nil) <<
                             "No level " << d << " lit for subsumption";
-                        LOG(1) << "found it in index " << li;
                         c->clauses[rc] = c->clauses[rc+li];
                         c->clauses[rc+li] = c->clauses[rc+len-1];
                         c->clauses[rc+len-1] = lit_nil;
                         c->clauses[rc-1]--;
                         c->clauses[rc-2] = c->watch[c->clauses[rc]];
                         c->watch[c->clauses[rc]] = rc;
-                        LOG(1) << "donzo";
+                        INC("on-the-fly subsumptions");
                     }
                 }
             }
