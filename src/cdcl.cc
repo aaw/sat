@@ -203,11 +203,8 @@ struct Cnf {
     // removes either l_0 (if offset is 0) or l_1 (if offset is 1) from its
     // watchlist. No-op if k == 0.
     void remove_from_watchlist(lit_t cindex, lit_t offset) {
-        LOG(1) << "offset = " << offset << ", clauses[cindex-1] = "
-               << clauses[cindex-1];
         if (offset == 1 && clauses[cindex-1] == 1) return;
         lit_t l = cindex + offset;
-        LOG(1) << "watchlist[" << clauses[l] << "] = " << print_watchlist(clauses[l]);
         clause_t* x = &watch[clauses[l]];
         while (*x != static_cast<clause_t>(cindex)) {
             if (clauses[*x] == clauses[l]) {
@@ -217,6 +214,17 @@ struct Cnf {
             }
         }
         *x = clauses[*x-(clauses[*x] == clauses[l] ? 2 : 3)];        
+    }
+
+    // Adds l to the trail at level d with reason r.
+    void add_to_trail(lit_t l, lit_t d, clause_t r) {
+        lit_t k = abs(l);
+        tloc[k] = f;
+        trail[f] = l;
+        ++f;
+        val[k] = l < 0 ? FALSE : TRUE;
+        lev[k] = d;
+        reason[k] = r;
     }
 };
 
@@ -346,14 +354,7 @@ bool solve(Cnf* c) {
             LOG(3) << "Decided on variable " << k;
             lit_t l = c->oval[k] == FALSE ? -k : k;
             LOG(3) << "Adding " << l << " to the trail.";
-
-            c->tloc[k] = c->f;
-            c->trail[c->f] = l;
-            ++c->f;
-            c->val[k] = l < 0 ? FALSE : TRUE;
-            c->lev[k] = d;
-            c->reason[k] = clause_nil;
-            LOG(3) << "Now trail is " << c->print_trail();
+            c->add_to_trail(l, d, clause_nil);
             break;
         }
 
@@ -447,12 +448,7 @@ bool solve(Cnf* c) {
                         lit_t l1 = c->clauses[w+1];
                         LOG(3) << "Adding " << l1 << " to the trail, "
                                << "forced by " << c->print_clause(w);
-                        c->tloc[abs(l1)] = c->f;
-                        c->trail[c->f] = l1;
-                        ++c->f;
-                        c->val[abs(l1)] = l1 < 0 ? FALSE : TRUE;
-                        c->lev[abs(l1)] = d;
-                        c->reason[abs(l1)] = w;
+                        c->add_to_trail(l1, d, w);
                     }
                 }
 
@@ -662,7 +658,7 @@ bool solve(Cnf* c) {
         // Ex. 271: Does this clause subsume the previous learned clause? If
         // so, we can "just" overwrite it. lc is the most recent learned clause
         // from a previous iteration.
-        if (lc != clause_nil) {
+        if (false && lc != clause_nil) {
             lit_t q = r+1;
             for (int j = c->clauses[lc-1] - 1; q > 0 && j >= q; --j) {
                 if (c->clauses[lc + j] == -lp ||
@@ -707,13 +703,8 @@ bool solve(Cnf* c) {
         LOG(2) << "trail: " << c->print_trail();
         INC("learned clause literals", r+1);
         INC("learned clauses");
-        
-        c->trail[c->f] = -lp;
-        c->val[abs(lp)] = -lp < 0 ? FALSE : TRUE;
-        c->lev[abs(lp)] = d;
-        c->tloc[abs(lp)] = c->f;
-        c->reason[abs(lp)] = lc;
-        c->f++;
+
+        c->add_to_trail(-lp, d, lc);
         c->heap.rescale_delta();
         
         LOG(3) << "After clause install, trail is " << c->print_trail();
