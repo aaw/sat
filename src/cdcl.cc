@@ -66,6 +66,8 @@ struct Cnf {
 
     // TODO: explain epoch values here, why they're bumped by 3 each time.
     unsigned long epoch;
+
+    uint32_t agility;
     
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
@@ -85,7 +87,8 @@ struct Cnf {
         b(nvars, -1),
         nclauses(nclauses),
         nvars(nvars),
-        epoch(0) {
+        epoch(0),
+        agility(0) {
     }
 
     // Is the literal x currently false?
@@ -225,6 +228,9 @@ struct Cnf {
         val[k] = l < 0 ? FALSE : TRUE;
         lev[k] = d;
         reason[k] = r;
+        agility -= (agility >> 13);
+        if (oval[k] != val[k]) agility += (1 << 19);
+        LOG(1) << "agility@ " << f << ": " << agility / pow(2,32);        
     }
 };
 
