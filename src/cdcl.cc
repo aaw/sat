@@ -230,7 +230,20 @@ struct Cnf {
         reason[k] = r;
         agility -= (agility >> 13);
         if (oval[k] != val[k]) agility += (1 << 19);
-        LOG(1) << "agility@ " << f << ": " << agility / pow(2,32);        
+        LOG(1) << "epoch = " << epoch << ", agility@" << f << ": " << agility / pow(2,32);        
+    }
+
+    void backjump(lit_t level) {
+        while (f > di[level+1]) {
+            f--;
+            lit_t l = trail[f];
+            lit_t k = abs(l);
+            oval[k] = val[k];
+            val[k] = UNSET;
+            reason[k] = clause_nil;
+            heap.insert(k);
+        }
+        g = f;
     }
 };
 
@@ -647,17 +660,7 @@ bool solve(Cnf* c) {
         r = rr;
 
         // C8: backjump
-        while (c->f > c->di[dp+1]) {
-            c->f--;
-            lit_t l = c->trail[c->f];
-            LOG(3) << "Backjumping: " << l;
-            lit_t k = abs(l);
-            c->oval[k] = c->val[k];
-            c->val[k] = UNSET;
-            c->reason[k] = clause_nil;
-            c->heap.insert(k);
-        }
-        c->g = c->f;
+        c->backjump(dp);
         d = dp;
         LOG(3) << "After backjump, trail is " << c->print_trail();
 
