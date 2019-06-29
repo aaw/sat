@@ -230,7 +230,7 @@ struct Cnf {
         reason[k] = r;
         agility -= (agility >> 13);
         if (oval[k] != val[k]) agility += (1 << 19);
-        LOG(1) << "epoch = " << epoch << ", agility@" << f << ": " << agility / pow(2,32);        
+        //LOG(1) << "epoch = " << epoch << ", agility@" << f << ": " << agility / pow(2,32);        
     }
 
     void backjump(lit_t level) {
@@ -348,20 +348,33 @@ Cnf parse(const char* filename) {
 bool solve(Cnf* c) {
     Timer t;
     lit_t d = 0;
-
+    unsigned long last_restart = 0;
+    
     clause_t lc = clause_nil;  // The most recent learned clause
     while (true) {
         // (C2)
         LOG(4) << "C2";
 
         //LOG(1) << c->clause_stats(8, 16);
-        
+
+        bool restarted = false;
+        // TODO: should this be while or if? flush literals case needs to jump
+        // back to C2. Everything breaks here..
         while (c->f == c->g) {
             LOG(4) << "C5";
             // C5
             if (c->f == static_cast<size_t>(c->nvars)) return true;
             // TODO: If needed, purge excess clauses, else
             // TODO: If needed, flush literals and continue loop, else
+            if (c->agility / pow(2,32) < 0.40 &&
+                c->epoch - last_restart >= 1000) {
+                LOG(1) << "Restarting at epoch " << c->epoch;
+                c->backjump(0);
+                d = 0;
+                last_restart = c->epoch;
+                restarted = true;
+                break; // -> C2
+            }
             ++d;
             c->di[d] = c->f;
 
@@ -374,8 +387,10 @@ bool solve(Cnf* c) {
             lit_t l = c->oval[k] == FALSE ? -k : k;
             LOG(3) << "Adding " << l << " to the trail.";
             c->add_to_trail(l, d, clause_nil);
-            break;
+            break; // -> C3
         }
+
+        if (restarted) continue; // -> C2
 
         // C3
         LOG(3) << "C3";
@@ -667,7 +682,7 @@ bool solve(Cnf* c) {
         // Ex. 271: Does this clause subsume the previous learned clause? If
         // so, we can "just" overwrite it. lc is the most recent learned clause
         // from a previous iteration.
-        if (false && lc != clause_nil) {
+        if (lc != clause_nil) {
             lit_t q = r+1;
             for (int j = c->clauses[lc-1] - 1; q > 0 && j >= q; --j) {
                 if (c->clauses[lc + j] == -lp ||
@@ -708,7 +723,7 @@ bool solve(Cnf* c) {
         }
         CHECK(r == 0 || found_watch) << "Didn't find watched lit in new clause";
         CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
-        LOG(1) << "Successfully added clause " << c->print_clause(lc);
+        LOG(2) << "Successfully added clause " << c->print_clause(lc);
         LOG(2) << "trail: " << c->print_trail();
         INC("learned clause literals", r+1);
         INC("learned clauses");
