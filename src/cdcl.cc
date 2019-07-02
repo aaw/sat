@@ -19,11 +19,15 @@
 #include "timer.h"
 #include "types.h"
 
-#define CS(c) (c-1)
-#define L0(c) (c)
 #define L1(c) (c+1)
+#define L0(c) (c)
+#define CS(c) (c-1)
 #define W0(c) (c-2)
 #define W1(c) (c-3)
+#define LBD(c) (c-4)
+
+constexpr int kHeaderSize = 4;
+constexpr size_t kMaxLemmas = 10000;
 
 enum State {
     UNSET = 0,
@@ -67,10 +71,6 @@ struct Cnf {
     // clause and then count how many items in lbds are stamped with epoch.
     std::vector<unsigned long> lbds;
     
-    clause_t maxl;
-
-    clause_t minl;
-
     clause_t nclauses;
 
     lit_t nvars;
@@ -79,6 +79,8 @@ struct Cnf {
     unsigned long epoch;
 
     uint32_t agility;
+
+    size_t nlemmas;
     
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
@@ -100,7 +102,8 @@ struct Cnf {
         nclauses(nclauses),
         nvars(nvars),
         epoch(0),
-        agility(0) {
+        agility(0),
+        nlemmas(0) {
     }
 
     // Is the literal x currently false?
@@ -130,7 +133,7 @@ struct Cnf {
         std::ostringstream oss;
         lit_t ts = 0;  // tombstone count
         for(clause_t i = 2; i < clauses.size();
-            i += clauses[i] + ts + 3 + (clauses[i] == 1 ? 1 : 0)) {
+            i += clauses[i] + ts + kHeaderSize + (clauses[i] == 1 ? 1 : 0)) {
             ts = 0;
             oss << "(";
             for(lit_t j = 1; j < clauses[i]; ++j) {
@@ -173,7 +176,7 @@ struct Cnf {
         size_t total = 0;
         size_t bucket_size = maxb / numb;
         for(clause_t i = 2; i < clauses.size(); 
-            i += clauses[i] + 3 + (clauses[i] == 1 ? 1 : 0)) {
+            i += clauses[i] + kHeaderSize + (clauses[i] == 1 ? 1 : 0)) {
             size_t v = static_cast<size_t>(clauses[i]);
             size_t vt = v > maxb ? maxb : v;
             hist[vt / bucket_size] += 1;
@@ -257,6 +260,10 @@ struct Cnf {
         }
         g = f;
     }
+
+    void purge_lemmas() {
+
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -300,6 +307,7 @@ Cnf parse(const char* filename) {
     int lit;
     do {
         bool read_lit = false;
+        c.clauses.push_back(0);        // literal block dist. 0 == never purge.
         c.clauses.push_back(lit_nil);  // watch list ptr for clause's second lit
         c.clauses.push_back(lit_nil);  // watch list ptr for clause's first lit
         c.clauses.push_back(lit_nil);  // size of clause -- don't know this yet
@@ -316,7 +324,7 @@ Cnf parse(const char* filename) {
             UNSAT_EXIT;
         } else if (cs == 0 && nc == EOF) {
             // Clean up from (now unnecessary) c.clauses.push_backs above.
-            for(int i = 0; i < 3; ++i) { c.clauses.pop_back(); }
+            for(int i = 0; i < kHeaderSize; ++i) { c.clauses.pop_back(); }
         } else if (cs == 1) {
             lit_t x = c.clauses[c.clauses.size() - 1];
             LOG(3) << "Found unit clause " << x;
@@ -350,7 +358,6 @@ Cnf parse(const char* filename) {
         LOG(2) << "No clauses, unsatisfiable.";
         UNSAT_EXIT;
     }
-    c.minl = c.maxl = c.clauses.size() + 1;
     fclose(f);
     return c;
 }
@@ -374,31 +381,32 @@ bool solve(Cnf* c) {
             // C5
             if (c->f == static_cast<size_t>(c->nvars)) return true;
 
-            if (false) {
-                // TODO: If needed, purge excess clauses, else
-            } else if (c->agility / pow(2,32) < 0.25 &&
+            if (c->nlemmas > kMaxLemmas) {
+                LOG(1) << "Purging lemmas";
+                c->purge_lemmas();
+            }
+            if (c->agility / pow(2,32) < 0.25 &&
                 // If needed, flush literals and continue loop, else
                 c->epoch - last_restart >= 1000) {
+                // TODO: backjump to some level > d, see Knuth.
                 LOG(1) << "Restarting at epoch " << c->epoch;
                 c->backjump(0);
                 d = 0;
                 last_restart = c->epoch;
                 continue; // -> C2
-            } else {
-                ++d;
-                c->di[d] = c->f;
-                
-            
-                // C6
-                lit_t k = c->heap.delete_max();
-                while (c->val[k] != UNSET) { LOG(3) << k << " unset, rolling again"; k = c->heap.delete_max(); }
-                CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
-                LOG(3) << "Decided on variable " << k;
-                lit_t l = c->oval[k] == FALSE ? -k : k;
-                LOG(3) << "Adding " << l << " to the trail.";
-                c->add_to_trail(l, d, clause_nil);
-                // -> C3
             }
+            
+            ++d;
+            c->di[d] = c->f;
+            
+            // C6
+            lit_t k = c->heap.delete_max();
+            while (c->val[k] != UNSET) { LOG(3) << k << " unset, rolling again"; k = c->heap.delete_max(); }
+            CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
+            LOG(3) << "Decided on variable " << k;
+            lit_t l = c->oval[k] == FALSE ? -k : k;
+            LOG(3) << "Adding " << l << " to the trail.";
+            c->add_to_trail(l, d, clause_nil);
         }
 
         // C3
@@ -711,6 +719,7 @@ bool solve(Cnf* c) {
         }
         
         // C9: learn
+        c->clauses.push_back(0);  // literal block distance. will fill below.
         c->clauses.push_back(clause_nil); // watch list for l1
         c->clauses.push_back(c->watch[-lp]); // watch list for l0
         c->clauses.push_back(r+1); // size
@@ -737,8 +746,10 @@ bool solve(Cnf* c) {
         
         int lbd = 1;  // c->lev[abs(lp)] is > d, so we know it's distinct.
         for (lit_t j = 0; j <= d; ++j) { if (c->lbds[j] == c->epoch) ++lbd; }
+        c->clauses[LBD(lc)] = lbd;
         if (lbd <= 3) LOG(1) << "lbd: " << lbd << ": " << c->print_clause(lc);
-        
+
+        ++c->nlemmas;
         LOG(2) << "Successfully added clause " << c->print_clause(lc);
         LOG(2) << "trail: " << c->print_trail();
         INC("learned clause literals", r+1);
