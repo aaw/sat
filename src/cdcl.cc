@@ -388,8 +388,8 @@ bool solve(Cnf* c) {
             if (c->agility / pow(2,32) < 0.25 &&
                 // If needed, flush literals and continue loop, else
                 c->epoch - last_restart >= 1000) {
-                // TODO: backjump to some level > d, see Knuth.
                 LOG(1) << "Restarting at epoch " << c->epoch;
+                // TODO: backjump to some level > 0, see Knuth.
                 c->backjump(0);
                 d = 0;
                 last_restart = c->epoch;
