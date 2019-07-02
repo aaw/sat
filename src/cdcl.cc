@@ -19,6 +19,12 @@
 #include "timer.h"
 #include "types.h"
 
+#define CS(c) (c-1)
+#define L0(c) (c)
+#define L1(c) (c+1)
+#define W0(c) (c-2)
+#define W1(c) (c-3)
+
 enum State {
     UNSET = 0,
     FALSE = 1,           // Trying false, haven't tried true yet.
@@ -55,6 +61,11 @@ struct Cnf {
     clause_t* watch; // Keys: litarals, values: clause indices
 
     std::vector<lit_t> b;  // temp storage for learned clause
+
+    // temp storage for literal block distance analysis. to compute lbd of a
+    // learned clause, we stamp lbds[level(v)] = epoch for each var in the
+    // clause and then count how many items in lbds are stamped with epoch.
+    std::vector<unsigned long> lbds;
     
     clause_t maxl;
 
@@ -85,6 +96,7 @@ struct Cnf {
         watch_storage(2 * nvars + 1, clause_nil),
         watch(&watch_storage[nvars]),
         b(nvars, -1),
+        lbds(nvars, 0),
         nclauses(nclauses),
         nvars(nvars),
         epoch(0),
@@ -357,40 +369,37 @@ bool solve(Cnf* c) {
 
         //LOG(1) << c->clause_stats(8, 16);
 
-        bool restarted = false;
-        // TODO: should this be while or if? flush literals case needs to jump
-        // back to C2. Everything breaks here..
-        while (c->f == c->g) {
+        if (c->f == c->g) {
             LOG(4) << "C5";
             // C5
             if (c->f == static_cast<size_t>(c->nvars)) return true;
-            // TODO: If needed, purge excess clauses, else
-            // TODO: If needed, flush literals and continue loop, else
-            if (c->agility / pow(2,32) < 0.40 &&
+
+            if (false) {
+                // TODO: If needed, purge excess clauses, else
+            } else if (c->agility / pow(2,32) < 0.25 &&
+                // If needed, flush literals and continue loop, else
                 c->epoch - last_restart >= 1000) {
                 LOG(1) << "Restarting at epoch " << c->epoch;
                 c->backjump(0);
                 d = 0;
                 last_restart = c->epoch;
-                restarted = true;
-                break; // -> C2
-            }
-            ++d;
-            c->di[d] = c->f;
-
+                continue; // -> C2
+            } else {
+                ++d;
+                c->di[d] = c->f;
+                
             
-            // C6
-            lit_t k = c->heap.delete_max();
-            while (c->val[k] != UNSET) { LOG(3) << k << " unset, rolling again"; k = c->heap.delete_max(); }
-            CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
-            LOG(3) << "Decided on variable " << k;
-            lit_t l = c->oval[k] == FALSE ? -k : k;
-            LOG(3) << "Adding " << l << " to the trail.";
-            c->add_to_trail(l, d, clause_nil);
-            break; // -> C3
+                // C6
+                lit_t k = c->heap.delete_max();
+                while (c->val[k] != UNSET) { LOG(3) << k << " unset, rolling again"; k = c->heap.delete_max(); }
+                CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
+                LOG(3) << "Decided on variable " << k;
+                lit_t l = c->oval[k] == FALSE ? -k : k;
+                LOG(3) << "Adding " << l << " to the trail.";
+                c->add_to_trail(l, d, clause_nil);
+                // -> C3
+            }
         }
-
-        if (restarted) continue; // -> C2
 
         // C3
         LOG(3) << "C3";
@@ -711,7 +720,9 @@ bool solve(Cnf* c) {
         c->watch[-lp] = lc;
         c->clauses.push_back(clause_nil); // to be set in else below
         bool found_watch = false;
+        c->lbds[c->lev[abs(lp)]] = c->epoch;
         for (lit_t j = 0; j < r; ++j) {
+            c->lbds[c->lev[abs(c->b[j])]] = c->epoch;
             if (found_watch || c->lev[abs(c->b[j])] < dp) {
                 c->clauses.push_back(-c->b[j]);
             } else {
@@ -723,6 +734,11 @@ bool solve(Cnf* c) {
         }
         CHECK(r == 0 || found_watch) << "Didn't find watched lit in new clause";
         CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
+        
+        int lbd = 1;  // c->lev[abs(lp)] is > d, so we know it's distinct.
+        for (lit_t j = 0; j <= d; ++j) { if (c->lbds[j] == c->epoch) ++lbd; }
+        if (lbd <= 3) LOG(1) << "lbd: " << lbd << ": " << c->print_clause(lc);
+        
         LOG(2) << "Successfully added clause " << c->print_clause(lc);
         LOG(2) << "trail: " << c->print_trail();
         INC("learned clause literals", r+1);
