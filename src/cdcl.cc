@@ -132,10 +132,12 @@ struct Cnf {
     std::string dump_clauses() const {
         std::ostringstream oss;
         lit_t ts = 0;  // tombstone count
-        for(clause_t i = 2; i < clauses.size();
+        for(clause_t i = kHeaderSize - 1;
+            i < clauses.size();
             i += clauses[i] + ts + kHeaderSize + (clauses[i] == 1 ? 1 : 0)) {
             ts = 0;
             oss << "(";
+            PRINT << print_clause(i+1);
             for(lit_t j = 1; j < clauses[i]; ++j) {
                 oss << clauses[i+j] << " ";
             }
@@ -175,7 +177,8 @@ struct Cnf {
         std::vector<int> hist(numb, 0);
         size_t total = 0;
         size_t bucket_size = maxb / numb;
-        for(clause_t i = 2; i < clauses.size(); 
+        for(clause_t i = kHeaderSize - 1;
+            i < clauses.size(); 
             i += clauses[i] + kHeaderSize + (clauses[i] == 1 ? 1 : 0)) {
             size_t v = static_cast<size_t>(clauses[i]);
             size_t vt = v > maxb ? maxb : v;
@@ -262,7 +265,9 @@ struct Cnf {
     }
 
     void purge_lemmas() {
-
+        // Mark any clauses we want to keep by setting clauses[W0(c)] = 1 if we
+        // want to keep, 0 otherwise. We're about to recompute watchlists so
+        // it's okay to trash them here.
     }
 };
 
@@ -307,7 +312,7 @@ Cnf parse(const char* filename) {
     int lit;
     do {
         bool read_lit = false;
-        c.clauses.push_back(0);        // literal block dist. 0 == never purge.
+        c.clauses.push_back(1);        // literal block dist. 1 == never purge.
         c.clauses.push_back(lit_nil);  // watch list ptr for clause's second lit
         c.clauses.push_back(lit_nil);  // watch list ptr for clause's first lit
         c.clauses.push_back(lit_nil);  // size of clause -- don't know this yet
@@ -413,7 +418,7 @@ bool solve(Cnf* c) {
         LOG(3) << "C3";
         LOG(3) << "Trail: " << c->print_trail();
         //LOG(3) << "Raw: " << c->raw_clauses();
-        LOG(4) << "Clauses: " << c->dump_clauses();
+        //LOG(4) << "Clauses: " << c->dump_clauses();
         /*
         for (int ii = 1; ii <= c->nvars; ++ii) {
             LOG(3) << ii << "'s watch list: " << c->print_watchlist(ii);
@@ -719,7 +724,7 @@ bool solve(Cnf* c) {
         }
         
         // C9: learn
-        c->clauses.push_back(0);  // literal block distance. will fill below.
+        c->clauses.push_back(1);  // literal block distance. will correct below.
         c->clauses.push_back(clause_nil); // watch list for l1
         c->clauses.push_back(c->watch[-lp]); // watch list for l0
         c->clauses.push_back(r+1); // size
