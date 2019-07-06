@@ -6,6 +6,7 @@
 
 // TODO: do this lit/clause size ifdef below better
 // TODO: CLAUSE_64 doesn't work yet...
+// TODO: cdcl requires same bit width between LIT/CLAUSE...
 
 #define LIT_32 1
 #define CLAUSE_32 1
@@ -45,5 +46,7 @@ enum ReturnValue {
     SATISFIABLE = 10,
     UNSATISFIABLE = 20
 };
+
+#define ALLOW_UNUSED(expr) (void)(expr);
 
 #endif  // __TYPES_H__

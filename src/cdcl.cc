@@ -24,10 +24,25 @@
 #define CS(c) (c-1)
 #define W0(c) (c-2)
 #define W1(c) (c-3)
-#define LBD(c) (c-4)
 
-constexpr int kHeaderSize = 4;
-constexpr size_t kMaxLemmas = 10000;
+#define FOR_EACH_CLAUSE(START, BODY) \
+  { \
+    clause_t ts = 0;                \
+    for(clause_t i = START - 1; i < clauses.size(); \
+        i += clauses[i].size + ts + kHeaderSize + (clauses[i].size == 1 ? 1 : 0)) { \
+        ts = 0; \
+        lit_t lc = i+1; \
+        clause_t cs = clauses[i].size; \
+        ALLOW_UNUSED(lc); \
+        ALLOW_UNUSED(cs); \
+        clause_t ii = i + clauses[i].size + 1; \
+        while (ii+ts < clauses.size() && clauses[ii+ts].lit == lit_nil) ++ts; \
+        BODY \
+    } \
+  }
+
+constexpr int kHeaderSize = 3;
+constexpr size_t kMaxLemmas = 10; // 1000; // 10000;
 
 enum State {
     UNSET = 0,
@@ -35,9 +50,15 @@ enum State {
     TRUE = 2,            // Trying true, haven't tried false yet.
 };
 
+union clause_bundle_t {
+    lit_t lit;
+    clause_t size;
+    clause_t ptr;
+};
+
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
-    std::vector<lit_t> clauses;
+    std::vector<clause_bundle_t> clauses;
 
     std::vector<State> val;
 
@@ -66,11 +87,6 @@ struct Cnf {
 
     std::vector<lit_t> b;  // temp storage for learned clause
 
-    // temp storage for literal block distance analysis. to compute lbd of a
-    // learned clause, we stamp lbds[level(v)] = epoch for each var in the
-    // clause and then count how many items in lbds are stamped with epoch.
-    std::vector<unsigned long> lbds;
-    
     clause_t nclauses;
 
     lit_t nvars;
@@ -81,6 +97,8 @@ struct Cnf {
     uint32_t agility;
 
     size_t nlemmas;
+
+    lit_t lemma_start;  // clause index of first learned clause.
     
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
@@ -98,7 +116,6 @@ struct Cnf {
         watch_storage(2 * nvars + 1, clause_nil),
         watch(&watch_storage[nvars]),
         b(nvars, -1),
-        lbds(nvars, 0),
         nclauses(nclauses),
         nvars(nvars),
         epoch(0),
@@ -121,9 +138,9 @@ struct Cnf {
     std::string print_clause(clause_t c) const {
         std::ostringstream oss;
         oss << "(";
-        for (int i = 0; i < clauses[c - 1]; ++i) {
-            oss << clauses[c + i];
-            if (i != clauses[c - 1] - 1) oss << " ";
+        for (size_t i = 0; i < clauses[c-1].size; ++i) {
+            oss << clauses[c+i].lit;
+            if (i != clauses[c-1].size - 1) oss << " ";
         }
         oss << ")";
         return oss.str();
@@ -134,15 +151,17 @@ struct Cnf {
         lit_t ts = 0;  // tombstone count
         for(clause_t i = kHeaderSize - 1;
             i < clauses.size();
-            i += clauses[i] + ts + kHeaderSize + (clauses[i] == 1 ? 1 : 0)) {
+            i += clauses[i].size + ts + kHeaderSize +
+                 (clauses[i].size == 1 ? 1 : 0)) {
             ts = 0;
             oss << "(";
-            PRINT << print_clause(i+1);
-            for(lit_t j = 1; j < clauses[i]; ++j) {
-                oss << clauses[i+j] << " ";
+            for(size_t j = 1; j < clauses[i].size; ++j) {
+                oss << clauses[i+j].lit << " ";
             }
-            oss << clauses[i+clauses[i]] << ") ";
-            while (clauses[i+clauses[i]+1+ts] == lit_nil) ++ts;
+            clause_t ii = i + clauses[i].size;
+            oss << clauses[ii].lit << ") ";
+            while (ii+1+ts < clauses.size() &&
+                   clauses[ii+1+ts].lit == lit_nil) ++ts;
         }
         return oss.str();
     }
@@ -150,7 +169,7 @@ struct Cnf {
     std::string raw_clauses() {
         std::ostringstream oss;
         for(const auto& c : clauses) {
-            oss << "[" << c << "]";
+            oss << "[" << c.lit << "]";
         }
         return oss.str();
     }
@@ -166,7 +185,7 @@ struct Cnf {
     std::string print_watchlist(lit_t l) {
         std::ostringstream oss;
         for (clause_t c = watch[l]; c != clause_nil;
-             clauses[c] == l ? (c = clauses[c-2]) : (c = clauses[c-3])) {
+             clauses[c].lit == l ? (c = clauses[c-2].ptr) : (c = clauses[c-3].ptr)) {
             oss << "[" << c << "] " << print_clause(c) << " ";
         }
         return oss.str();
@@ -179,9 +198,8 @@ struct Cnf {
         size_t bucket_size = maxb / numb;
         for(clause_t i = kHeaderSize - 1;
             i < clauses.size(); 
-            i += clauses[i] + kHeaderSize + (clauses[i] == 1 ? 1 : 0)) {
-            size_t v = static_cast<size_t>(clauses[i]);
-            size_t vt = v > maxb ? maxb : v;
+            i += clauses[i].size + kHeaderSize + (clauses[i].size == 1 ? 1 : 0)) {
+            size_t vt = clauses[i].size > maxb ? maxb : clauses[i].size;
             hist[vt / bucket_size] += 1;
             total++;
         }
@@ -203,8 +221,8 @@ struct Cnf {
         if (r == clause_nil) {
             return false;
         }
-        for (lit_t i = 0; i < clauses[r-1]; ++i) {
-            lit_t a = clauses[r+i];
+        for (size_t i = 0; i < clauses[r-1].size; ++i) {
+            lit_t a = clauses[r+i].lit;
             if (k == abs(a)) continue;
             if (lev[abs(a)] == 0) continue;
             if (stamp[abs(a)] == epoch + 2) {
@@ -223,18 +241,19 @@ struct Cnf {
     // For a clause c = l_0 l_1 ... l_k at index cindex in the clauses array,
     // removes either l_0 (if offset is 0) or l_1 (if offset is 1) from its
     // watchlist. No-op if k == 0.
+    // TODO: cindex should be clause_t
     void remove_from_watchlist(lit_t cindex, lit_t offset) {
-        if (offset == 1 && clauses[cindex-1] == 1) return;
+        if (offset == 1 && clauses[cindex-1].size == 1) return;
         lit_t l = cindex + offset;
-        clause_t* x = &watch[clauses[l]];
+        clause_t* x = &watch[clauses[l].lit];
         while (*x != static_cast<clause_t>(cindex)) {
-            if (clauses[*x] == clauses[l]) {
-                x = (clause_t*)(&clauses[*x-2]);
-            } else /* clauses[*x+1] == clauses[l] */ {
-                x = (clause_t*)(&clauses[*x-3]);
+            if (clauses[*x].lit == clauses[l].lit) {
+                x = (clause_t*)(&clauses[*x-2].ptr);
+            } else /* clauses[*x+1].lit == clauses[l].lit */ {
+                x = (clause_t*)(&clauses[*x-3].ptr);
             }
         }
-        *x = clauses[*x-(clauses[*x] == clauses[l] ? 2 : 3)];        
+        *x = clauses[*x-(clauses[*x].lit == clauses[l].lit ? 2 : 3)].ptr;
     }
 
     // Adds l to the trail at level d with reason r.
@@ -264,10 +283,135 @@ struct Cnf {
         g = f;
     }
 
-    void purge_lemmas() {
-        // Mark any clauses we want to keep by setting clauses[W0(c)] = 1 if we
-        // want to keep, 0 otherwise. We're about to recompute watchlists so
-        // it's okay to trash them here.
+    // TODO: remove initial LBD computation, use only current LBD
+    // Use W1(c) as LBD, use W0(c) as pin.
+    // First, pin everything used as a reason.
+    // Next, iterate through all clauses, computing LBD and storing in W1
+    //    and computing LBD histogram.
+    //    - Figure out max LBD we can keep and # clauses from max level
+    // Next, iterate in reverse, pinning clauses
+    // Next, clear watch_storage array
+    // Next, iterate forward, compacting all pinned clauses and computing
+    // watchlist
+    void reduce_db(lit_t d) {
+        std::vector<lit_t> lbds(d+1, 0);
+        std::vector<lit_t> hist(d+1, 0);  // lbd histogram.
+        size_t target_lemmas = nlemmas / 2;
+        LOG(1) << "Target lemmas: " << target_lemmas;
+        LOG(1) << "d = " << d;
+        LOG(2) << "Old clauses: " << dump_clauses();
+
+        FOR_EACH_CLAUSE(lemma_start, {
+          LOG(1) << "? " << print_clause(lc);
+          clauses[W0(lc)].lit = 2;
+          clauses[W1(lc)].lit = 2;          
+        });
+        
+        LOG(1) << "Pinning reasons";
+        // Pin learned clauses that are reasons. Note W0(c) <= 1 means pin;
+        // 1 will never be a watch pointer because 1 < kHeaderSize.
+        for (size_t i = 0; i < f; ++i) {
+            if (reason[abs(trail[i])] == clause_nil) continue;
+            if (reason[abs(trail[i])] < static_cast<clause_t>(lemma_start)) continue;
+            LOG(1) << "reason[" << abs(trail[i]) << "] = " << print_clause(reason[abs(trail[i])]);
+            clauses[W0(reason[abs(trail[i])])].lit = -abs(trail[i]);
+            --target_lemmas;
+        }
+
+        LOG(1) << "Computing LBD";
+        // Compute LBD, store in W1(c). Store lemma indexes so we can iterate
+        // in reverse over clauses next.
+        std::vector<lit_t> lemma_indexes;
+        FOR_EACH_CLAUSE(lemma_start, {
+            lemma_indexes.push_back(lc);
+            // Compute LBD
+            for(size_t j = 0; j < cs; ++j) {
+                // TODO: just ignoring unset vars for now instead of scheduling
+                // a full run. Revisit this.
+                if (val[abs(clauses[lc + j].lit)] == UNSET) continue;
+                lbds[lev[abs(clauses[lc + j].lit)]] = lc;
+            }
+            int lbd = 0;
+            for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == lc) ++lbd; }
+            clauses[W1(lc)].lit = lbd;
+            hist[lbd]++;
+        });
+        LOG(1) << "Indexes: " << lemma_indexes.size();
+
+        // TODO: also keep learned clauses of length < K
+
+        LOG(1) << "Done";
+        for (int i = 0; i <= d; ++i) {
+            LOG(2) << "hist[" << i << "] = " << hist[i];
+        }
+        LOG(1) << "Generating LBD histogram";
+        int max_lbd = 1;
+        size_t total_lemmas = 0;
+        while (total_lemmas + hist[max_lbd] <= target_lemmas &&
+               max_lbd <= d+1) {
+            total_lemmas += hist[max_lbd++];
+        }
+        int max_lbd_budget = target_lemmas - total_lemmas;
+        LOG(1) << "max LBD: " << max_lbd;
+        LOG(1) << "total lemmas with LBD < max LBD: " << total_lemmas;
+        LOG(1) << "clauses at max LBD: " << hist[max_lbd];
+        LOG(1) << "clauses kept at max LBD: " << max_lbd_budget;
+
+        // Mark clauses we want to keep because of LBD.
+        for(size_t i = 0; i < lemma_indexes.size(); ++i) {
+            lit_t lc = lemma_indexes[lemma_indexes.size() - i - 1];
+            if (clauses[W0(lc)].lit < 0) continue; // already pinned
+            if (clauses[W1(lc)].lit == max_lbd && max_lbd_budget > 0) {
+                clauses[W0(lc)].lit = 1;
+                --max_lbd_budget;
+            } else if (clauses[W1(lc)].lit < max_lbd) {
+                clauses[W0(lc)].lit = 1;
+            }
+        }
+
+        LOG(1) << "Clearing watch pointers";
+        // Clear top-level watch pointers.
+        for(size_t i = 0; i < watch_storage.size(); ++i) {
+            watch_storage[i] = clause_nil;
+        }
+
+        LOG(1) << "Compacting clauses";
+        //LOG(1) << "raw: " << raw_clauses();
+        // Compact clauses.
+        lit_t tail = lemma_start;
+        FOR_EACH_CLAUSE(lemma_start, {
+            LOG(1) << "clause : " << print_clause(lc);
+            if (clauses[W0(lc)].lit > 1) continue;
+            LOG(1) << "ok";
+            if (clauses[W0(lc)].lit < 0) {
+                LOG(1) << "reasonable: " << clauses[W0(lc)].lit;
+                reason[abs(clauses[W0(lc)].lit)] = tail;
+            }
+            clauses[CS(tail)].size = cs;
+            for(size_t j = 0; j < cs; ++j) {
+                clauses[tail+j].lit = clauses[lc+j].lit;
+            }
+            if (clauses[W0(lc)].lit < 0) {
+                LOG(1) << "reason[" << abs(clauses[W0(lc)].lit) << "] = " << print_clause(tail);
+            }
+            tail += cs + kHeaderSize;
+        });
+        clauses.resize(tail - kHeaderSize);
+
+        LOG(1) << "Recomputing watch lists";
+        // Recompute all watch lists
+        FOR_EACH_CLAUSE(kHeaderSize, {
+            clauses[W0(lc)].ptr = watch[clauses[L0(lc)].lit];
+            watch[clauses[L0(lc)].lit] = lc;
+            if (cs > 1) {
+                clauses[W1(lc)].ptr = watch[clauses[L1(lc)].lit];
+                watch[clauses[L1(lc)].lit] = lc;
+            }
+        });
+        nlemmas = target_lemmas;
+
+        LOG(1) << "Done reducing database";
+        LOG(2) << "New clauses: " << dump_clauses();
     }
 };
 
@@ -312,15 +456,18 @@ Cnf parse(const char* filename) {
     int lit;
     do {
         bool read_lit = false;
-        c.clauses.push_back(1);        // literal block dist. 1 == never purge.
-        c.clauses.push_back(lit_nil);  // watch list ptr for clause's second lit
-        c.clauses.push_back(lit_nil);  // watch list ptr for clause's first lit
-        c.clauses.push_back(lit_nil);  // size of clause -- don't know this yet
+        clause_bundle_t nil_ptr;  // TODO: make these constants
+        nil_ptr.ptr = clause_nil;
+        clause_bundle_t zero_size;
+        zero_size.size = 0;
+        c.clauses.push_back(nil_ptr);  // watch ptr for clause's second lit
+        c.clauses.push_back(nil_ptr);  // watch ptr for clause's first lit
+        c.clauses.push_back(zero_size);  // size of clause. filled in below.
         std::size_t start = c.clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
-            c.clauses.push_back(lit);
+            c.clauses.push_back({lit});
             read_lit = true;
         }
         int cs = c.clauses.size() - start;
@@ -331,7 +478,7 @@ Cnf parse(const char* filename) {
             // Clean up from (now unnecessary) c.clauses.push_backs above.
             for(int i = 0; i < kHeaderSize; ++i) { c.clauses.pop_back(); }
         } else if (cs == 1) {
-            lit_t x = c.clauses[c.clauses.size() - 1];
+            lit_t x = c.clauses[c.clauses.size() - 1].lit;
             LOG(3) << "Found unit clause " << x;
             State s = x < 0 ? FALSE : TRUE;
             if  (c.val[abs(x)] != UNSET && c.val[abs(x)] != s) {
@@ -346,16 +493,16 @@ Cnf parse(const char* filename) {
         if (!read_lit) break;
         CHECK(cs > 0);
         // Record the size of the clause in offset -1.
-        c.clauses[start - 1] = cs;
+        c.clauses[start - 1].size = cs;
         // TODO: do I need to update watch lists for unit clauses? Going
         // ahead and doing so here until I can verify that I don't have to.
         // Update watch list for the first lit in the clause.
-        c.clauses[start - 2] = c.watch[c.clauses[start]];
-        c.watch[c.clauses[start]] = start;
+        c.clauses[start - 2].ptr = c.watch[c.clauses[start].lit];
+        c.watch[c.clauses[start].lit] = start;
         // Update watch list for the second lit in the clause, if one exists.
         if (cs > 1) {
-            c.clauses[start - 3] = c.watch[c.clauses[start + 1]];
-            c.watch[c.clauses[start + 1]] = start;
+            c.clauses[start - 3].ptr = c.watch[c.clauses[start + 1].lit];
+            c.watch[c.clauses[start + 1].lit] = start;
         }
     } while (nc != EOF);
 
@@ -364,6 +511,7 @@ Cnf parse(const char* filename) {
         UNSAT_EXIT;
     }
     fclose(f);
+    c.lemma_start = c.clauses.size() + kHeaderSize;
     return c;
 }
 
@@ -386,9 +534,10 @@ bool solve(Cnf* c) {
             // C5
             if (c->f == static_cast<size_t>(c->nvars)) return true;
 
-            if (c->nlemmas > kMaxLemmas) {
-                LOG(1) << "Purging lemmas";
-                c->purge_lemmas();
+            if (c->nlemmas >= kMaxLemmas && d > 2) {
+                LOG(1) << "Reducing clause database";
+                c->reduce_db(d);
+                INC("clause database purges");
             }
             if (c->agility / pow(2,32) < 0.25 &&
                 // If needed, flush literals and continue loop, else
@@ -398,6 +547,7 @@ bool solve(Cnf* c) {
                 c->backjump(0);
                 d = 0;
                 last_restart = c->epoch;
+                INC("restarts");
                 continue; // -> C2
             }
             
@@ -434,34 +584,34 @@ bool solve(Cnf* c) {
 
             // C4
             LOG(3) << "C4: l = " << l << ", clause = " << c->print_clause(w);
-            if (c->clauses[w] != -l) {
+            if (c->clauses[w].lit != -l) {
                 // Make l0 first literal in the clause instead of the second.
-                std::swap(c->clauses[w], c->clauses[w+1]);
-                std::swap(c->clauses[w-2], c->clauses[w-3]);
+                std::swap(c->clauses[w].lit, c->clauses[w+1].lit);
+                std::swap(c->clauses[w-2].ptr, c->clauses[w-3].ptr);
             }
-            clause_t nw = c->clauses[w-2];
+            clause_t nw = c->clauses[w-2].ptr;
             LOG(3) << "Looking at watched clause " << c->print_clause(w)
                    << " to see if it forces a unit";
             
             bool all_false = true;
             bool tombstones = false;
-            if (!c->is_true(c->clauses[w+1])) {
-                for(int i = 2; i < c->clauses[w - 1]; ++i) {
+            if (!c->is_true(c->clauses[w+1].lit)) {
+                for(size_t i = 2; i < c->clauses[w-1].size; ++i) {
                     // If we see a false literal from level zero, go ahead and
                     // and remove it from the clause now by replacing it with a
                     // tombstone (Ex. 268)
-                    if (c->is_false(c->clauses[w + i]) &&
-                        c->lev[abs(c->clauses[w + i])] == 0) {
-                        c->clauses[w + i] = lit_nil;
+                    if (c->is_false(c->clauses[w + i].lit) &&
+                        c->lev[abs(c->clauses[w + i].lit)] == 0) {
+                        c->clauses[w + i].lit = lit_nil;
                         tombstones = true;
                         continue;
-                    } else if (!c->is_false(c->clauses[w + i])) {
+                    } else if (!c->is_false(c->clauses[w + i].lit)) {
                         all_false = false;
-                        lit_t ln = c->clauses[w + i];
+                        lit_t ln = c->clauses[w + i].lit;
                         LOG(3) << "Resetting " << ln
                                << " as the watched literal in " << c->print_clause(w);
                         // swap ln and l0
-                        std::swap(c->clauses[w], c->clauses[w + i]);
+                        std::swap(c->clauses[w].lit, c->clauses[w + i].lit);
                         // move w onto watch list of ln
                         // TODO: clauses and watch are lit_t and clause_t, resp.
                         //       clean up so we can std::swap here.
@@ -470,38 +620,41 @@ bool solve(Cnf* c) {
                                << c->print_watchlist(ln);
                         size_t tmp = c->watch[ln];
                         c->watch[ln] = w;
-                        c->clauses[w - 2] = tmp;
+                        c->clauses[w - 2].ptr = tmp;
                         LOG(3) << ln;
                         LOG(3) << ln << "'s watch list: " << c->print_watchlist(ln);
                         break;
                     }
                 }
                 // Compact any tombstones we just added to the clause
+                // TODO: rewrite this compaction
                 if (tombstones) {
-                    int j = 2;
-                    for(int i = 2; i < c->clauses[w - 1]; ++i) {
-                        if (c->clauses[w + i] != lit_nil) {
-                            if (i != j) c->clauses[w + j] = c->clauses[w + i];
+                    size_t j = 2;
+                    for(size_t i = 2; i < c->clauses[w-1].size; ++i) {
+                        if (c->clauses[w+i].lit != lit_nil) {
+                            if (i != j) {
+                                c->clauses[w+j].lit = c->clauses[w+i].lit;
+                            }
                             ++j;
                         }
                     }
-                    for(int i = j; i < c->clauses[w - 1]; ++i) {
-                        c->clauses[w+i] = lit_nil;
+                    for(size_t i = j; i < c->clauses[w-1].size; ++i) {
+                        c->clauses[w+i].lit = lit_nil;
                     }
-                    if (j < c->clauses[w - 1]) {
-                        INC("tombstoned-level-0-lits", c->clauses[w-1] - j);
-                        c->clauses[w-1] = j;
+                    if (j < c->clauses[w-1].size) {
+                        INC("tombstoned-level-0-lits", c->clauses[w-1].size-j);
+                        c->clauses[w-1].size = j;
                     }
                 }
                 
                 if (all_false) {
-                    if (c->is_false(c->clauses[w+1])) {
-                        LOG(3) << c->clauses[w]
+                    if (c->is_false(c->clauses[w+1].lit)) {
+                        LOG(3) << c->clauses[w+1].lit
                                << " false, everything false! (-> C7)";
                         found_conflict = true;
                         break;
                     } else { // l1 is free
-                        lit_t l1 = c->clauses[w+1];
+                        lit_t l1 = c->clauses[w+1].lit;
                         LOG(3) << "Adding " << l1 << " to the trail, "
                                << "forced by " << c->print_clause(w);
                         c->add_to_trail(l1, d, w);
@@ -519,7 +672,7 @@ bool solve(Cnf* c) {
                 else {
                     LOG(4) << "Linking " << -l << "'s watchlist: "
                            << c->print_clause(wll) << " -> " << c->print_clause(w);
-                    c->clauses[wll-2] = w;
+                    c->clauses[wll-2].ptr = w;
                 }
                 wll = w;
             }
@@ -541,7 +694,7 @@ bool solve(Cnf* c) {
             LOG(3) << "Final: Linking " << -l << "'s watchlist: "
                    << c->print_clause(wll)
                    << " -> " << ((w == clause_nil) ? "0" : c->print_clause(w));
-            c->clauses[wll-2] = w;
+            c->clauses[wll-2].ptr = w;
         }
         
         if (!found_conflict) {
@@ -560,32 +713,32 @@ bool solve(Cnf* c) {
         // in the clause here. We'll undo this after the first resolution
         // step below, otherwise watchlists get corrupted.
         size_t rl = c->f - 1;
-        size_t cs = static_cast<size_t>(c->clauses[w-1]);
+        size_t cs = c->clauses[w-1].size;
         size_t rl_pos = 0;
         for (bool done = false; !done; --rl) {
             for (rl_pos = 0; rl_pos < cs; ++rl_pos) {
-                if (abs(c->trail[rl]) == abs(c->clauses[w+rl_pos])) {
+                if (abs(c->trail[rl]) == abs(c->clauses[w+rl_pos].lit)) {
                     done = true;
-                    std::swap(c->clauses[w], c->clauses[w+rl_pos]);
+                    std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
                     break;
                 }
             }
         }
 
         lit_t dp = 0;
-        lit_t q = 0;
-        lit_t r = 0;
+        size_t q = 0;
+        size_t r = 0;
         c->epoch += 3;
         LOG(3) << "Bumping epoch to " << c->epoch << " at "
                << c->print_clause(w);
         LOG(3) << "Trail is " << c->print_trail();
-        c->stamp[abs(c->clauses[w])] = c->epoch;
-        c->heap.bump(abs(c->clauses[w]));
+        c->stamp[abs(c->clauses[w].lit)] = c->epoch;
+        c->heap.bump(abs(c->clauses[w].lit));
 
-        lit_t t = c->tloc[abs(c->clauses[w])];
+        lit_t t = c->tloc[abs(c->clauses[w].lit)];
         LOG(3) << "RESOLVING [A] " << c->print_clause(w);
-        for(size_t j = 1; j < static_cast<size_t>(c->clauses[w-1]); ++j) {
-            lit_t m = c->clauses[w+j];
+        for(size_t j = 1; j < c->clauses[w-1].size; ++j) {
+            lit_t m = c->clauses[w+j].lit;
             LOG(4) << "tloc[" << abs(m) << "] = " << c->tloc[abs(m)];
             if (c->tloc[abs(m)] >= t) t = c->tloc[abs(m)];
             // TODO: technically don't need this next line, but it's part of
@@ -609,7 +762,7 @@ bool solve(Cnf* c) {
             }
         }
         LOG(3) << "swapping back: " << c->print_clause(w);
-        std::swap(c->clauses[w], c->clauses[w+rl_pos]);
+        std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
         LOG(3) << "now: " << c->print_clause(w);
         
         while (q > 0) {
@@ -623,14 +776,14 @@ bool solve(Cnf* c) {
                 clause_t rc = c->reason[abs(l)];
                 if (rc != clause_nil) {
                     LOG(3) << "RESOLVING [B] " << c->print_clause(rc);
-                    if (c->clauses[rc] != l) {
+                    if (c->clauses[rc].lit != l) {
                         // TODO: don't swap here (or similar swap above) 
-                        std::swap(c->clauses[rc], c->clauses[rc+1]);
-                        std::swap(c->clauses[rc-2], c->clauses[rc-3]);
+                        std::swap(c->clauses[rc].lit, c->clauses[rc+1].lit);
+                        std::swap(c->clauses[rc-2].ptr, c->clauses[rc-3].ptr);
                     }                        
                     LOG(3) << "Reason for " << l << ": " << c->print_clause(rc);
-                    for (size_t j = 1; j < static_cast<size_t>(c->clauses[rc-1]); ++j) {
-                        lit_t m = c->clauses[rc+j];
+                    for (size_t j = 1; j < c->clauses[rc-1].size; ++j) {
+                        lit_t m = c->clauses[rc+j].lit;
                         LOG(3) << "considering " << abs(m);
                         if (c->stamp[abs(m)] == c->epoch) continue;
                         c->stamp[abs(m)] = c->epoch;
@@ -647,27 +800,27 @@ bool solve(Cnf* c) {
                                 c->epoch + 1 : c->epoch;
                         }
                     }
-                    if (q + r + 1 < c->clauses[rc-1] && q > 0) {
+                    if (q + r + 1 < c->clauses[rc-1].size && q > 0) {
                         c->remove_from_watchlist(rc, 0);
                         lit_t li = lit_nil;
-                        lit_t len = c->clauses[rc-1];
+                        lit_t len = c->clauses[rc-1].size;
                         // Avoid j == 1 below because we'd have to do more
                         // watchlist surgery. A lit of level >= d always
                         // exists in l_2 ... l_k since q > 0.
                         for (lit_t j = len - 1; j >= 2; --j) {
-                            if (c->lev[abs(c->clauses[rc+j])] >= d) {
+                            if (c->lev[abs(c->clauses[rc+j].lit)] >= d) {
                                 li = j;
                                 break;
                             }
                         }
                         CHECK(li != lit_nil) <<
                             "No level " << d << " lit for subsumption";
-                        c->clauses[rc] = c->clauses[rc+li];
-                        c->clauses[rc+li] = c->clauses[rc+len-1];
-                        c->clauses[rc+len-1] = lit_nil;
-                        c->clauses[rc-1]--;
-                        c->clauses[rc-2] = c->watch[c->clauses[rc]];
-                        c->watch[c->clauses[rc]] = rc;
+                        c->clauses[rc].lit = c->clauses[rc+li].lit;
+                        c->clauses[rc+li].lit = c->clauses[rc+len-1].lit;
+                        c->clauses[rc+len-1].lit = lit_nil;
+                        c->clauses[rc-1].size--;
+                        c->clauses[rc-2].ptr = c->watch[c->clauses[rc].lit];
+                        c->watch[c->clauses[rc].lit] = rc;
                         INC("on-the-fly subsumptions");
                     }
                 }
@@ -684,7 +837,7 @@ bool solve(Cnf* c) {
         // TODO: move this down so that we only process learned clause once? But
         // would also have to do subsumption check in single loop...
         lit_t rr = 0;
-        for(int i = 0; i < r; ++i) {
+        for(size_t i = 0; i < r; ++i) {
             // TODO: do i need to pass -c->b[i] below? don't think negation matters...
             if (c->lstamp[c->lev[abs(c->b[i])]] == c->epoch + 1 &&
                 c->redundant(-c->b[i])) {
@@ -706,16 +859,16 @@ bool solve(Cnf* c) {
         // from a previous iteration.
         if (lc != clause_nil) {
             lit_t q = r+1;
-            for (int j = c->clauses[lc-1] - 1; q > 0 && j >= q; --j) {
-                if (c->clauses[lc + j] == -lp ||
-                    (c->stamp[abs(c->clauses[lc + j])] == c->epoch &&
-                     c->val[abs(c->clauses[lc + j])] != UNSET &&
-                     c->lev[abs(c->clauses[lc + j])] <= dp)) {
+            for (int j = c->clauses[lc-1].size - 1; q > 0 && j >= q; --j) {
+                if (c->clauses[lc + j].lit == -lp ||
+                    (c->stamp[abs(c->clauses[lc + j].lit)] == c->epoch &&
+                     c->val[abs(c->clauses[lc + j].lit)] != UNSET &&
+                     c->lev[abs(c->clauses[lc + j].lit)] <= dp)) {
                     --q;
                 }
             }
 
-            if (q == 0 && c->val[abs(c->clauses[lc])] == UNSET) {
+            if (q == 0 && c->val[abs(c->clauses[lc].lit)] == UNSET) {
                 c->remove_from_watchlist(lc, 0);
                 c->remove_from_watchlist(lc, 1);
                 c->clauses.resize(lc-3);
@@ -724,35 +877,33 @@ bool solve(Cnf* c) {
         }
         
         // C9: learn
-        c->clauses.push_back(1);  // literal block distance. will correct below.
-        c->clauses.push_back(clause_nil); // watch list for l1
-        c->clauses.push_back(c->watch[-lp]); // watch list for l0
-        c->clauses.push_back(r+1); // size
+        clause_bundle_t nil_ptr;  // TODO: make constant
+        nil_ptr.ptr = clause_nil;
+        c->clauses.push_back(nil_ptr); // watch list for l1
+        clause_bundle_t wlp;
+        wlp.ptr = c->watch[-lp];
+        c->clauses.push_back(wlp); // watch list for l0
+        clause_bundle_t s;
+        s.size = r+1;
+        c->clauses.push_back(s); // size
         LOG(3) << "adding a clause of size " << r+1;
         lc = c->clauses.size();
-        c->clauses.push_back(-lp);
+        c->clauses.push_back({-lp});
         c->watch[-lp] = lc;
-        c->clauses.push_back(clause_nil); // to be set in else below
+        c->clauses.push_back({lit_nil}); // to be set in else below
         bool found_watch = false;
-        c->lbds[c->lev[abs(lp)]] = c->epoch;
-        for (lit_t j = 0; j < r; ++j) {
-            c->lbds[c->lev[abs(c->b[j])]] = c->epoch;
+        for (size_t j = 0; j < r; ++j) {
             if (found_watch || c->lev[abs(c->b[j])] < dp) {
-                c->clauses.push_back(-c->b[j]);
+                c->clauses.push_back({-c->b[j]});
             } else {
-                c->clauses[lc+1] = -c->b[j];
-                c->clauses[lc-3] = c->watch[-c->b[j]];
+                c->clauses[lc+1].lit = -c->b[j];
+                c->clauses[lc-3].ptr = c->watch[-c->b[j]];
                 c->watch[-c->b[j]] = lc;
                 found_watch = true;
             }
         }
         CHECK(r == 0 || found_watch) << "Didn't find watched lit in new clause";
         CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
-        
-        int lbd = 1;  // c->lev[abs(lp)] is > d, so we know it's distinct.
-        for (lit_t j = 0; j <= d; ++j) { if (c->lbds[j] == c->epoch) ++lbd; }
-        c->clauses[LBD(lc)] = lbd;
-        if (lbd <= 3) LOG(1) << "lbd: " << lbd << ": " << c->print_clause(lc);
 
         ++c->nlemmas;
         LOG(2) << "Successfully added clause " << c->print_clause(lc);
