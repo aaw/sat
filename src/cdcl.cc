@@ -44,7 +44,7 @@
   }
 
 constexpr int kHeaderSize = 3;
-constexpr size_t kMaxLemmas = 5; // 1000; // 10000;
+constexpr size_t kMaxLemmas = 1000; // 1000; // 10000;
 
 enum State {
     UNSET = 0,
@@ -245,9 +245,6 @@ struct Cnf {
     // watchlist. No-op if k == 0.
     // TODO: cindex should be clause_t
     void remove_from_watchlist(lit_t cindex, lit_t offset) {
-        LOG(1) << "[" << cindex << "] [size: " << clauses[cindex-1].size << "] "
-               << "remove_from_watchlist(" << print_clause(cindex) << ", " << offset << ")";
-        LOG(1) << "current: " << print_watchlist(clauses[cindex+offset].lit);
         if (offset == 1 && clauses[cindex-1].size == 1) return;
         lit_t l = cindex + offset;
         clause_t* x = &watch[clauses[l].lit];
@@ -299,8 +296,8 @@ struct Cnf {
     // Next, iterate forward, compacting all pinned clauses and computing
     // watchlist
     void reduce_db(lit_t d) {
-        std::vector<lit_t> lbds(d+1, 0);
-        std::vector<lit_t> hist(d+1, 0);  // lbd histogram.
+        std::vector<lit_t> lbds(d+2, 0);
+        std::vector<lit_t> hist(d+2, 0);  // lbd histogram.
         size_t target_lemmas = nlemmas / 2;
         LOG(1) << "Target lemmas: " << target_lemmas;
         LOG(1) << "d = " << d;
@@ -324,6 +321,43 @@ struct Cnf {
         }
 
         LOG(1) << "Computing LBD";
+
+        clause_t ts = 0;       
+        clause_t os = 0;
+        std::vector<lit_t> lemma_indexes;
+        for(clause_t i = lemma_start - 1; i < clauses.size(); 
+            i += os + ts + kHeaderSize) {               
+            os = clauses[i].size;                       
+            ts = 0;                                    
+            lit_t lc = i+1;                             
+            clause_t cs = clauses[i].size;              
+            ALLOW_UNUSED(lc);                           
+            ALLOW_UNUSED(cs);                           
+            clause_t ii = i + clauses[i].size + 1;                      
+            while (ii+ts < clauses.size() && clauses[ii+ts].lit == lit_nil) ++ts;
+
+
+            lemma_indexes.push_back(lc);
+            // Compute LBD
+            for(size_t j = 0; j < cs; ++j) {
+                // TODO: just tagging all unset vars at level d for now
+                // instead of scheduling a full run. Revisit this.
+                if (val[abs(clauses[lc + j].lit)] == UNSET) {
+                    lbds[d] = lc;
+                } else {
+                    lbds[lev[abs(clauses[lc + j].lit)]] = lc;
+                }
+            }
+            int lbd = 0;
+            for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == lc) ++lbd; }
+            clauses[W1(lc)].lit = lbd;
+            CHECK(lbd > 0 && lbd <= d+1) 
+                << "Computed impossible LBD: " << lbd << " (d = " << d << ")";
+            hist[lbd]++;            
+            
+        }                                                       
+        
+        /*
         // Compute LBD, store in W1(c). Store lemma indexes so we can iterate
         // in reverse over clauses next.
         std::vector<lit_t> lemma_indexes;
@@ -345,6 +379,7 @@ struct Cnf {
             CHECK(lbd > 0) << "Computed impossible LBD of 0.";
             hist[lbd]++;
         });
+        */
         LOG(1) << "Indexes: " << lemma_indexes.size();
 
         // TODO: also keep learned clauses of length < K
@@ -356,8 +391,7 @@ struct Cnf {
         LOG(1) << "Generating LBD histogram";
         int max_lbd = 1;
         size_t total_lemmas = 0;
-        while (total_lemmas + hist[max_lbd] <= target_lemmas &&
-               max_lbd <= d+1) {
+        while (max_lbd <= d && total_lemmas + hist[max_lbd] <= target_lemmas) {
             total_lemmas += hist[max_lbd++];
         }
         int max_lbd_budget = target_lemmas - total_lemmas;
@@ -556,7 +590,7 @@ bool solve(Cnf* c) {
                 lc = clause_nil;  // disable subsume prev clause for next iter
                 INC("clause database purges");
             }
-            if (c->agility / pow(2,32) < 0.25 &&
+            if (c->agility / pow(2,32) < 0.3 &&
                 // If needed, flush literals and continue loop, else
                 c->epoch - last_restart >= 1000) {
                 LOG(1) << "Restarting at epoch " << c->epoch;
@@ -819,7 +853,6 @@ bool solve(Cnf* c) {
                     }
                     if (q + r + 1 < c->clauses[rc-1].size && q > 0) {
                         // On-the-fly subsumption.
-                        LOG(1) << "on-the-fly: " << c->dump_lemmas();
                         c->remove_from_watchlist(rc, 0);
                         lit_t li = lit_nil;
                         lit_t len = c->clauses[rc-1].size;
@@ -888,11 +921,9 @@ bool solve(Cnf* c) {
             }
 
             if (q == 0 && c->val[abs(c->clauses[lc].lit)] == UNSET) {
-                LOG(1) << "prev subsume: " << c->dump_lemmas();
-                LOG(1) << "raw: " << c->raw_lemmas();
                 c->remove_from_watchlist(lc, 0);
                 c->remove_from_watchlist(lc, 1);
-                c->clauses.resize(lc-3);
+                c->clauses.resize(lc - kHeaderSize);
                 INC("subsumed clauses");
             }
         }
