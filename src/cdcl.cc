@@ -27,9 +27,11 @@
 
 #define FOR_EACH_CLAUSE(START, BODY) \
   { \
-    clause_t ts = 0;                \
+    clause_t ts = 0; \
+    clause_t os = 0; \
     for(clause_t i = START - 1; i < clauses.size(); \
-        i += clauses[i].size + ts + kHeaderSize + (clauses[i].size == 1 ? 1 : 0)) { \
+        i += os + ts + kHeaderSize) {  \
+        os = clauses[i].size; \
         ts = 0; \
         lit_t lc = i+1; \
         clause_t cs = clauses[i].size; \
@@ -42,7 +44,7 @@
   }
 
 constexpr int kHeaderSize = 3;
-constexpr size_t kMaxLemmas = 10; // 1000; // 10000;
+constexpr size_t kMaxLemmas = 5; // 1000; // 10000;
 
 enum State {
     UNSET = 0,
@@ -148,31 +150,31 @@ struct Cnf {
 
     std::string dump_clauses() const {
         std::ostringstream oss;
-        lit_t ts = 0;  // tombstone count
-        for(clause_t i = kHeaderSize - 1;
-            i < clauses.size();
-            i += clauses[i].size + ts + kHeaderSize +
-                 (clauses[i].size == 1 ? 1 : 0)) {
-            ts = 0;
-            oss << "(";
-            for(size_t j = 1; j < clauses[i].size; ++j) {
-                oss << clauses[i+j].lit << " ";
-            }
-            clause_t ii = i + clauses[i].size;
-            oss << clauses[ii].lit << ") ";
-            while (ii+1+ts < clauses.size() &&
-                   clauses[ii+1+ts].lit == lit_nil) ++ts;
-        }
+        FOR_EACH_CLAUSE(kHeaderSize, { oss << print_clause(lc) << " "; });
         return oss.str();
     }
+
+    std::string dump_lemmas() const {
+        std::ostringstream oss;
+        FOR_EACH_CLAUSE(lemma_start, { oss << print_clause(lc) << " "; });
+        return oss.str();
+    }    
 
     std::string raw_clauses() {
         std::ostringstream oss;
         for(const auto& c : clauses) {
-            oss << "[" << c.lit << "]";
+            oss << c.lit << " ";
         }
         return oss.str();
     }
+
+    std::string raw_lemmas() {
+        std::ostringstream oss;
+        for(size_t i = lemma_start; i < clauses.size(); ++i) {
+            oss << clauses[i].lit << " ";
+        }
+        return oss.str();
+    }    
     
     std::string print_trail() {
         std::ostringstream oss;
@@ -243,6 +245,8 @@ struct Cnf {
     // watchlist. No-op if k == 0.
     // TODO: cindex should be clause_t
     void remove_from_watchlist(lit_t cindex, lit_t offset) {
+        LOG(1) << "remove_from_watchlist(" << print_clause(cindex) << ", " << offset << ")";
+        LOG(1) << "current: " << print_watchlist(clauses[cindex].lit);
         if (offset == 1 && clauses[cindex-1].size == 1) return;
         lit_t l = cindex + offset;
         clause_t* x = &watch[clauses[l].lit];
@@ -299,10 +303,10 @@ struct Cnf {
         size_t target_lemmas = nlemmas / 2;
         LOG(1) << "Target lemmas: " << target_lemmas;
         LOG(1) << "d = " << d;
-        LOG(2) << "Old clauses: " << dump_clauses();
+        LOG(2) << "Old lemmas: " << dump_lemmas();
+        //LOG(2) << "raw clauses: " << raw_clauses();
 
         FOR_EACH_CLAUSE(lemma_start, {
-          LOG(1) << "? " << print_clause(lc);
           clauses[W0(lc)].lit = 2;
           clauses[W1(lc)].lit = 2;          
         });
@@ -315,7 +319,7 @@ struct Cnf {
             if (reason[abs(trail[i])] < static_cast<clause_t>(lemma_start)) continue;
             LOG(1) << "reason[" << abs(trail[i]) << "] = " << print_clause(reason[abs(trail[i])]);
             clauses[W0(reason[abs(trail[i])])].lit = -abs(trail[i]);
-            --target_lemmas;
+            if (target_lemmas > 0) --target_lemmas;
         }
 
         LOG(1) << "Computing LBD";
@@ -326,14 +330,18 @@ struct Cnf {
             lemma_indexes.push_back(lc);
             // Compute LBD
             for(size_t j = 0; j < cs; ++j) {
-                // TODO: just ignoring unset vars for now instead of scheduling
-                // a full run. Revisit this.
-                if (val[abs(clauses[lc + j].lit)] == UNSET) continue;
-                lbds[lev[abs(clauses[lc + j].lit)]] = lc;
+                // TODO: just tagging all unset vars at level d for now
+                // instead of scheduling a full run. Revisit this.
+                if (val[abs(clauses[lc + j].lit)] == UNSET) {
+                    lbds[d] = lc;
+                } else {
+                    lbds[lev[abs(clauses[lc + j].lit)]] = lc;
+                }
             }
             int lbd = 0;
             for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == lc) ++lbd; }
             clauses[W1(lc)].lit = lbd;
+            CHECK(lbd > 0) << "Computed impossible LBD of 0.";
             hist[lbd]++;
         });
         LOG(1) << "Indexes: " << lemma_indexes.size();
@@ -342,7 +350,7 @@ struct Cnf {
 
         LOG(1) << "Done";
         for (int i = 0; i <= d; ++i) {
-            LOG(2) << "hist[" << i << "] = " << hist[i];
+            LOG(1) << "hist[" << i << "] = " << hist[i];
         }
         LOG(1) << "Generating LBD histogram";
         int max_lbd = 1;
@@ -376,29 +384,35 @@ struct Cnf {
         }
 
         LOG(1) << "Compacting clauses";
+        LOG(1) << dump_lemmas();
         //LOG(1) << "raw: " << raw_clauses();
         // Compact clauses.
         lit_t tail = lemma_start;
         FOR_EACH_CLAUSE(lemma_start, {
-            LOG(1) << "clause : " << print_clause(lc);
+            LOG(1) << "considering " << print_clause(lc);
             if (clauses[W0(lc)].lit > 1) continue;
-            LOG(1) << "ok";
             if (clauses[W0(lc)].lit < 0) {
-                LOG(1) << "reasonable: " << clauses[W0(lc)].lit;
                 reason[abs(clauses[W0(lc)].lit)] = tail;
             }
+            clauses[W1(tail)].ptr = 1;  // placeholder, anything != 0
+            clauses[W0(tail)].ptr = 1;  // placeholder, anything != 0
             clauses[CS(tail)].size = cs;
             for(size_t j = 0; j < cs; ++j) {
                 clauses[tail+j].lit = clauses[lc+j].lit;
             }
-            if (clauses[W0(lc)].lit < 0) {
-                LOG(1) << "reason[" << abs(clauses[W0(lc)].lit) << "] = " << print_clause(tail);
-            }
+            LOG(1) << "clause added: " << print_clause(tail);
             tail += cs + kHeaderSize;
         });
         clauses.resize(tail - kHeaderSize);
 
+        LOG(1) << "compacted: ";
+        LOG(1) << dump_lemmas();
+        
         LOG(1) << "Recomputing watch lists";
+
+        // TODO: corruption happening during watch list recomputation
+        //       when encountering a clause with trailing zeros...
+        
         // Recompute all watch lists
         FOR_EACH_CLAUSE(kHeaderSize, {
             clauses[W0(lc)].ptr = watch[clauses[L0(lc)].lit];
@@ -411,7 +425,7 @@ struct Cnf {
         nlemmas = target_lemmas;
 
         LOG(1) << "Done reducing database";
-        LOG(2) << "New clauses: " << dump_clauses();
+        LOG(2) << "New lemmas: " << dump_lemmas();
     }
 };
 
@@ -801,6 +815,7 @@ bool solve(Cnf* c) {
                         }
                     }
                     if (q + r + 1 < c->clauses[rc-1].size && q > 0) {
+                        // On-the-fly subsumption.
                         c->remove_from_watchlist(rc, 0);
                         lit_t li = lit_nil;
                         lit_t len = c->clauses[rc-1].size;
