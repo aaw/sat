@@ -245,8 +245,9 @@ struct Cnf {
     // watchlist. No-op if k == 0.
     // TODO: cindex should be clause_t
     void remove_from_watchlist(lit_t cindex, lit_t offset) {
-        LOG(1) << "remove_from_watchlist(" << print_clause(cindex) << ", " << offset << ")";
-        LOG(1) << "current: " << print_watchlist(clauses[cindex].lit);
+        LOG(1) << "[" << cindex << "] [size: " << clauses[cindex-1].size << "] "
+               << "remove_from_watchlist(" << print_clause(cindex) << ", " << offset << ")";
+        LOG(1) << "current: " << print_watchlist(clauses[cindex+offset].lit);
         if (offset == 1 && clauses[cindex-1].size == 1) return;
         lit_t l = cindex + offset;
         clause_t* x = &watch[clauses[l].lit];
@@ -426,6 +427,7 @@ struct Cnf {
 
         LOG(1) << "Done reducing database";
         LOG(2) << "New lemmas: " << dump_lemmas();
+        LOG(2) << "Raw lemmas: " << raw_lemmas();
     }
 };
 
@@ -551,6 +553,7 @@ bool solve(Cnf* c) {
             if (c->nlemmas >= kMaxLemmas && d > 2) {
                 LOG(1) << "Reducing clause database";
                 c->reduce_db(d);
+                lc = clause_nil;  // disable subsume prev clause for next iter
                 INC("clause database purges");
             }
             if (c->agility / pow(2,32) < 0.25 &&
@@ -816,6 +819,7 @@ bool solve(Cnf* c) {
                     }
                     if (q + r + 1 < c->clauses[rc-1].size && q > 0) {
                         // On-the-fly subsumption.
+                        LOG(1) << "on-the-fly: " << c->dump_lemmas();
                         c->remove_from_watchlist(rc, 0);
                         lit_t li = lit_nil;
                         lit_t len = c->clauses[rc-1].size;
@@ -884,6 +888,8 @@ bool solve(Cnf* c) {
             }
 
             if (q == 0 && c->val[abs(c->clauses[lc].lit)] == UNSET) {
+                LOG(1) << "prev subsume: " << c->dump_lemmas();
+                LOG(1) << "raw: " << c->raw_lemmas();
                 c->remove_from_watchlist(lc, 0);
                 c->remove_from_watchlist(lc, 1);
                 c->clauses.resize(lc-3);
