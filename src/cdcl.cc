@@ -9,6 +9,7 @@
 
 #include <ctime>
 #include <cstdlib>
+#include <functional>
 #include <sstream>
 #include <vector>
 
@@ -24,24 +25,6 @@
 #define CS(c) (c-1)
 #define W0(c) (c-2)
 #define W1(c) (c-3)
-
-#define FOR_EACH_CLAUSE(START, BODY) \
-  { \
-    clause_t ts = 0; \
-    clause_t os = 0; \
-    for(clause_t i = START - 1; i < clauses.size(); \
-        i += os + ts + kHeaderSize) {  \
-        os = clauses[i].size; \
-        ts = 0; \
-        lit_t lc = i+1; \
-        clause_t cs = clauses[i].size; \
-        ALLOW_UNUSED(lc); \
-        ALLOW_UNUSED(cs); \
-        clause_t ii = i + clauses[i].size + 1; \
-        while (ii+ts < clauses.size() && clauses[ii+ts].lit == lit_nil) ++ts; \
-        BODY \
-    } \
-  }
 
 constexpr int kHeaderSize = 3;
 constexpr size_t kMaxLemmas = 1000; // 1000; // 10000;
@@ -100,7 +83,7 @@ struct Cnf {
 
     size_t nlemmas;
 
-    lit_t lemma_start;  // clause index of first learned clause.
+    clause_t lemma_start;  // clause index of first learned clause.
     
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
@@ -148,15 +131,43 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string dump_clauses() const {
+    void for_each_clause_helper(clause_t start,
+                                std::function<void(lit_t,clause_t)> func) {
+        clause_t ts = 0;
+        clause_t os = 0;
+        for(clause_t i = start - 1; i < clauses.size();
+            i += os + ts + kHeaderSize) {
+            os = clauses[i].size;
+            clause_t ii = i + clauses[i].size + 1;
+            ts = 0;
+            while (ii+ts < clauses.size() && clauses[ii+ts].lit == lit_nil) {
+                ++ts;
+            }
+            func(i+1, clauses[i].size);
+        }
+    }
+
+    void for_each_clause(std::function<void(lit_t,clause_t)> func) {
+        for_each_clause_helper(kHeaderSize, func);
+    }
+
+    void for_each_lemma(std::function<void(lit_t,clause_t)> func) {
+        for_each_clause_helper(lemma_start, func);
+    }    
+    
+    std::string dump_clauses() {
         std::ostringstream oss;
-        FOR_EACH_CLAUSE(kHeaderSize, { oss << print_clause(lc) << " "; });
+        for_each_clause([&](lit_t l, clause_t cs) {
+            oss << print_clause(l) << " "; 
+        });
         return oss.str();
     }
 
-    std::string dump_lemmas() const {
+    std::string dump_lemmas() {
         std::ostringstream oss;
-        FOR_EACH_CLAUSE(lemma_start, { oss << print_clause(lc) << " "; });
+        for_each_lemma([&](lit_t l, clause_t cs) {
+            oss << print_clause(l) << " ";
+        });
         return oss.str();
     }    
 
@@ -193,30 +204,6 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string clause_stats(size_t numb, size_t maxb) const {
-        std::ostringstream oss;
-        std::vector<int> hist(numb, 0);
-        size_t total = 0;
-        size_t bucket_size = maxb / numb;
-        for(clause_t i = kHeaderSize - 1;
-            i < clauses.size(); 
-            i += clauses[i].size + kHeaderSize + (clauses[i].size == 1 ? 1 : 0)) {
-            size_t vt = clauses[i].size > maxb ? maxb : clauses[i].size;
-            hist[vt / bucket_size] += 1;
-            total++;
-        }
-        oss << "(" << total << ") ";
-        size_t lower = 0;
-        for(const auto& b : hist) {
-            size_t upper = lower + bucket_size;
-            oss << "[" << lower << ", ";
-            if (upper == maxb) { oss << "-"; } else { oss << upper; }
-            oss << "): " << b << " ";
-            lower = upper;
-        }
-        return oss.str();
-    }
-
     bool redundant(lit_t l) {
         lit_t k = abs(l);
         clause_t r = reason[k];
@@ -243,8 +230,7 @@ struct Cnf {
     // For a clause c = l_0 l_1 ... l_k at index cindex in the clauses array,
     // removes either l_0 (if offset is 0) or l_1 (if offset is 1) from its
     // watchlist. No-op if k == 0.
-    // TODO: cindex should be clause_t
-    void remove_from_watchlist(lit_t cindex, lit_t offset) {
+    void remove_from_watchlist(clause_t cindex, lit_t offset) {
         if (offset == 1 && clauses[cindex-1].size == 1) return;
         lit_t l = cindex + offset;
         clause_t* x = &watch[clauses[l].lit];
@@ -285,7 +271,6 @@ struct Cnf {
         g = f;
     }
 
-    // TODO: remove initial LBD computation, use only current LBD
     // Use W1(c) as LBD, use W0(c) as pin.
     // First, pin everything used as a reason.
     // Next, iterate through all clauses, computing LBD and storing in W1
@@ -299,106 +284,51 @@ struct Cnf {
         std::vector<lit_t> lbds(d+2, 0);
         std::vector<lit_t> hist(d+2, 0);  // lbd histogram.
         size_t target_lemmas = nlemmas / 2;
-        LOG(1) << "Target lemmas: " << target_lemmas;
-        LOG(1) << "d = " << d;
-        LOG(2) << "Old lemmas: " << dump_lemmas();
-        //LOG(2) << "raw clauses: " << raw_clauses();
 
-        FOR_EACH_CLAUSE(lemma_start, {
-          clauses[W0(lc)].lit = 2;
-          clauses[W1(lc)].lit = 2;          
+        for_each_lemma([&](lit_t l, clause_t cs) {        
+          clauses[W0(l)].lit = 2;
+          clauses[W1(l)].lit = 2;          
         });
         
-        LOG(1) << "Pinning reasons";
         // Pin learned clauses that are reasons. Note W0(c) <= 1 means pin;
         // 1 will never be a watch pointer because 1 < kHeaderSize.
         for (size_t i = 0; i < f; ++i) {
             if (reason[abs(trail[i])] == clause_nil) continue;
-            if (reason[abs(trail[i])] < static_cast<clause_t>(lemma_start)) continue;
-            LOG(1) << "reason[" << abs(trail[i]) << "] = " << print_clause(reason[abs(trail[i])]);
+            if (reason[abs(trail[i])] < lemma_start) continue;
             clauses[W0(reason[abs(trail[i])])].lit = -abs(trail[i]);
             if (target_lemmas > 0) --target_lemmas;
         }
 
-        LOG(1) << "Computing LBD";
-
-        clause_t ts = 0;       
-        clause_t os = 0;
+        // Compute LBD, store in W1(c). Store lemma indexes so we can iterate
+        // in reverse over clauses next.        
         std::vector<lit_t> lemma_indexes;
-        for(clause_t i = lemma_start - 1; i < clauses.size(); 
-            i += os + ts + kHeaderSize) {               
-            os = clauses[i].size;                       
-            ts = 0;                                    
-            lit_t lc = i+1;                             
-            clause_t cs = clauses[i].size;              
-            ALLOW_UNUSED(lc);                           
-            ALLOW_UNUSED(cs);                           
-            clause_t ii = i + clauses[i].size + 1;                      
-            while (ii+ts < clauses.size() && clauses[ii+ts].lit == lit_nil) ++ts;
-
-
-            lemma_indexes.push_back(lc);
-            // Compute LBD
+        for_each_lemma([&](lit_t l, clause_t cs) {
+            lemma_indexes.push_back(l);
             for(size_t j = 0; j < cs; ++j) {
                 // TODO: just tagging all unset vars at level d for now
                 // instead of scheduling a full run. Revisit this.
-                if (val[abs(clauses[lc + j].lit)] == UNSET) {
-                    lbds[d] = lc;
+                if (val[abs(clauses[l + j].lit)] == UNSET) {
+                    lbds[d] = l;
                 } else {
-                    lbds[lev[abs(clauses[lc + j].lit)]] = lc;
+                    lbds[lev[abs(clauses[l + j].lit)]] = l;
                 }
             }
             int lbd = 0;
-            for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == lc) ++lbd; }
-            clauses[W1(lc)].lit = lbd;
+            for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == l) ++lbd; }
+            clauses[W1(l)].lit = lbd;
             CHECK(lbd > 0 && lbd <= d+1) 
                 << "Computed impossible LBD: " << lbd << " (d = " << d << ")";
-            hist[lbd]++;            
-            
-        }                                                       
-        
-        /*
-        // Compute LBD, store in W1(c). Store lemma indexes so we can iterate
-        // in reverse over clauses next.
-        std::vector<lit_t> lemma_indexes;
-        FOR_EACH_CLAUSE(lemma_start, {
-            lemma_indexes.push_back(lc);
-            // Compute LBD
-            for(size_t j = 0; j < cs; ++j) {
-                // TODO: just tagging all unset vars at level d for now
-                // instead of scheduling a full run. Revisit this.
-                if (val[abs(clauses[lc + j].lit)] == UNSET) {
-                    lbds[d] = lc;
-                } else {
-                    lbds[lev[abs(clauses[lc + j].lit)]] = lc;
-                }
-            }
-            int lbd = 0;
-            for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == lc) ++lbd; }
-            clauses[W1(lc)].lit = lbd;
-            CHECK(lbd > 0) << "Computed impossible LBD of 0.";
             hist[lbd]++;
         });
-        */
-        LOG(1) << "Indexes: " << lemma_indexes.size();
 
         // TODO: also keep learned clauses of length < K
 
-        LOG(1) << "Done";
-        for (int i = 0; i <= d; ++i) {
-            LOG(1) << "hist[" << i << "] = " << hist[i];
-        }
-        LOG(1) << "Generating LBD histogram";
         int max_lbd = 1;
         size_t total_lemmas = 0;
         while (max_lbd <= d && total_lemmas + hist[max_lbd] <= target_lemmas) {
             total_lemmas += hist[max_lbd++];
         }
         int max_lbd_budget = target_lemmas - total_lemmas;
-        LOG(1) << "max LBD: " << max_lbd;
-        LOG(1) << "total lemmas with LBD < max LBD: " << total_lemmas;
-        LOG(1) << "clauses at max LBD: " << hist[max_lbd];
-        LOG(1) << "clauses kept at max LBD: " << max_lbd_budget;
 
         // Mark clauses we want to keep because of LBD.
         for(size_t i = 0; i < lemma_indexes.size(); ++i) {
@@ -412,56 +342,38 @@ struct Cnf {
             }
         }
 
-        LOG(1) << "Clearing watch pointers";
         // Clear top-level watch pointers.
         for(size_t i = 0; i < watch_storage.size(); ++i) {
             watch_storage[i] = clause_nil;
         }
 
-        LOG(1) << "Compacting clauses";
-        LOG(1) << dump_lemmas();
-        //LOG(1) << "raw: " << raw_clauses();
         // Compact clauses.
         lit_t tail = lemma_start;
-        FOR_EACH_CLAUSE(lemma_start, {
-            LOG(1) << "considering " << print_clause(lc);
-            if (clauses[W0(lc)].lit > 1) continue;
-            if (clauses[W0(lc)].lit < 0) {
-                reason[abs(clauses[W0(lc)].lit)] = tail;
+        for_each_lemma([&](lit_t l, clause_t cs) {        
+            if (clauses[W0(l)].lit > 1) return;  // continue
+            if (clauses[W0(l)].lit < 0) {
+                reason[abs(clauses[W0(l)].lit)] = tail;
             }
             clauses[W1(tail)].ptr = 1;  // placeholder, anything != 0
             clauses[W0(tail)].ptr = 1;  // placeholder, anything != 0
             clauses[CS(tail)].size = cs;
             for(size_t j = 0; j < cs; ++j) {
-                clauses[tail+j].lit = clauses[lc+j].lit;
+                clauses[tail+j].lit = clauses[l+j].lit;
             }
-            LOG(1) << "clause added: " << print_clause(tail);
             tail += cs + kHeaderSize;
         });
         clauses.resize(tail - kHeaderSize);
 
-        LOG(1) << "compacted: ";
-        LOG(1) << dump_lemmas();
-        
-        LOG(1) << "Recomputing watch lists";
-
-        // TODO: corruption happening during watch list recomputation
-        //       when encountering a clause with trailing zeros...
-        
         // Recompute all watch lists
-        FOR_EACH_CLAUSE(kHeaderSize, {
-            clauses[W0(lc)].ptr = watch[clauses[L0(lc)].lit];
-            watch[clauses[L0(lc)].lit] = lc;
+        for_each_clause([&](lit_t l, clause_t cs) {        
+            clauses[W0(l)].ptr = watch[clauses[L0(l)].lit];
+            watch[clauses[L0(l)].lit] = l;
             if (cs > 1) {
-                clauses[W1(lc)].ptr = watch[clauses[L1(lc)].lit];
-                watch[clauses[L1(lc)].lit] = lc;
+                clauses[W1(l)].ptr = watch[clauses[L1(l)].lit];
+                watch[clauses[L1(l)].lit] = l;
             }
         });
         nlemmas = target_lemmas;
-
-        LOG(1) << "Done reducing database";
-        LOG(2) << "New lemmas: " << dump_lemmas();
-        LOG(2) << "Raw lemmas: " << raw_lemmas();
     }
 };
 
@@ -577,15 +489,13 @@ bool solve(Cnf* c) {
         // (C2)
         LOG(4) << "C2";
 
-        //LOG(1) << c->clause_stats(8, 16);
-
         if (c->f == c->g) {
             LOG(4) << "C5";
             // C5
             if (c->f == static_cast<size_t>(c->nvars)) return true;
 
-            if (c->nlemmas >= kMaxLemmas && d > 2) {
-                LOG(1) << "Reducing clause database";
+            if (c->nlemmas >= kMaxLemmas) {
+                LOG(1) << "Reducing clause database at epoch " << c->epoch;
                 c->reduce_db(d);
                 lc = clause_nil;  // disable subsume prev clause for next iter
                 INC("clause database purges");
