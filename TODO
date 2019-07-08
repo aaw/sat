@@ -1,4 +1,7 @@
-* implement on-the-fly subsumption in cdcl
+
+./bin/cdcl -s9 test/pigeonhole_7_6.cnf
+
+
 * compile out counters, timers, logging in OPT mode
 * implement clause purging in cdcl
 * implement literal flushing in cdcl
