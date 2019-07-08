@@ -27,6 +27,8 @@
 #define W1(c) (c-3)
 
 constexpr int kHeaderSize = 3;
+// we won't purge lemmas smaller than this during a reduce_db
+constexpr size_t kMinPurgedClauseSize = 4;  
 constexpr size_t kMaxLemmas = 1000; // 1000; // 10000;
 
 enum State {
@@ -321,8 +323,15 @@ struct Cnf {
             hist[lbd]++;
         });
 
-        // TODO: also keep learned clauses of length < K
+        for_each_lemma([&](lit_t l, clause_t cs) {
+           if (target_lemmas == 0) return; // continue
+           if (cs < kMinPurgedClauseSize) {
+               clauses[W0(l)].lit = 1;
+               --target_lemmas;
+           }
+        });
 
+        INC("LBD purge budget", target_lemmas);
         int max_lbd = 1;
         size_t total_lemmas = 0;
         while (max_lbd <= d && total_lemmas + hist[max_lbd] <= target_lemmas) {
