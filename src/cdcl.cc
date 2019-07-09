@@ -323,14 +323,14 @@ struct Cnf {
             hist[lbd]++;
         });
 
-        /*
+        // Pin any small clauses.
         for_each_lemma([&](lit_t l, clause_t cs) {
            if (target_lemmas == 0) return; // continue
-           if (cs < kMinPurgedClauseSize) {
+           if (cs < kMinPurgedClauseSize && clauses[W0(l)].lit > 1) {
                clauses[W0(l)].lit = 1;
                --target_lemmas;
            }
-           });*/
+        });
 
         INC("LBD purge budget", target_lemmas);
         int max_lbd = 1;
@@ -384,6 +384,8 @@ struct Cnf {
             }
         });
         nlemmas = target_lemmas;
+
+        LOG(1) << "reduced: " << dump_lemmas();
     }
 };
 
