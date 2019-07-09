@@ -94,7 +94,7 @@ struct Cnf {
         stamp(nvars + 1, 0),
         lstamp(nvars + 1, 0),
         heap(nvars),
-        trail(nvars, -1),
+        trail(nvars + 1, -1),
         tloc(nvars + 1, -1),
         f(0),
         g(0),
