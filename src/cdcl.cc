@@ -30,7 +30,7 @@
 constexpr int kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
 constexpr size_t kMinPurgedClauseSize = 4;  
-constexpr size_t kMaxLemmas = 1000; // 1000; // 10000;
+constexpr size_t kMaxLemmas = 3000; // 1000; // 10000;
 constexpr float kPeekProb = 0.02;
 
 enum State {
@@ -114,13 +114,13 @@ struct Cnf {
 
     // Is the literal x currently false?
     inline bool is_false(lit_t x) const {
-        State s = val[abs(x)];
+        State s = val[var(x)];
         return (x > 0 && s == FALSE) || (x < 0 && s == TRUE);
     }
 
     // Is the literal x currently true?
     inline bool is_true(lit_t x) const {
-        State s = val[abs(x)];
+        State s = val[var(x)];
         return (x > 0 && s == TRUE) || (x < 0 && s == FALSE);
     }    
 
@@ -194,7 +194,7 @@ struct Cnf {
     std::string print_trail() {
         std::ostringstream oss;
         for (size_t i = 0; i < f; ++i) {
-            oss << "[" << trail[i] << ":" << lev[abs(trail[i])] << "]";
+            oss << "[" << trail[i] << ":" << lev[var(trail[i])] << "]";
         }
         return oss.str();
     }
@@ -209,25 +209,26 @@ struct Cnf {
     }
 
     bool redundant(lit_t l) {
-        lit_t k = abs(l);
+        lit_t k = var(l);
         clause_t r = reason[k];
         if (r == clause_nil) {
             return false;
         }
         for (size_t i = 0; i < clauses[r-1].size; ++i) {
             lit_t a = clauses[r+i].lit;
-            if (k == abs(a)) continue;
-            if (lev[abs(a)] == 0) continue;
-            if (stamp[abs(a)] == epoch + 2) {
+            lit_t v = var(a);
+            if (k == v) continue;
+            if (lev[v] == 0) continue;
+            if (stamp[v] == epoch + 2) {
                 return false;
             }
-            if (stamp[abs(a)] < epoch &&
-                (lstamp[lev[abs(a)]] < epoch || !redundant(a))) {
-                stamp[abs(a)] = epoch + 2;
+            if (stamp[v] < epoch &&
+                (lstamp[lev[v]] < epoch || !redundant(a))) {
+                stamp[v] = epoch + 2;
                 return false;
             }
         }
-        stamp[abs(l)] = epoch + 1;
+        stamp[k] = epoch + 1;
         return true;
     }
 
@@ -250,7 +251,7 @@ struct Cnf {
 
     // Adds l to the trail at level d with reason r.
     void add_to_trail(lit_t l, lit_t d, clause_t r) {
-        lit_t k = abs(l);
+        lit_t k = var(l);
         tloc[k] = f;
         trail[f] = l;
         ++f;
@@ -266,7 +267,7 @@ struct Cnf {
         while (f > di[level+1]) {
             f--;
             lit_t l = trail[f];
-            lit_t k = abs(l);
+            lit_t k = var(l);
             oval[k] = val[k];
             val[k] = UNSET;
             reason[k] = clause_nil;
@@ -297,9 +298,10 @@ struct Cnf {
         // Pin learned clauses that are reasons. Note W0(c) <= 1 means pin;
         // 1 will never be a watch pointer because 1 < kHeaderSize.
         for (size_t i = 0; i < f; ++i) {
-            if (reason[abs(trail[i])] == clause_nil) continue;
-            if (reason[abs(trail[i])] < lemma_start) continue;
-            clauses[W0(reason[abs(trail[i])])].lit = -abs(trail[i]);
+            lit_t v = var(trail[i]);
+            if (reason[v] == clause_nil) continue;
+            if (reason[v] < lemma_start) continue;
+            clauses[W0(reason[v])].lit = -v;
             if (target_lemmas > 0) --target_lemmas;
         }
 
@@ -311,10 +313,11 @@ struct Cnf {
             for(size_t j = 0; j < cs; ++j) {
                 // TODO: just tagging all unset vars at level d for now
                 // instead of scheduling a full run. Revisit this.
-                if (val[abs(clauses[l + j].lit)] == UNSET) {
+                lit_t v = var(clauses[l+j].lit);
+                if (val[v] == UNSET) {
                     lbds[d] = l;
                 } else {
-                    lbds[lev[abs(clauses[l + j].lit)]] = l;
+                    lbds[lev[v]] = l;
                 }
             }
             int lbd = 0;
@@ -364,7 +367,7 @@ struct Cnf {
         for_each_lemma([&](lit_t l, clause_t cs) {        
             if (clauses[W0(l)].lit > 1) return;  // continue
             if (clauses[W0(l)].lit < 0) {
-                reason[abs(clauses[W0(l)].lit)] = tail;
+                reason[var(clauses[W0(l)].lit)] = tail;
             }
             clauses[W1(tail)].ptr = 1;  // placeholder, anything != 0
             clauses[W0(tail)].ptr = 1;  // placeholder, anything != 0
@@ -455,14 +458,15 @@ Cnf parse(const char* filename) {
             lit_t x = c.clauses[c.clauses.size() - 1].lit;
             LOG(3) << "Found unit clause " << x;
             State s = x < 0 ? FALSE : TRUE;
-            if  (c.val[abs(x)] != UNSET && c.val[abs(x)] != s) {
+            lit_t v = var(x);
+            if  (c.val[v] != UNSET && c.val[v] != s) {
                 LOG(2) << "Contradictory unit clauses, unsatisfiable formula.";
                 UNSAT_EXIT;
             }
-            c.val[abs(x)] = s;
-            c.tloc[abs(x)] = c.f;
+            c.val[v] = s;
+            c.tloc[v] = c.f;
             c.trail[c.f++] = x;
-            c.lev[abs(x)] = 0;
+            c.lev[v] = 0;
         }
         if (!read_lit) break;
         CHECK(cs > 0);
@@ -578,7 +582,7 @@ bool solve(Cnf* c) {
                     // and remove it from the clause now by replacing it with a
                     // tombstone (Ex. 268)
                     if (c->is_false(c->clauses[w + i].lit) &&
-                        c->lev[abs(c->clauses[w + i].lit)] == 0) {
+                        c->lev[var(c->clauses[w + i].lit)] == 0) {
                         c->clauses[w + i].lit = lit_nil;
                         tombstones = true;
                         continue;
@@ -694,7 +698,7 @@ bool solve(Cnf* c) {
         size_t rl_pos = 0;
         for (bool done = false; !done; --rl) {
             for (rl_pos = 0; rl_pos < cs; ++rl_pos) {
-                if (abs(c->trail[rl]) == abs(c->clauses[w+rl_pos].lit)) {
+                if (var(c->trail[rl]) == var(c->clauses[w+rl_pos].lit)) {
                     done = true;
                     std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
                     break;
@@ -709,23 +713,24 @@ bool solve(Cnf* c) {
         LOG(3) << "Bumping epoch to " << c->epoch << " at "
                << c->print_clause(w);
         LOG(3) << "Trail is " << c->print_trail();
-        c->stamp[abs(c->clauses[w].lit)] = c->epoch;
-        c->heap.bump(abs(c->clauses[w].lit));
+        c->stamp[var(c->clauses[w].lit)] = c->epoch;
+        c->heap.bump(var(c->clauses[w].lit));
 
-        lit_t t = c->tloc[abs(c->clauses[w].lit)];
+        lit_t t = c->tloc[var(c->clauses[w].lit)];
         LOG(3) << "RESOLVING [A] " << c->print_clause(w);
         for(size_t j = 1; j < c->clauses[w-1].size; ++j) {
             lit_t m = c->clauses[w+j].lit;
-            LOG(4) << "tloc[" << abs(m) << "] = " << c->tloc[abs(m)];
-            if (c->tloc[abs(m)] >= t) t = c->tloc[abs(m)];
+            lit_t v = var(m);
+            LOG(4) << "tloc[" << v << "] = " << c->tloc[v];
+            if (c->tloc[v] >= t) t = c->tloc[v];
             // TODO: technically don't need this next line, but it's part of
             // the blit subroutine
-            if (c->stamp[abs(m)] == c->epoch) continue;
-            c->stamp[abs(m)] = c->epoch;
-            lit_t p = c->lev[abs(m)];
+            if (c->stamp[v] == c->epoch) continue;
+            c->stamp[v] = c->epoch;
+            lit_t p = c->lev[v];
             LOG(4) << "Heap is: " << c->heap.debug();
-            LOG(4) << "bumping " << abs(m);
-            if (p > 0) c->heap.bump(abs(m));
+            LOG(4) << "bumping " << v;
+            if (p > 0) c->heap.bump(v);
             if (p == d) {
                 LOG(3) << m << " is at level " << d;
                 q++;
@@ -747,10 +752,10 @@ bool solve(Cnf* c) {
             lit_t l = c->trail[t];
             t--;
             //LOG(3) << "New L_t = " << c->trail[t];
-            if (c->stamp[abs(l)] == c->epoch) {
+            if (c->stamp[var(l)] == c->epoch) {
                 LOG(3) << "Stamped this epoch: " << l;
                 q--;
-                clause_t rc = c->reason[abs(l)];
+                clause_t rc = c->reason[var(l)];
                 if (rc != clause_nil) {
                     LOG(3) << "RESOLVING [B] " << c->print_clause(rc);
                     if (c->clauses[rc].lit != l) {
@@ -761,11 +766,12 @@ bool solve(Cnf* c) {
                     LOG(3) << "Reason for " << l << ": " << c->print_clause(rc);
                     for (size_t j = 1; j < c->clauses[rc-1].size; ++j) {
                         lit_t m = c->clauses[rc+j].lit;
-                        LOG(3) << "considering " << abs(m);
-                        if (c->stamp[abs(m)] == c->epoch) continue;
-                        c->stamp[abs(m)] = c->epoch;
-                        lit_t p = c->lev[abs(m)];
-                        if (p > 0) c->heap.bump(abs(m));
+                        lit_t v = var(m);
+                        LOG(3) << "considering " << v;
+                        if (c->stamp[v] == c->epoch) continue;
+                        c->stamp[v] = c->epoch;
+                        lit_t p = c->lev[v];
+                        if (p > 0) c->heap.bump(v);
                         if (p == d) {
                             q++;
                         } else {
@@ -786,7 +792,7 @@ bool solve(Cnf* c) {
                         // watchlist surgery. A lit of level >= d always
                         // exists in l_2 ... l_k since q > 0.
                         for (lit_t j = len - 1; j >= 2; --j) {
-                            if (c->lev[abs(c->clauses[rc+j].lit)] >= d) {
+                            if (c->lev[var(c->clauses[rc+j].lit)] >= d) {
                                 li = j;
                                 break;
                             }
@@ -807,7 +813,7 @@ bool solve(Cnf* c) {
 
         lit_t lp = c->trail[t];
         LOG(4) << "lp = " << lp;
-        while (c->stamp[abs(lp)] != c->epoch) { t--; lp = c->trail[t]; }
+        while (c->stamp[var(lp)] != c->epoch) { t--; lp = c->trail[t]; }
         
         LOG(4) << "stopping C7 with l'=" << lp;
 
@@ -817,7 +823,7 @@ bool solve(Cnf* c) {
         lit_t rr = 0;
         for(size_t i = 0; i < r; ++i) {
             // TODO: do i need to pass -c->b[i] below? don't think negation matters...
-            if (c->lstamp[c->lev[abs(c->b[i])]] == c->epoch + 1 &&
+            if (c->lstamp[c->lev[var(c->b[i])]] == c->epoch + 1 &&
                 c->redundant(-c->b[i])) {
                 continue;
             }
@@ -838,15 +844,15 @@ bool solve(Cnf* c) {
         if (lc != clause_nil) {
             lit_t q = r+1;
             for (int j = c->clauses[lc-1].size - 1; q > 0 && j >= q; --j) {
+                lit_t v = var(c->clauses[lc+j].lit);
                 if (c->clauses[lc + j].lit == -lp ||
-                    (c->stamp[abs(c->clauses[lc + j].lit)] == c->epoch &&
-                     c->val[abs(c->clauses[lc + j].lit)] != UNSET &&
-                     c->lev[abs(c->clauses[lc + j].lit)] <= dp)) {
+                    (c->stamp[v] == c->epoch && c->val[v] != UNSET &&
+                     c->lev[v] <= dp)) {
                     --q;
                 }
             }
 
-            if (q == 0 && c->val[abs(c->clauses[lc].lit)] == UNSET) {
+            if (q == 0 && c->val[var(c->clauses[lc].lit)] == UNSET) {
                 c->remove_from_watchlist(lc, 0);
                 c->remove_from_watchlist(lc, 1);
                 c->clauses.resize(lc - kHeaderSize);
@@ -871,7 +877,7 @@ bool solve(Cnf* c) {
         c->clauses.push_back({lit_nil}); // to be set in else below
         bool found_watch = false;
         for (size_t j = 0; j < r; ++j) {
-            if (found_watch || c->lev[abs(c->b[j])] < dp) {
+            if (found_watch || c->lev[var(c->b[j])] < dp) {
                 c->clauses.push_back({-c->b[j]});
             } else {
                 c->clauses[lc+1].lit = -c->b[j];

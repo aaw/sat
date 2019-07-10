@@ -73,7 +73,7 @@ struct Cnf {
 
     // Is the literal x currently false?
     inline bool is_false(lit_t x) const {
-        State s = val[abs(x)];
+        State s = val[var(x)];
         return (x > 0 && (s == FALSE || s == FALSE_NOT_TRUE)) ||
             (x < 0 && (s == TRUE || s == TRUE_NOT_FALSE));
     }

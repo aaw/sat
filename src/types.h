@@ -37,6 +37,7 @@ typedef uint32_t clause_t;
 typedef uint64_t clause_t;
 #endif
 
+#define var(x) (abs(x))
 
 constexpr lit_t lit_nil = lit_t(0);
 constexpr clause_t clause_nil = std::numeric_limits<clause_t>::max();
@@ -46,7 +47,5 @@ enum ReturnValue {
     SATISFIABLE = 10,
     UNSATISFIABLE = 20
 };
-
-#define ALLOW_UNUSED(expr) (void)(expr);
 
 #endif  // __TYPES_H__

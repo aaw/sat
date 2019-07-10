@@ -97,7 +97,7 @@ struct Cnf {
 
     // Is the literal x currently false?
     inline bool is_false(lit_t x) const {
-        State s = val[abs(x)];
+        State s = val[var(x)];
         return (x > 0 && s & 1) || (x < 0 && s > 0 && !(s & 1));
     }
 
@@ -347,14 +347,14 @@ bool solve(Cnf* c) {
             // If setting lp as the watched literal for clause j causes lp to
             // become active, add lp to the active ring.
             if (!c->watched(lp) && !c->watched(-lp) &&
-                c->val[abs(lp)] == UNSET) {
+                c->val[var(lp)] == UNSET) {
                 if (c->tail == lit_nil) {
-                    c->head = abs(lp);
+                    c->head = var(lp);
                     c->tail = c->head;
                     c->next[c->tail] = c->head;
                 } else {
-                    c->next[abs(lp)] = c->head;
-                    c->head = abs(lp);
+                    c->next[var(lp)] = c->head;
+                    c->head = var(lp);
                     c->next[c->tail] = c->head;
                 }
             }
