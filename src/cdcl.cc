@@ -3,6 +3,7 @@
 // This implementation also includes improvements discussed in various 
 // exercises, including:
 //   - Ex. 257: Redundant literal detection within learned clauses
+//   - Ex. 266: Infrequently forego var of max activity for random selection
 //   - Ex. 268: Lazy removal of level 0 false lits from clauses
 //   - Ex. 270: On-the-fly subsumption
 //   - Ex. 271: Subsumption of immediate predecessor learned clauses
@@ -30,6 +31,7 @@ constexpr int kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
 constexpr size_t kMinPurgedClauseSize = 4;  
 constexpr size_t kMaxLemmas = 1000; // 1000; // 10000;
+constexpr float kPeekProb = 0.02;
 
 enum State {
     UNSET = 0,
@@ -257,7 +259,7 @@ struct Cnf {
         reason[k] = r;
         agility -= (agility >> 13);
         if (oval[k] != val[k]) agility += (1 << 19);
-        //LOG(1) << "epoch = " << epoch << ", agility@" << f << ": " << agility / pow(2,32);        
+        LOG(3) << "epoch = " << epoch << ", agility@" << f << ": " << agility / pow(2,32);        
     }
 
     void backjump(lit_t level) {
@@ -384,8 +386,6 @@ struct Cnf {
             }
         });
         nlemmas = target_lemmas;
-
-        LOG(1) << "reduced: " << dump_lemmas();
     }
 };
 
@@ -528,8 +528,12 @@ bool solve(Cnf* c) {
             c->di[d] = c->f;
             
             // C6
-            lit_t k = c->heap.delete_max();
-            while (c->val[k] != UNSET) { LOG(3) << k << " unset, rolling again"; k = c->heap.delete_max(); }
+            float p = static_cast<float>(rand())/RAND_MAX;
+            lit_t k = (p <= kPeekProb) ? c->heap.rpeek() : c->heap.delete_max();
+            while (c->val[k] != UNSET) {
+                LOG(3) << k << " set, rolling again";
+                k = (p <= kPeekProb) ? c->heap.rpeek() : c->heap.delete_max();
+            }
             CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
             LOG(3) << "Decided on variable " << k;
             lit_t l = c->oval[k] == FALSE ? -k : k;

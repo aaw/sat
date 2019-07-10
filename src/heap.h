@@ -64,6 +64,11 @@ struct Heap {
         return m;
     }
 
+    // Get a random element from the heap.
+    lit_t rpeek() {
+        return heap[rand() % heap.size()];
+    }
+    
     void bump(lit_t l) {
         key[l] += delta;
         if (key[l] > max_key) {
