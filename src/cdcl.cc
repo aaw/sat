@@ -30,7 +30,7 @@
 constexpr int kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
 constexpr size_t kMinPurgedClauseSize = 4;  
-constexpr size_t kMaxLemmas = 3000; // 1000; // 10000;
+constexpr size_t kMaxLemmas = 1000; // 1000; // 10000;
 constexpr float kPeekProb = 0.02;
 
 enum State {
@@ -516,16 +516,31 @@ bool solve(Cnf* c) {
                 lc = clause_nil;  // disable subsume prev clause for next iter
                 INC("clause database purges");
             }
-            if (c->agility / pow(2,32) < 0.3 &&
-                // If needed, flush literals and continue loop, else
+            if (c->agility / pow(2,32) < 0.4 &&
                 c->epoch - last_restart >= 1000) {
-                LOG(1) << "Restarting at epoch " << c->epoch;
-                // TODO: backjump to some level > 0, see Knuth.
-                c->backjump(0);
-                d = 0;
+
+                // Find unset var of max activity.
+                lit_t vmax = c->heap.peek();
+                while (c->val[vmax] != UNSET) {
+                    c->heap.delete_max();
+                    vmax = c->heap.peek();
+                }
+                double amax = c->heap.act(vmax);
+
+                // Find lowest level where choices will substantially differ.
+                lit_t dp = 0;
+                while(dp < d && c->heap.act(c->trail[c->di[dp]]) >= amax) ++dp;
+
                 last_restart = c->epoch;
-                INC("restarts");
-                continue; // -> C2
+                if (dp < d) {
+                    LOG(1) << "Restarting (level " << d << " -> " << dp << ")";
+                    c->backjump(dp);
+                    d = dp;
+                    INC("restarts");
+                    continue;
+                } else {
+                    INC("aborted restarts");
+                }
             }
             
             ++d;

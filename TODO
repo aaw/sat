@@ -1,7 +1,7 @@
 * improve performance on waerden_5_5_177: -s1 and kPeekProb=0 solves it in < 1 s
 * compile out counters, timers, logging in OPT mode
-* implement clause purging in cdcl
-* implement literal flushing in cdcl
+* revisit clause purging in cdcl
+* revisit literal flushing in cdcl
 * implement fsnark generator
 * clean up signed/unsigned types, check-fail when adding new clauses that overflow in cdcl
 * Make a script to test consistency (clause count, var count) and formatting of all test files

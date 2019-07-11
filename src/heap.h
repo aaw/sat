@@ -64,9 +64,17 @@ struct Heap {
         return m;
     }
 
+    lit_t peek() {
+        return heap[0];
+    }
+    
     // Get a random element from the heap.
     lit_t rpeek() {
         return heap[rand() % heap.size()];
+    }
+
+    double act(lit_t l) {
+        return key[l];
     }
     
     void bump(lit_t l) {
