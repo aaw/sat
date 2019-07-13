@@ -93,6 +93,7 @@ struct Heap {
                 key[i] /= kMaxScore;
             }
             delta /= kMaxScore;
+            max_key /= kMaxScore;
         }
     }
     

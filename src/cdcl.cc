@@ -30,7 +30,8 @@
 constexpr int kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
 constexpr size_t kMinPurgedClauseSize = 4;  
-constexpr size_t kMaxLemmas = 1000; // 1000; // 10000;
+constexpr size_t kMaxLemmas = 10000; // 1000; // 10000;
+constexpr float kMinAgility = 0.50;
 constexpr float kPeekProb = 0.02;
 
 enum State {
@@ -59,7 +60,7 @@ struct Cnf {
 
     std::vector<unsigned long> lstamp;  // maps levels to stamp values
 
-    Heap<2> heap;
+    Heap<4> heap;
 
     std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
     // inverse map from literal to trail index. -1 if there's no index in trail.
@@ -260,7 +261,9 @@ struct Cnf {
         reason[k] = r;
         agility -= (agility >> 13);
         if (oval[k] != val[k]) agility += (1 << 19);
-        LOG(3) << "epoch = " << epoch << ", agility@" << f << ": " << agility / pow(2,32);        
+        LOG_EVERY_N(1, 10000)
+            << "epoch = " << epoch << ", agility@" << f << ": "
+            << agility / pow(2,32);        
     }
 
     void backjump(lit_t level) {
@@ -445,6 +448,7 @@ Cnf parse(const char* filename) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
             c.clauses.push_back({lit});
+            c.heap.bump(var(lit));
             read_lit = true;
         }
         int cs = c.clauses.size() - start;
@@ -516,7 +520,7 @@ bool solve(Cnf* c) {
                 lc = clause_nil;  // disable subsume prev clause for next iter
                 INC("clause database purges");
             }
-            if (c->agility / pow(2,32) < 0.4 &&
+            if (c->agility / pow(2,32) < kMinAgility &&
                 c->epoch - last_restart >= 1000) {
 
                 // Find unset var of max activity.

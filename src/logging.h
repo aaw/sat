@@ -13,6 +13,9 @@ extern int FLAGS_verbosity;
 
 #define LOG_ENABLED(i) (LOGGING && FLAGS_verbosity >= i)
 #define LOG(i) if (LOG_ENABLED(i)) Logger(__FILE__,__LINE__)
+#define LOG_EVERY_N(i, n) \
+    static int __c___LINE__ = 0; ++__c___LINE__; \
+    if (LOG_ENABLED(i) && (__c___LINE__ % n == 0)) Logger(__FILE__,__LINE__)
 #define CHECK(expr) AbortLogger(__FILE__,__LINE__,expr)
 #define CHECK_NO_OVERFLOW(x, y) \
     AbortLogger(__FILE__,__LINE__,\
