@@ -89,6 +89,8 @@ struct Cnf {
     size_t nlemmas;
 
     clause_t lemma_start;  // clause index of first learned clause.
+
+    lit_t d; // level
     
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
@@ -110,7 +112,8 @@ struct Cnf {
         nvars(nvars),
         epoch(0),
         agility(0),
-        nlemmas(0) {
+        nlemmas(0),
+        d(0) {
     }
 
     // Is the literal x currently false?
@@ -250,8 +253,30 @@ struct Cnf {
         *x = clauses[*x-(clauses[*x].lit == clauses[l].lit ? 2 : 3)].ptr;
     }
 
+    // t: if non-null, will be set to the max tloc of any var in the clause.
+    void blit(clause_t c, size_t* r, lit_t* dp, size_t* q, lit_t* t) {
+        if (t != nullptr) *t = tloc[var(clauses[c].lit)];
+        for(size_t j = 1; j < clauses[c-1].size; ++j) {
+            lit_t m = clauses[c+j].lit;
+            lit_t v = var(m);
+            if (t != nullptr && tloc[v] >= *t) *t = tloc[v];
+            if (stamp[v] == epoch) continue;
+            stamp[v] = epoch;
+            lit_t p = lev[v];
+            if (p > 0) heap.bump(v);
+            if (p == d) {
+                (*q)++;
+            } else {
+                b[*r] = -m;
+                (*r)++;
+                *dp = std::max(*dp, p);
+                lstamp[p] = (lstamp[p] == epoch) ? epoch + 1 : epoch;
+            }
+        }
+    }
+    
     // Adds l to the trail at level d with reason r.
-    void add_to_trail(lit_t l, lit_t d, clause_t r) {
+    void add_to_trail(lit_t l, clause_t r) {
         lit_t k = var(l);
         tloc[k] = f;
         trail[f] = l;
@@ -277,6 +302,7 @@ struct Cnf {
             heap.insert(k);
         }
         g = f;
+        d = level;
     }
 
     // Use W1(c) as LBD, use W0(c) as pin.
@@ -288,7 +314,7 @@ struct Cnf {
     // Next, clear watch_storage array
     // Next, iterate forward, compacting all pinned clauses and computing
     // watchlist
-    void reduce_db(lit_t d) {
+    void reduce_db() {
         std::vector<lit_t> lbds(d+2, 0);
         std::vector<lit_t> hist(d+2, 0);  // lbd histogram.
         size_t target_lemmas = nlemmas / 2;
@@ -501,7 +527,7 @@ Cnf parse(const char* filename) {
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer t;
-    lit_t d = 0;
+
     unsigned long last_restart = 0;
     
     clause_t lc = clause_nil;  // The most recent learned clause
@@ -516,7 +542,7 @@ bool solve(Cnf* c) {
 
             if (c->nlemmas >= kMaxLemmas) {
                 LOG(1) << "Reducing clause database at epoch " << c->epoch;
-                c->reduce_db(d);
+                c->reduce_db();
                 lc = clause_nil;  // disable subsume prev clause for next iter
                 INC("clause database purges");
             }
@@ -533,13 +559,13 @@ bool solve(Cnf* c) {
 
                 // Find lowest level where choices will substantially differ.
                 lit_t dp = 0;
-                while(dp < d && c->heap.act(c->trail[c->di[dp]]) >= amax) ++dp;
+                while(dp < c->d &&
+                      c->heap.act(c->trail[c->di[dp]]) >= amax) ++dp;
 
                 last_restart = c->epoch;
-                if (dp < d) {
-                    LOG(1) << "Restarting (level " << d << " -> " << dp << ")";
+                if (dp < c->d) {
+                    LOG(1) << "Restarting (level " << c->d << " -> " << dp << ")";
                     c->backjump(dp);
-                    d = dp;
                     INC("restarts");
                     continue;
                 } else {
@@ -547,8 +573,8 @@ bool solve(Cnf* c) {
                 }
             }
             
-            ++d;
-            c->di[d] = c->f;
+            ++c->d;
+            c->di[c->d] = c->f;
             
             // C6
             float p = static_cast<float>(rand())/RAND_MAX;
@@ -561,7 +587,7 @@ bool solve(Cnf* c) {
             LOG(3) << "Decided on variable " << k;
             lit_t l = c->oval[k] == FALSE ? -k : k;
             LOG(3) << "Adding " << l << " to the trail.";
-            c->add_to_trail(l, d, clause_nil);
+            c->add_to_trail(l, clause_nil);
         }
 
         // C3
@@ -657,7 +683,7 @@ bool solve(Cnf* c) {
                         lit_t l1 = c->clauses[w+1].lit;
                         LOG(3) << "Adding " << l1 << " to the trail, "
                                << "forced by " << c->print_clause(w);
-                        c->add_to_trail(l1, d, w);
+                        c->add_to_trail(l1, w);
                     }
                 }
 
@@ -705,8 +731,8 @@ bool solve(Cnf* c) {
         }
 
         // C7
-        LOG(3) << "Found a conflict with d = " << d;
-        if (d == 0) return false;
+        LOG(3) << "Found a conflict with d = " << c->d;
+        if (c->d == 0) return false;
         
         // (*) Not mentioned in Knuth's description, but we need to make sure
         // that the rightmost literal on the trail is the first literal
@@ -735,33 +761,10 @@ bool solve(Cnf* c) {
         c->stamp[var(c->clauses[w].lit)] = c->epoch;
         c->heap.bump(var(c->clauses[w].lit));
 
-        lit_t t = c->tloc[var(c->clauses[w].lit)];
+        lit_t t;
         LOG(3) << "RESOLVING [A] " << c->print_clause(w);
-        for(size_t j = 1; j < c->clauses[w-1].size; ++j) {
-            lit_t m = c->clauses[w+j].lit;
-            lit_t v = var(m);
-            LOG(4) << "tloc[" << v << "] = " << c->tloc[v];
-            if (c->tloc[v] >= t) t = c->tloc[v];
-            // TODO: technically don't need this next line, but it's part of
-            // the blit subroutine
-            if (c->stamp[v] == c->epoch) continue;
-            c->stamp[v] = c->epoch;
-            lit_t p = c->lev[v];
-            LOG(4) << "Heap is: " << c->heap.debug();
-            LOG(4) << "bumping " << v;
-            if (p > 0) c->heap.bump(v);
-            if (p == d) {
-                LOG(3) << m << " is at level " << d;
-                q++;
-            } else {
-                LOG(3) << "Adding " << -m << " (level " << p << ") to learned clause.";
-                c->b[r] = -m;
-                r++;
-                dp = std::max(dp, p);
-                c->lstamp[p] =
-                    (c->lstamp[p] == c->epoch) ? c->epoch + 1 : c->epoch;
-            }
-        }
+        c->blit(w, &r, &dp, &q, &t);
+        
         LOG(3) << "swapping back: " << c->print_clause(w);
         std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
         LOG(3) << "now: " << c->print_clause(w);
@@ -783,25 +786,8 @@ bool solve(Cnf* c) {
                         std::swap(c->clauses[rc-2].ptr, c->clauses[rc-3].ptr);
                     }                        
                     LOG(3) << "Reason for " << l << ": " << c->print_clause(rc);
-                    for (size_t j = 1; j < c->clauses[rc-1].size; ++j) {
-                        lit_t m = c->clauses[rc+j].lit;
-                        lit_t v = var(m);
-                        LOG(3) << "considering " << v;
-                        if (c->stamp[v] == c->epoch) continue;
-                        c->stamp[v] = c->epoch;
-                        lit_t p = c->lev[v];
-                        if (p > 0) c->heap.bump(v);
-                        if (p == d) {
-                            q++;
-                        } else {
-                            LOG(3) << "Adding " << -m << " to learned clause.";
-                            c->b[r] = -m;
-                            r++;
-                            dp = std::max(dp, p);
-                            c->lstamp[p] = (c->lstamp[p] == c->epoch) ? 
-                                c->epoch + 1 : c->epoch;
-                        }
-                    }
+                    c->blit(rc, &r, &dp, &q, nullptr);                    
+
                     if (q + r + 1 < c->clauses[rc-1].size && q > 0) {
                         // On-the-fly subsumption.
                         c->remove_from_watchlist(rc, 0);
@@ -811,13 +797,13 @@ bool solve(Cnf* c) {
                         // watchlist surgery. A lit of level >= d always
                         // exists in l_2 ... l_k since q > 0.
                         for (lit_t j = len - 1; j >= 2; --j) {
-                            if (c->lev[var(c->clauses[rc+j].lit)] >= d) {
+                            if (c->lev[var(c->clauses[rc+j].lit)] >= c->d) {
                                 li = j;
                                 break;
                             }
                         }
                         CHECK(li != lit_nil) <<
-                            "No level " << d << " lit for subsumption";
+                            "No level " << c->d << " lit for subsumption";
                         c->clauses[rc].lit = c->clauses[rc+li].lit;
                         c->clauses[rc+li].lit = c->clauses[rc+len-1].lit;
                         c->clauses[rc+len-1].lit = lit_nil;
@@ -841,7 +827,6 @@ bool solve(Cnf* c) {
         // would also have to do subsumption check in single loop...
         lit_t rr = 0;
         for(size_t i = 0; i < r; ++i) {
-            // TODO: do i need to pass -c->b[i] below? don't think negation matters...
             if (c->lstamp[c->lev[var(c->b[i])]] == c->epoch + 1 &&
                 c->redundant(-c->b[i])) {
                 continue;
@@ -854,7 +839,6 @@ bool solve(Cnf* c) {
 
         // C8: backjump
         c->backjump(dp);
-        d = dp;
         LOG(3) << "After backjump, trail is " << c->print_trail();
 
         // Ex. 271: Does this clause subsume the previous learned clause? If
@@ -914,7 +898,7 @@ bool solve(Cnf* c) {
         INC("learned clause literals", r+1);
         INC("learned clauses");
 
-        c->add_to_trail(-lp, d, lc);
+        c->add_to_trail(-lp, lc);
         c->heap.rescale_delta();
         
         LOG(3) << "After clause install, trail is " << c->print_trail();
