@@ -30,9 +30,10 @@
 constexpr int kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
 constexpr size_t kMinPurgedClauseSize = 4;  
-constexpr size_t kMaxLemmas = 10000; // 1000; // 10000;
-constexpr float kMinAgility = 0.50;
+constexpr size_t kMaxLemmas = 10000;
+constexpr float kMinAgility = 0.20;
 constexpr float kPeekProb = 0.02;
+constexpr float kPhaseFlipProb = 0.05;
 
 enum State {
     UNSET = 0,
@@ -45,6 +46,11 @@ union clause_bundle_t {
     clause_t size;
     clause_t ptr;
 };
+
+// Flip a coin that lands on heads with probability p. Return true iff heads.
+static bool flip(float p) {
+    return static_cast<float>(rand())/RAND_MAX <= p;
+}
 
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
@@ -285,6 +291,7 @@ struct Cnf {
         lev[k] = d;
         reason[k] = r;
         agility -= (agility >> 13);
+        INC("phase changes", oval[k] == val[k] ? 0 : 1);
         if (oval[k] != val[k]) agility += (1 << 19);
         LOG_EVERY_N(1, 10000)
             << "epoch = " << epoch << ", agility@" << f << ": "
@@ -294,8 +301,7 @@ struct Cnf {
     void backjump(lit_t level) {
         while (f > di[level+1]) {
             f--;
-            lit_t l = trail[f];
-            lit_t k = var(l);
+            lit_t k = var(trail[f]);
             oval[k] = val[k];
             val[k] = UNSET;
             reason[k] = clause_nil;
@@ -577,15 +583,16 @@ bool solve(Cnf* c) {
             c->di[c->d] = c->f;
             
             // C6
-            float p = static_cast<float>(rand())/RAND_MAX;
-            lit_t k = (p <= kPeekProb) ? c->heap.rpeek() : c->heap.delete_max();
+            INC("decisions");
+            lit_t k = flip(kPeekProb) ? c->heap.rpeek() : c->heap.delete_max();
             while (c->val[k] != UNSET) {
                 LOG(3) << k << " set, rolling again";
-                k = (p <= kPeekProb) ? c->heap.rpeek() : c->heap.delete_max();
+                k = flip(kPeekProb) ? c->heap.rpeek() : c->heap.delete_max();
             }
             CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
             LOG(3) << "Decided on variable " << k;
             lit_t l = c->oval[k] == FALSE ? -k : k;
+            if (flip(kPhaseFlipProb)) l = -l;
             LOG(3) << "Adding " << l << " to the trail.";
             c->add_to_trail(l, clause_nil);
         }
