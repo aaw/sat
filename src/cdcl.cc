@@ -5,6 +5,7 @@
 //   - Ex. 257: Redundant literal detection within learned clauses
 //   - Ex. 266: Infrequently forego var of max activity for random selection
 //   - Ex. 268: Lazy removal of level 0 false lits from clauses
+//   - Ex. 269: Learning a shorter trivial clause
 //   - Ex. 270: On-the-fly subsumption
 //   - Ex. 271: Subsumption of immediate predecessor learned clauses
 
@@ -34,6 +35,7 @@ constexpr size_t kMaxLemmas = 10000;
 constexpr float kMinAgility = 0.20;
 constexpr float kPeekProb = 0.02;
 constexpr float kPhaseFlipProb = 0.05;
+constexpr float kTrivialClauseMultiplier = 2.0;
 
 enum State {
     UNSET = 0,
@@ -74,7 +76,8 @@ struct Cnf {
     size_t f;  // trail length
     size_t g;  // index in trail
 
-    std::vector<size_t> di; // maps d -> last trail position before level d.
+    std::vector<size_t> di; // maps d -> first trail position of level d. if
+                            // di[0] == di[1], there are no level 0 lits.
     
     std::vector<clause_t> reason;  // Keys: variables, values: clause indices
 
@@ -109,7 +112,7 @@ struct Cnf {
         tloc(nvars + 1, -1),
         f(0),
         g(0),
-        di(nvars, 0),
+        di(nvars + 1, 0),
         reason(nvars + 1, clause_nil),
         watch_storage(2 * nvars + 1, clause_nil),
         watch(&watch_storage[nvars]),
@@ -848,10 +851,11 @@ bool solve(Cnf* c) {
         c->backjump(dp);
         LOG(3) << "After backjump, trail is " << c->print_trail();
 
-        // Ex. 271: Does this clause subsume the previous learned clause? If
-        // so, we can "just" overwrite it. lc is the most recent learned clause
-        // from a previous iteration.
+        // C9: learn
         if (lc != clause_nil) {
+            // Ex. 271: Does this clause subsume the previous learned clause? If
+            // so, we can "just" overwrite it. lc is the most recent learned
+            // clause from a previous iteration.
             lit_t q = r+1;
             for (int j = c->clauses[lc-1].size - 1; q > 0 && j >= q; --j) {
                 lit_t v = var(c->clauses[lc+j].lit);
@@ -868,9 +872,18 @@ bool solve(Cnf* c) {
                 c->clauses.resize(lc - kHeaderSize);
                 INC("subsumed clauses");
             }
+        } else if (r > kTrivialClauseMultiplier * static_cast<size_t>(dp)) {
+            // Ex. 269: If dp is significantly smaller than the length of the
+            // learned clause, we can learn the trivial clause that asserts
+            // that all dp + 1 of the decisions we made lead to a conflict, 
+            // i.e., ~(d1 AND d2 AND ... AND dp AND lp).
+            r = static_cast<size_t>(dp);
+            for (size_t j = 0; j < r; ++j) {
+                c->b[j] = c->trail[c->di[j+1]];
+            }
+            INC("trivial clauses learned");
         }
-        
-        // C9: learn
+
         clause_bundle_t nil_ptr;  // TODO: make constant
         nil_ptr.ptr = clause_nil;
         c->clauses.push_back(nil_ptr); // watch list for l1
