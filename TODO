@@ -1,3 +1,4 @@
+* why is pigeonhole_20_20 performance worse with trivial clauses?
 * improve performance on waerden_5_5_177: -s1 and kPeekProb=0 solves it in < 1 s
 * compile out counters, timers, logging in OPT mode
 * revisit clause purging in cdcl

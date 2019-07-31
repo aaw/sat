@@ -33,8 +33,9 @@ constexpr int kHeaderSize = 3;
 constexpr size_t kMinPurgedClauseSize = 4;  
 constexpr size_t kMaxLemmas = 10000;
 constexpr float kMinAgility = 0.20;
+constexpr size_t kMinRestartEpochs = 100;
 constexpr float kPeekProb = 0.02;
-constexpr float kPhaseFlipProb = 0.05;
+constexpr float kPhaseFlipProb = 0.02;  // TODO: tie lower values with lower agility
 constexpr float kTrivialClauseMultiplier = 2.0;
 
 enum State {
@@ -215,7 +216,8 @@ struct Cnf {
     std::string print_watchlist(lit_t l) {
         std::ostringstream oss;
         for (clause_t c = watch[l]; c != clause_nil;
-             clauses[c].lit == l ? (c = clauses[c-2].ptr) : (c = clauses[c-3].ptr)) {
+             clauses[c].lit == l ? 
+                 (c = clauses[W0(c)].ptr) : (c = clauses[W1(c)].ptr)) {
             oss << "[" << c << "] " << print_clause(c) << " ";
         }
         return oss.str();
@@ -556,7 +558,7 @@ bool solve(Cnf* c) {
                 INC("clause database purges");
             }
             if (c->agility / pow(2,32) < kMinAgility &&
-                c->epoch - last_restart >= 1000) {
+                c->epoch - last_restart >= kMinRestartEpochs) {
 
                 // Find unset var of max activity.
                 lit_t vmax = c->heap.peek();
