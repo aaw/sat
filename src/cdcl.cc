@@ -513,13 +513,10 @@ Cnf parse(const char* filename) {
         CHECK(cs > 0);
         // Record the size of the clause in offset -1.
         c.clauses[start - 1].size = cs;
-        // TODO: do I need to update watch lists for unit clauses? Going
-        // ahead and doing so here until I can verify that I don't have to.
-        // Update watch list for the first lit in the clause.
-        c.clauses[start - 2].ptr = c.watch[c.clauses[start].lit];
-        c.watch[c.clauses[start].lit] = start;
-        // Update watch list for the second lit in the clause, if one exists.
+        // Set watch lists for non-unit clauses.
         if (cs > 1) {
+            c.clauses[start - 2].ptr = c.watch[c.clauses[start].lit];
+            c.watch[c.clauses[start].lit] = start;
             c.clauses[start - 3].ptr = c.watch[c.clauses[start + 1].lit];
             c.watch[c.clauses[start + 1].lit] = start;
         }
