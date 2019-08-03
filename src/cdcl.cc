@@ -35,7 +35,8 @@ constexpr size_t kMaxLemmas = 10000;
 constexpr float kMinAgility = 0.20;
 constexpr size_t kMinRestartEpochs = 100;
 constexpr float kPeekProb = 0.02;
-constexpr float kPhaseFlipProb = 0.02;  // TODO: tie lower values with lower agility
+// TODO: tie lower values with lower agility or only flip when agility is high
+constexpr float kPhaseFlipProb = 0.02;  
 constexpr float kTrivialClauseMultiplier = 2.0;
 
 enum State {
