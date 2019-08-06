@@ -7,10 +7,11 @@
 # 3-colored. This formula is satisfiable iff n is even. Passing the --exclusions
 # arg generates fsnark'(n), which includes Knuth's "exclusion clauses" that
 # assert that every vertex has at most one color.
+#
+# fsnark(n) for odd n is a surprisingly easy formula for CDCL solvers.
 
 from collections import defaultdict
 import io
-import itertools
 import sys
 
 def flower_snark_line_graph(q):
