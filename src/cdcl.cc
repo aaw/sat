@@ -317,6 +317,43 @@ struct Cnf {
         d = level;
     }
 
+    clause_t learn_clause(lit_t lp, size_t r, lit_t dp) {
+        clause_bundle_t nil_ptr;  // TODO: make constant
+        nil_ptr.ptr = clause_nil;
+        clauses.push_back(nil_ptr); // watch list for l1
+        clause_bundle_t wlp;
+        wlp.ptr = watch[-lp];
+        clauses.push_back(wlp); // watch list for l0
+        clause_bundle_t s;
+        s.size = r+1;
+        clauses.push_back(s); // size
+        LOG(3) << "adding a clause of size " << r+1;
+        clause_t lc = clauses.size();
+        clauses.push_back({-lp});
+        watch[-lp] = lc;
+        clauses.push_back({lit_nil}); // to be set in else below
+        bool found_watch = false;
+        for (size_t j = 0; j < r; ++j) {
+            if (found_watch || lev[var(b[j])] < dp) {
+                clauses.push_back({-b[j]});
+            } else {
+                clauses[lc+1].lit = -b[j];
+                clauses[lc-3].ptr = watch[-b[j]];
+                watch[-b[j]] = lc;
+                found_watch = true;
+            }
+        }
+        CHECK(r == 0 || found_watch) << "Didn't find watched lit in new clause";
+        CHECK_NO_OVERFLOW(clause_t, clauses.size());
+
+        ++nlemmas;
+        LOG(2) << "Successfully added clause " << print_clause(lc);
+        LOG(2) << "trail: " << print_trail();
+        INC("learned clause literals", r+1);
+        INC("learned clauses");
+        return lc;
+    }
+    
     // Use W1(c) as LBD, use W0(c) as pin.
     // First, pin everything used as a reason.
     // Next, iterate through all clauses, computing LBD and storing in W1
@@ -351,21 +388,23 @@ struct Cnf {
         std::vector<lit_t> lemma_indexes;
         for_each_lemma([&](lit_t l, clause_t cs) {
             lemma_indexes.push_back(l);
+            int lbd = 0;
             for(size_t j = 0; j < cs; ++j) {
-                // TODO: just tagging all unset vars at level d for now
-                // instead of scheduling a full run. Revisit this.
+                // TODO: artificially penalizing unset vars below, do a full
+                // run instead.
                 lit_t v = var(clauses[l+j].lit);
                 if (val[v] == UNSET) {
-                    lbds[d] = l;
+                    lbds[d] = l; // could also do lbd++ here for bigger penalty.
                 } else {
                     lbds[lev[v]] = l;
                 }
             }
-            int lbd = 0;
             for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == l) ++lbd; }
             clauses[W1(l)].lit = lbd;
-            CHECK(lbd > 0 && lbd <= d+1) 
-                << "Computed impossible LBD: " << lbd << " (d = " << d << ")";
+            lbd = std::min(lbd, d+1);  // only needed b/c not doing full run
+            // TODO: reinstate once we're doing a full run.
+            //CHECK(lbd > 0 && lbd <= d+1) 
+            //    << "Computed impossible LBD: " << lbd << " (d = " << d << ")";
             hist[lbd]++;
         });
 
@@ -852,6 +891,7 @@ bool solve(Cnf* c) {
         LOG(3) << "After backjump, trail is " << c->print_trail();
 
         // C9: learn
+        bool subsumed = false;
         if (lc != clause_nil) {
             // Ex. 271: Does this clause subsume the previous learned clause? If
             // so, we can "just" overwrite it. lc is the most recent learned
@@ -867,12 +907,20 @@ bool solve(Cnf* c) {
             }
 
             if (q == 0 && c->val[var(c->clauses[lc].lit)] == UNSET) {
+                subsumed = true;
                 c->remove_from_watchlist(lc, 0);
                 c->remove_from_watchlist(lc, 1);
                 c->clauses.resize(lc - kHeaderSize);
                 INC("subsumed clauses");
             }
-        } else if (r > kTrivialClauseMultiplier * static_cast<size_t>(dp)) {
+        }
+
+        if (!subsumed && dp >= 1 && dp <= 3) {
+            // TODO: learn several small clauses here!
+            LOG(1) << "Possible trivial explosion at " << dp
+                   << ": " << c->print_trail();
+        } else if (!subsumed &&
+                   r > kTrivialClauseMultiplier * static_cast<size_t>(dp)) {
             // Ex. 269: If dp is significantly smaller than the length of the
             // learned clause, we can learn the trivial clause that asserts
             // that all dp + 1 of the decisions we made lead to a conflict, 
@@ -884,40 +932,7 @@ bool solve(Cnf* c) {
             INC("trivial clauses learned");
         }
 
-        clause_bundle_t nil_ptr;  // TODO: make constant
-        nil_ptr.ptr = clause_nil;
-        c->clauses.push_back(nil_ptr); // watch list for l1
-        clause_bundle_t wlp;
-        wlp.ptr = c->watch[-lp];
-        c->clauses.push_back(wlp); // watch list for l0
-        clause_bundle_t s;
-        s.size = r+1;
-        c->clauses.push_back(s); // size
-        LOG(3) << "adding a clause of size " << r+1;
-        lc = c->clauses.size();
-        c->clauses.push_back({-lp});
-        c->watch[-lp] = lc;
-        c->clauses.push_back({lit_nil}); // to be set in else below
-        bool found_watch = false;
-        for (size_t j = 0; j < r; ++j) {
-            if (found_watch || c->lev[var(c->b[j])] < dp) {
-                c->clauses.push_back({-c->b[j]});
-            } else {
-                c->clauses[lc+1].lit = -c->b[j];
-                c->clauses[lc-3].ptr = c->watch[-c->b[j]];
-                c->watch[-c->b[j]] = lc;
-                found_watch = true;
-            }
-        }
-        CHECK(r == 0 || found_watch) << "Didn't find watched lit in new clause";
-        CHECK_NO_OVERFLOW(clause_t, c->clauses.size());
-
-        ++c->nlemmas;
-        LOG(2) << "Successfully added clause " << c->print_clause(lc);
-        LOG(2) << "trail: " << c->print_trail();
-        INC("learned clause literals", r+1);
-        INC("learned clauses");
-
+        lc = c->learn_clause(lp, r, dp);
         c->add_to_trail(-lp, lc);
         c->heap.rescale_delta();
         
