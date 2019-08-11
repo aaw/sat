@@ -364,6 +364,7 @@ struct Cnf {
     // Next, iterate forward, compacting all pinned clauses and computing
     // watchlist
     void reduce_db() {
+        Timer t("clause database purges");
         std::vector<lit_t> lbds(d+2, 0);
         std::vector<lit_t> hist(d+2, 0);  // lbd histogram.
         size_t target_lemmas = nlemmas / 2;
@@ -490,6 +491,7 @@ struct Cnf {
 // 3 0
 // -2 -3 4 0
 Cnf parse(const char* filename) {
+    Timer t("parse");
     int nc;
     FILE* f = fopen(filename, "r");
     CHECK(f) << "Failed to open file: " << filename;
@@ -574,17 +576,17 @@ Cnf parse(const char* filename) {
 
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
-    Timer t;
+    Timer t("solve");
 
     unsigned long last_restart = 0;
     
     clause_t lc = clause_nil;  // The most recent learned clause
     while (true) {
         // (C2)
-        LOG(4) << "C2";
+        LOG(3) << "C2";
 
         if (c->f == c->g) {
-            LOG(4) << "C5";
+            LOG(3) << "C5";
             // C5
             if (c->f == static_cast<size_t>(c->nvars)) return true;
 
@@ -887,8 +889,9 @@ bool solve(Cnf* c) {
         r = rr;
 
         // C8: backjump
+        LOG(2) << "Before backjump, trail is " << c->print_trail();        
         c->backjump(dp);
-        LOG(3) << "After backjump, trail is " << c->print_trail();
+        LOG(2) << "After backjump, trail is " << c->print_trail();
 
         // C9: learn
         bool subsumed = false;
@@ -915,12 +918,8 @@ bool solve(Cnf* c) {
             }
         }
 
-        if (!subsumed && dp >= 1 && dp <= 3) {
-            // TODO: learn several small clauses here!
-            LOG(1) << "Possible trivial explosion at " << dp
-                   << ": " << c->print_trail();
-        } else if (!subsumed &&
-                   r > kTrivialClauseMultiplier * static_cast<size_t>(dp)) {
+        if (!subsumed &&
+            r > kTrivialClauseMultiplier * static_cast<size_t>(dp)) {
             // Ex. 269: If dp is significantly smaller than the length of the
             // learned clause, we can learn the trivial clause that asserts
             // that all dp + 1 of the decisions we made lead to a conflict, 
@@ -947,6 +946,7 @@ int main(int argc, char** argv) {
     CHECK(parse_flags(argc, argv, &oidx)) <<
         "Usage: " << argv[0] << " <filename>";
     init_counters();
+    init_timers();
     Cnf c = parse(argv[oidx]);
     // TODO: also check for no clauses (unsatisfiable) in the if
     // statement below.

@@ -4,6 +4,7 @@
 #include <sstream>
 #include <vector>
 
+#include "counters.h"
 #include "flags.h"
 #include "logging.h"
 #include "timer.h"
@@ -226,7 +227,7 @@ Cnf parse(const char* filename) {
 
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
-    Timer t;
+    Timer t("solve");
 
     // The search for a satisfying assignment proceeds in stages from d = 1 to
     // d = c->nvars. As long as a consistent partial assignment is found, d
@@ -374,6 +375,8 @@ int main(int argc, char** argv) {
     int oidx;
     CHECK(parse_flags(argc, argv, &oidx)) <<
         "Usage: " << argv[0] << " <filename>";
+    init_counters();
+    init_timers();
     Cnf c = parse(argv[oidx]);
     if (!c.start.empty() && solve(&c)) {
         std::cout << "s SATISFIABLE" << std::endl;
