@@ -20,7 +20,7 @@ public:
         counts_[name]++;
     }
 
-    void dump() {
+    void print() {
         for(const auto& kv : sums_) {
             PRINT << "c timer: [" << kv.first << "] = "
                   << fancy_time(kv.second);
@@ -30,6 +30,12 @@ public:
             }
             PRINT << std::endl;
         }
+    }
+
+    void dump() {
+        print();
+        sums_.clear();
+        counts_.clear();
     }
 
     std::string fancy_time(double t) {

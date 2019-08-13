@@ -22,6 +22,12 @@
 #include "timer.h"
 #include "types.h"
 
+#define LIT_0(c) (clauses[c].lit)
+#define LIT_1(c) (clauses[c+1].lit)
+#define SIZE(c) (clauses[c-1].size)
+#define WATCH_0(c) (clauses[c-2].ptr)
+#define WATCH_1(c) (clauses[c-3].ptr)
+
 #define L1(c) (c+1)
 #define L0(c) (c)
 #define CS(c) (c-1)
@@ -32,8 +38,8 @@ constexpr int kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
 constexpr size_t kMinPurgedClauseSize = 4;  
 constexpr size_t kMaxLemmas = 10000;
-constexpr float kMinAgility = 0.20;
-constexpr size_t kMinRestartEpochs = 100;
+constexpr float kMinAgility = 0.25;
+constexpr size_t kMinRestartEpochs = 5;
 constexpr float kPeekProb = 0.02;
 // TODO: tie lower values with lower agility or only flip when agility is high
 constexpr float kPhaseFlipProb = 0.02;  
@@ -41,8 +47,8 @@ constexpr float kTrivialClauseMultiplier = 2.0;
 
 enum State {
     UNSET = 0,
-    FALSE = 1,           // Trying false, haven't tried true yet.
-    TRUE = 2,            // Trying true, haven't tried false yet.
+    FALSE = 1,
+    TRUE = 2,
 };
 
 union clause_bundle_t {
@@ -51,7 +57,7 @@ union clause_bundle_t {
     clause_t ptr;
 };
 
-// Flip a coin that lands on heads with probability p. Return true iff heads.
+// Flips a coin that lands on heads with probability p. Return true iff heads.
 static bool flip(float p) {
     return static_cast<float>(rand())/RAND_MAX <= p;
 }
@@ -127,13 +133,13 @@ struct Cnf {
         d(0) {
     }
 
-    // Is the literal x currently false?
+    // Is the literal x false under the current assignment?
     inline bool is_false(lit_t x) const {
         State s = val[var(x)];
         return (x > 0 && s == FALSE) || (x < 0 && s == TRUE);
     }
 
-    // Is the literal x currently true?
+    // Is the literal x true under the current assignment?
     inline bool is_true(lit_t x) const {
         State s = val[var(x)];
         return (x > 0 && s == TRUE) || (x < 0 && s == FALSE);
@@ -190,22 +196,6 @@ struct Cnf {
         return oss.str();
     }    
 
-    std::string raw_clauses() {
-        std::ostringstream oss;
-        for(const auto& c : clauses) {
-            oss << c.lit << " ";
-        }
-        return oss.str();
-    }
-
-    std::string raw_lemmas() {
-        std::ostringstream oss;
-        for(size_t i = lemma_start; i < clauses.size(); ++i) {
-            oss << clauses[i].lit << " ";
-        }
-        return oss.str();
-    }    
-    
     std::string print_trail() {
         std::ostringstream oss;
         for (size_t i = 0; i < f; ++i) {
@@ -225,6 +215,7 @@ struct Cnf {
     }
 
     bool redundant(lit_t l) {
+        Timer t("redundant variable elimination");
         lit_t k = var(l);
         clause_t r = reason[k];
         if (r == clause_nil) {
@@ -252,6 +243,7 @@ struct Cnf {
     // removes either l_0 (if offset is 0) or l_1 (if offset is 1) from its
     // watchlist. No-op if k == 0.
     void remove_from_watchlist(clause_t cindex, lit_t offset) {
+        Timer t("remove from watchlist");
         if (offset == 1 && clauses[cindex-1].size == 1) return;
         lit_t l = cindex + offset;
         clause_t* x = &watch[clauses[l].lit];
@@ -267,6 +259,7 @@ struct Cnf {
 
     // t: if non-null, will be set to the max tloc of any var in the clause.
     void blit(clause_t c, size_t* r, lit_t* dp, size_t* q, lit_t* t) {
+        Timer timer("blit");
         if (t != nullptr) *t = tloc[var(clauses[c].lit)];
         for(size_t j = 1; j < clauses[c-1].size; ++j) {
             lit_t m = clauses[c+j].lit;
@@ -636,7 +629,7 @@ bool solve(Cnf* c) {
             CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
             LOG(3) << "Decided on variable " << k;
             lit_t l = c->oval[k] == FALSE ? -k : k;
-            if (flip(kPhaseFlipProb)) l = -l;
+            if (flip(kPhaseFlipProb)) { INC("forced phase flips"); l = -l; }
             LOG(3) << "Adding " << l << " to the trail.";
             c->add_to_trail(l, clause_nil);
         }
@@ -644,13 +637,7 @@ bool solve(Cnf* c) {
         // C3
         LOG(3) << "C3";
         LOG(3) << "Trail: " << c->print_trail();
-        //LOG(3) << "Raw: " << c->raw_clauses();
-        //LOG(4) << "Clauses: " << c->dump_clauses();
-        /*
-        for (int ii = 1; ii <= c->nvars; ++ii) {
-            LOG(3) << ii << "'s watch list: " << c->print_watchlist(ii);
-            LOG(3) << -ii << "'s watch list: " << c->print_watchlist(-ii);
-            }*/
+
         lit_t l = c->trail[c->g];
         LOG(3) << "Examining " << -l << "'s watch list";
         ++c->g;
