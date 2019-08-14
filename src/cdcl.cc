@@ -22,11 +22,11 @@
 #include "timer.h"
 #include "types.h"
 
-#define LIT_0(c) (clauses[c].lit)
-#define LIT_1(c) (clauses[c+1].lit)
+#define LIT1(c) (clauses[c+1].lit)
+#define LIT0(c) (clauses[c].lit)
 #define SIZE(c) (clauses[c-1].size)
-#define WATCH_0(c) (clauses[c-2].ptr)
-#define WATCH_1(c) (clauses[c-3].ptr)
+#define WATCH0(c) (clauses[c-2].ptr)
+#define WATCH1(c) (clauses[c-3].ptr)
 
 #define L1(c) (c+1)
 #define L0(c) (c)
@@ -443,9 +443,9 @@ struct Cnf {
             if (clauses[W0(l)].lit < 0) {
                 reason[var(clauses[W0(l)].lit)] = tail;
             }
-            clauses[W1(tail)].ptr = 1;  // placeholder, anything != 0
-            clauses[W0(tail)].ptr = 1;  // placeholder, anything != 0
-            clauses[CS(tail)].size = cs;
+            WATCH1(tail) = 1;  // placeholder, anything != 0
+            WATCH0(tail) = 1;  // placeholder, anything != 0
+            SIZE(tail) = cs;
             for(size_t j = 0; j < cs; ++j) {
                 clauses[tail+j].lit = clauses[l+j].lit;
             }
@@ -454,12 +454,12 @@ struct Cnf {
         clauses.resize(tail - kHeaderSize);
 
         // Recompute all watch lists
-        for_each_clause([&](lit_t l, clause_t cs) {        
-            clauses[W0(l)].ptr = watch[clauses[L0(l)].lit];
-            watch[clauses[L0(l)].lit] = l;
+        for_each_clause([&](lit_t l, clause_t cs) {
+            WATCH0(l) = watch[LIT0(l)];
+            watch[LIT0(l)] = l;
             if (cs > 1) {
-                clauses[W1(l)].ptr = watch[clauses[L1(l)].lit];
-                watch[clauses[L1(l)].lit] = l;
+                WATCH1(l) = watch[LIT1(l)];
+                watch[LIT1(l)] = l;
             }
         });
         nlemmas = target_lemmas;
