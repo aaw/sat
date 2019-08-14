@@ -1,6 +1,7 @@
 #ifndef __TIMER_H__
 #define __TIMER_H__
 
+#include "math.h"
 #include "signal.h"
 
 #include <ctime>
@@ -47,8 +48,8 @@ public:
         } else if (t < 60) {
             oss << std::fixed << std::setprecision(1) << t << "s";
         } else {
-            oss << std::fixed << std::setprecision(0) << t / 60 << "m " <<
-                std::setprecision(1) << t - (t/60) << "s";
+            oss << std::fixed << std::setprecision(0) << t / 60 << "m "
+                << fmod(t, 60) << "s";
         }
         return oss.str();
     }
