@@ -38,7 +38,7 @@ constexpr int kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
 constexpr size_t kMinPurgedClauseSize = 4;  
 constexpr size_t kMaxLemmas = 10000;
-constexpr float kMinAgility = 0.20;
+constexpr float kMinAgility = 0.18;
 constexpr size_t kMinRestartEpochs = 100;
 constexpr float kPeekProb = 0.02;
 // TODO: tie lower values with lower agility or only flip when agility is high
@@ -76,6 +76,8 @@ struct Cnf {
 
     std::vector<unsigned long> lstamp;  // maps levels to stamp values
 
+    std::vector<unsigned long> lbdstamp;
+    
     Heap<4> heap;
 
     std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
@@ -103,6 +105,8 @@ struct Cnf {
 
     uint32_t agility;
 
+    uint32_t fast_lbd, slow_lbd;
+    
     size_t nlemmas;
 
     clause_t lemma_start;  // clause index of first learned clause.
@@ -115,6 +119,7 @@ struct Cnf {
         oval(nvars + 1, FALSE),
         stamp(nvars + 1, 0),
         lstamp(nvars + 1, 0),
+        lbdstamp(nvars + 1, 0),
         heap(nvars),
         trail(nvars + 1, -1),
         tloc(nvars + 1, -1),
@@ -129,6 +134,8 @@ struct Cnf {
         nvars(nvars),
         epoch(0),
         agility(0),
+        fast_lbd(1 << 24),
+        slow_lbd(1 << 24),
         nlemmas(0),
         d(0) {
     }
@@ -589,9 +596,10 @@ bool solve(Cnf* c) {
                 lc = clause_nil;  // disable subsume prev clause for next iter
                 INC("clause database purges");
             }
-            if (c->agility / pow(2,32) < kMinAgility &&
-                c->epoch - last_restart >= kMinRestartEpochs) {
 
+            if (false && c->agility / pow(2,32) < kMinAgility &&
+                c->epoch - last_restart >= kMinRestartEpochs) {
+                
                 // Find unset var of max activity.
                 lit_t vmax = c->heap.peek();
                 while (c->val[vmax] != UNSET) {
@@ -609,11 +617,20 @@ bool solve(Cnf* c) {
                 if (dp < c->d) {
                     LOG(1) << "Restarting (level " << c->d << " -> " << dp << ")";
                     c->backjump(dp);
-                    INC("restarts");
+                    c->agility = kMinAgility * pow(2,32);
+                    INC("agility restarts");
                     continue;
                 } else {
-                    INC("aborted restarts");
+                    INC("aborted agility restarts");
                 }
+            } else if (c->fast_lbd > (c->slow_lbd / 100) * 125 &&
+                       c->epoch - last_restart >= kMinRestartEpochs) {
+                LOG(0) << "restarting at epoch " << c->epoch;
+                c->fast_lbd = (c->slow_lbd / 100) * 125;
+                last_restart = c->epoch;
+                c->backjump(0);
+                INC("lbd restarts");
+                continue;
             }
             
             ++c->d;
@@ -859,6 +876,19 @@ bool solve(Cnf* c) {
         while (c->stamp[var(lp)] != c->epoch) { t--; lp = c->trail[t]; }
         
         LOG(4) << "stopping C7 with l'=" << lp;
+
+        // Update slow/fast lbd averages.
+        int lbd = 1;  // lp is on a different level than other vars in clause.
+        for (size_t i = 0; i < r; ++i) {
+            c->lbdstamp[c->lev[var(c->b[i])]] = c->epoch;
+        }
+        for (size_t i = 1; i <= static_cast<size_t>(dp); ++i) {
+            if (c->lbdstamp[i] == c->epoch) ++lbd;
+        }
+        c->fast_lbd -= c->fast_lbd >>  5;
+        c->fast_lbd += lbd << 15;
+        c->slow_lbd -= c->slow_lbd >> 15;
+        c->slow_lbd += lbd <<  5;
 
         // Remove redundant literals from clause
         // TODO: move this down so that we only process learned clause once? But
