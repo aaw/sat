@@ -77,6 +77,8 @@ struct Cnf {
     std::vector<unsigned long> lstamp;  // maps levels to stamp values
 
     std::vector<unsigned long> lbdstamp;
+
+    std::vector<clause_t> conflict;  // first conflict clause by level.
     
     Heap<4> heap;
 
@@ -112,6 +114,8 @@ struct Cnf {
     clause_t lemma_start;  // clause index of first learned clause.
 
     lit_t d; // level
+
+    size_t full_runs;
     
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
@@ -120,6 +124,7 @@ struct Cnf {
         stamp(nvars + 1, 0),
         lstamp(nvars + 1, 0),
         lbdstamp(nvars + 1, 0),
+        conflict(nvars + 1, clause_nil),
         heap(nvars),
         trail(nvars + 1, -1),
         tloc(nvars + 1, -1),
@@ -137,7 +142,8 @@ struct Cnf {
         fast_lbd(1 << 24),
         slow_lbd(1 << 24),
         nlemmas(0),
-        d(0) {
+        d(0),
+        full_runs(0) {
     }
 
     // Is the literal x false under the current assignment?
@@ -305,12 +311,14 @@ struct Cnf {
     }
 
     void backjump(lit_t level) {
+        Timer t("backjump");
         while (f > di[level+1]) {
             f--;
             lit_t k = var(trail[f]);
             oval[k] = val[k];
             val[k] = UNSET;
             reason[k] = clause_nil;
+            conflict[lev[k]] = clause_nil;
             heap.insert(k);
         }
         g = f;
@@ -588,6 +596,8 @@ bool solve(Cnf* c) {
         if (c->f == c->g) {
             LOG(3) << "C5";
             // C5
+            // TODO: need to do something different here if full_runs > 0
+            
             if (c->f == static_cast<size_t>(c->nvars)) return true;
 
             if (c->nlemmas >= kMaxLemmas) {
@@ -625,7 +635,7 @@ bool solve(Cnf* c) {
                 }
             } else if (c->fast_lbd > (c->slow_lbd / 100) * 125 &&
                        c->epoch - last_restart >= kMinRestartEpochs) {
-                LOG(0) << "restarting at epoch " << c->epoch;
+                LOG(1) << "restarting at epoch " << c->epoch;
                 c->fast_lbd = (c->slow_lbd / 100) * 125;
                 last_restart = c->epoch;
                 c->backjump(0);
@@ -779,8 +789,6 @@ bool solve(Cnf* c) {
         }
         
         if (!found_conflict) {
-            //LOG(3) << "Emptying " << -l << "'s watch list";
-            //c->watch[-l] = clause_nil;
             LOG(3) << "Didn't find conflict, moving on.";
             continue;
         }
@@ -788,6 +796,17 @@ bool solve(Cnf* c) {
         // C7
         LOG(3) << "Found a conflict with d = " << c->d;
         if (c->d == 0) return false;
+
+        if (c->full_runs > 0) {
+            if (c->conflict[c->d] == clause_nil) c->conflict[c->d] = w;
+            continue;
+        }
+
+        // TODO: make from here to C8 a method called "learn_from_conflict"
+        // that returns dp. we can then call it in step C5 when we're doing
+        // a full run.
+
+        // lit_t dp = c->learn_from_conflict(w);
         
         // (*) Not mentioned in Knuth's description, but we need to make sure
         // that the rightmost literal on the trail is the first literal
@@ -845,6 +864,7 @@ bool solve(Cnf* c) {
 
                     if (q + r + 1 < c->clauses[rc-1].size && q > 0) {
                         // On-the-fly subsumption.
+                        Timer t("on-the-fly subsumption");
                         c->remove_from_watchlist(rc, 0);
                         lit_t li = lit_nil;
                         lit_t len = c->clauses[rc-1].size;
@@ -875,8 +895,6 @@ bool solve(Cnf* c) {
         LOG(4) << "lp = " << lp;
         while (c->stamp[var(lp)] != c->epoch) { t--; lp = c->trail[t]; }
         
-        LOG(4) << "stopping C7 with l'=" << lp;
-
         // Update slow/fast lbd averages.
         int lbd = 1;  // lp is on a different level than other vars in clause.
         for (size_t i = 0; i < r; ++i) {
@@ -905,17 +923,12 @@ bool solve(Cnf* c) {
         INC("redundant literals", r - rr);
         r = rr;
 
-        // C8: backjump
-        LOG(2) << "Before backjump, trail is " << c->print_trail();        
-        c->backjump(dp);
-        LOG(2) << "After backjump, trail is " << c->print_trail();
-
-        // C9: learn
         bool subsumed = false;
         if (lc != clause_nil) {
             // Ex. 271: Does this clause subsume the previous learned clause? If
             // so, we can "just" overwrite it. lc is the most recent learned
             // clause from a previous iteration.
+            Timer t("subsumed clauses");
             lit_t q = r+1;
             for (int j = c->clauses[lc-1].size - 1; q > 0 && j >= q; --j) {
                 lit_t v = var(c->clauses[lc+j].lit);
@@ -947,7 +960,13 @@ bool solve(Cnf* c) {
             }
             INC("trivial clauses learned");
         }
+        
+        // C8: backjump
+        LOG(2) << "Before backjump, trail is " << c->print_trail();        
+        c->backjump(dp);
+        LOG(2) << "After backjump, trail is " << c->print_trail();
 
+        // C9: learn
         lc = c->learn_clause(lp, r, dp);
         c->add_to_trail(-lp, lc);
         c->heap.rescale_delta();
