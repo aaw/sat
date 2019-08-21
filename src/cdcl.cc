@@ -116,6 +116,10 @@ struct Cnf {
     lit_t d; // level
 
     size_t full_runs;
+
+    lit_t confp; // ptr to most recent entry in conflict array.
+
+    bool seen_conflict; // have we seen a conflict in this search path?
     
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
@@ -143,7 +147,9 @@ struct Cnf {
         slow_lbd(1 << 24),
         nlemmas(0),
         d(0),
-        full_runs(0) {
+        full_runs(1),
+        confp(0),
+        seen_conflict(false) {
     }
 
     // Is the literal x false under the current assignment?
@@ -596,9 +602,9 @@ bool solve(Cnf* c) {
         if (c->f == c->g) {
             LOG(3) << "C5";
             // C5
-            // TODO: need to do something different here if full_runs > 0
-            
-            if (c->f == static_cast<size_t>(c->nvars)) return true;
+            if (!c->seen_conflict && c->f == static_cast<size_t>(c->nvars)) {
+                return true;
+            }
 
             if (c->nlemmas >= kMaxLemmas) {
                 LOG(1) << "Reducing clause database at epoch " << c->epoch;
@@ -607,7 +613,8 @@ bool solve(Cnf* c) {
                 INC("clause database purges");
             }
 
-            if (false && c->agility / pow(2,32) < kMinAgility &&
+            if (!c->seen_conflict &&  // don't restart while there's a conflict
+                c->agility / pow(2,32) < kMinAgility &&
                 c->epoch - last_restart >= kMinRestartEpochs) {
                 
                 // Find unset var of max activity.
@@ -639,9 +646,17 @@ bool solve(Cnf* c) {
                 c->fast_lbd = (c->slow_lbd / 100) * 125;
                 last_restart = c->epoch;
                 c->backjump(0);
+                c->seen_conflict = false;
                 INC("lbd restarts");
                 continue;
             }
+
+            if (c->seen_conflict && c->f == static_cast<size_t>(c->nvars)) {
+                LOG(1) << "full run finished, " << c->full_runs << " left.";
+                --c->full_runs;
+                c->backjump(0);
+                c->seen_conflict = false;
+            }            
             
             ++c->d;
             c->di[c->d] = c->f;
@@ -712,14 +727,13 @@ bool solve(Cnf* c) {
                         size_t tmp = c->watch[ln];
                         c->watch[ln] = w;
                         c->clauses[w - 2].ptr = tmp;
-                        LOG(3) << ln;
-                        LOG(3) << ln << "'s watch list: " << c->print_watchlist(ln);
                         break;
                     }
                 }
                 // Compact any tombstones we just added to the clause
                 // TODO: rewrite this compaction
                 if (tombstones) {
+                    Timer t("tombstone compaction");
                     size_t j = 2;
                     for(size_t i = 2; i < c->clauses[w-1].size; ++i) {
                         if (c->clauses[w+i].lit != lit_nil) {
@@ -795,180 +809,201 @@ bool solve(Cnf* c) {
 
         // C7
         LOG(3) << "Found a conflict with d = " << c->d;
+        c->seen_conflict = true;
         if (c->d == 0) return false;
 
+        // Store the first conflict clause on each level.
+        if (c->conflict[c->d] == clause_nil) c->conflict[c->d] = w;
+        c->confp = c->d;
+        
         if (c->full_runs > 0) {
-            if (c->conflict[c->d] == clause_nil) c->conflict[c->d] = w;
+            // Doing a full run so keep propagating.
+            LOG(1) << "doing a full run, continuing from conflict";
             continue;
         }
 
-        // TODO: make from here to C8 a method called "learn_from_conflict"
-        // that returns dp. we can then call it in step C5 when we're doing
-        // a full run.
-
-        // lit_t dp = c->learn_from_conflict(w);
+        lit_t dpmin = c->d;
+        std::vector<std::pair<lit_t, clause_t>> trail_lits;
+        while (c->confp > 0) {
+            LOG(1) << "starting loop with confp = " << c->confp;
+            w = c->conflict[c->confp];
+            c->d = c->confp;
+            // decrement c->confp for the next round.
+            while (c->confp > 0 && c->conflict[--c->confp] == clause_nil);
+            LOG(1) << "decremented confp to " << c->confp << " for next round";
         
-        // (*) Not mentioned in Knuth's description, but we need to make sure
-        // that the rightmost literal on the trail is the first literal
-        // in the clause here. We'll undo this after the first resolution
-        // step below, otherwise watchlists get corrupted.
-        size_t rl = c->f - 1;
-        size_t cs = c->clauses[w-1].size;
-        size_t rl_pos = 0;
-        for (bool done = false; !done; --rl) {
-            for (rl_pos = 0; rl_pos < cs; ++rl_pos) {
-                if (var(c->trail[rl]) == var(c->clauses[w+rl_pos].lit)) {
-                    done = true;
-                    std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
-                    break;
-                }
-            }
-        }
-
-        lit_t dp = 0;
-        size_t q = 0;
-        size_t r = 0;
-        c->epoch += 3;
-        LOG(3) << "Bumping epoch to " << c->epoch << " at "
-               << c->print_clause(w);
-        LOG(3) << "Trail is " << c->print_trail();
-        c->stamp[var(c->clauses[w].lit)] = c->epoch;
-        c->heap.bump(var(c->clauses[w].lit));
-
-        lit_t t;
-        LOG(3) << "RESOLVING [A] " << c->print_clause(w);
-        c->blit(w, &r, &dp, &q, &t);
-        
-        LOG(3) << "swapping back: " << c->print_clause(w);
-        std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
-        LOG(3) << "now: " << c->print_clause(w);
-        
-        while (q > 0) {
-            LOG(3) << "q=" << q << ",t=" << t;
-            lit_t l = c->trail[t];
-            t--;
-            //LOG(3) << "New L_t = " << c->trail[t];
-            if (c->stamp[var(l)] == c->epoch) {
-                LOG(3) << "Stamped this epoch: " << l;
-                q--;
-                clause_t rc = c->reason[var(l)];
-                if (rc != clause_nil) {
-                    LOG(3) << "RESOLVING [B] " << c->print_clause(rc);
-                    if (c->clauses[rc].lit != l) {
-                        // TODO: don't swap here (or similar swap above) 
-                        std::swap(c->clauses[rc].lit, c->clauses[rc+1].lit);
-                        std::swap(c->clauses[rc-2].ptr, c->clauses[rc-3].ptr);
-                    }                        
-                    LOG(3) << "Reason for " << l << ": " << c->print_clause(rc);
-                    c->blit(rc, &r, &dp, &q, nullptr);                    
-
-                    if (q + r + 1 < c->clauses[rc-1].size && q > 0) {
-                        // On-the-fly subsumption.
-                        Timer t("on-the-fly subsumption");
-                        c->remove_from_watchlist(rc, 0);
-                        lit_t li = lit_nil;
-                        lit_t len = c->clauses[rc-1].size;
-                        // Avoid j == 1 below because we'd have to do more
-                        // watchlist surgery. A lit of level >= d always
-                        // exists in l_2 ... l_k since q > 0.
-                        for (lit_t j = len - 1; j >= 2; --j) {
-                            if (c->lev[var(c->clauses[rc+j].lit)] >= c->d) {
-                                li = j;
-                                break;
-                            }
-                        }
-                        CHECK(li != lit_nil) <<
-                            "No level " << c->d << " lit for subsumption";
-                        c->clauses[rc].lit = c->clauses[rc+li].lit;
-                        c->clauses[rc+li].lit = c->clauses[rc+len-1].lit;
-                        c->clauses[rc+len-1].lit = lit_nil;
-                        c->clauses[rc-1].size--;
-                        c->clauses[rc-2].ptr = c->watch[c->clauses[rc].lit];
-                        c->watch[c->clauses[rc].lit] = rc;
-                        INC("on-the-fly subsumptions");
+            // (*) Not mentioned in Knuth's description, but we need to make sure
+            // that the rightmost literal on the trail contained in the clause is
+            // the first literal in the clause here. We'll undo this after the
+            // first resolution step below, otherwise watchlists get corrupted.
+            size_t rl = c->f - 1;
+            size_t cs = c->clauses[w-1].size;
+            size_t rl_pos = 0;
+            for (bool done = false; !done; --rl) {
+                for (rl_pos = 0; rl_pos < cs; ++rl_pos) {
+                    if (var(c->trail[rl]) == var(c->clauses[w+rl_pos].lit)) {
+                        done = true;
+                        std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
+                        break;
                     }
                 }
             }
-        }
-
-        lit_t lp = c->trail[t];
-        LOG(4) << "lp = " << lp;
-        while (c->stamp[var(lp)] != c->epoch) { t--; lp = c->trail[t]; }
-        
-        // Update slow/fast lbd averages.
-        int lbd = 1;  // lp is on a different level than other vars in clause.
-        for (size_t i = 0; i < r; ++i) {
-            c->lbdstamp[c->lev[var(c->b[i])]] = c->epoch;
-        }
-        for (size_t i = 1; i <= static_cast<size_t>(dp); ++i) {
-            if (c->lbdstamp[i] == c->epoch) ++lbd;
-        }
-        c->fast_lbd -= c->fast_lbd >>  5;
-        c->fast_lbd += lbd << 15;
-        c->slow_lbd -= c->slow_lbd >> 15;
-        c->slow_lbd += lbd <<  5;
-
-        // Remove redundant literals from clause
-        // TODO: move this down so that we only process learned clause once? But
-        // would also have to do subsumption check in single loop...
-        lit_t rr = 0;
-        for(size_t i = 0; i < r; ++i) {
-            if (c->lstamp[c->lev[var(c->b[i])]] == c->epoch + 1 &&
-                c->redundant(-c->b[i])) {
-                continue;
-            }
-            c->b[rr] = c->b[i];
-            ++rr;
-        }
-        INC("redundant literals", r - rr);
-        r = rr;
-
-        bool subsumed = false;
-        if (lc != clause_nil) {
-            // Ex. 271: Does this clause subsume the previous learned clause? If
-            // so, we can "just" overwrite it. lc is the most recent learned
-            // clause from a previous iteration.
-            Timer t("subsumed clauses");
-            lit_t q = r+1;
-            for (int j = c->clauses[lc-1].size - 1; q > 0 && j >= q; --j) {
-                lit_t v = var(c->clauses[lc+j].lit);
-                if (c->clauses[lc + j].lit == -lp ||
-                    (c->stamp[v] == c->epoch && c->val[v] != UNSET &&
-                     c->lev[v] <= dp)) {
-                    --q;
+            
+            lit_t dp = 0;
+            size_t q = 0;
+            size_t r = 0;
+            c->epoch += 3;
+            LOG(3) << "Bumping epoch to " << c->epoch << " at "
+                   << c->print_clause(w);
+            LOG(3) << "Trail is " << c->print_trail();
+            c->stamp[var(c->clauses[w].lit)] = c->epoch;
+            c->heap.bump(var(c->clauses[w].lit));
+            
+            lit_t t;
+            LOG(3) << "RESOLVING [A] " << c->print_clause(w);
+            c->blit(w, &r, &dp, &q, &t);
+            
+            LOG(3) << "swapping back: " << c->print_clause(w);
+            std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
+            LOG(3) << "now: " << c->print_clause(w);
+            
+            while (q > 0) {
+                LOG(3) << "q=" << q << ",t=" << t;
+                lit_t l = c->trail[t];
+                t--;
+                //LOG(3) << "New L_t = " << c->trail[t];
+                if (c->stamp[var(l)] == c->epoch) {
+                    LOG(3) << "Stamped this epoch: " << l;
+                    q--;
+                    clause_t rc = c->reason[var(l)];
+                    if (rc != clause_nil) {
+                        LOG(3) << "RESOLVING [B] " << c->print_clause(rc);
+                        if (c->clauses[rc].lit != l) {
+                            // TODO: don't swap here (or similar swap above) 
+                            std::swap(c->clauses[rc].lit, c->clauses[rc+1].lit);
+                            std::swap(c->clauses[rc-2].ptr, c->clauses[rc-3].ptr);
+                        }                        
+                        LOG(3) << "Reason for " << l << ": " << c->print_clause(rc);
+                        c->blit(rc, &r, &dp, &q, nullptr);                    
+                        
+                        if (q + r + 1 < c->clauses[rc-1].size && q > 0) {
+                            // On-the-fly subsumption.
+                            Timer t("on-the-fly subsumption");
+                            c->remove_from_watchlist(rc, 0);
+                            lit_t li = lit_nil;
+                            lit_t len = c->clauses[rc-1].size;
+                            // Avoid j == 1 below because we'd have to do more
+                            // watchlist surgery. A lit of level >= d always
+                            // exists in l_2 ... l_k since q > 0.
+                            for (lit_t j = len - 1; j >= 2; --j) {
+                                if (c->lev[var(c->clauses[rc+j].lit)] >= c->d) {
+                                    li = j;
+                                    break;
+                                }
+                            }
+                            CHECK(li != lit_nil) <<
+                                "No level " << c->d << " lit for subsumption";
+                            c->clauses[rc].lit = c->clauses[rc+li].lit;
+                            c->clauses[rc+li].lit = c->clauses[rc+len-1].lit;
+                            c->clauses[rc+len-1].lit = lit_nil;
+                            c->clauses[rc-1].size--;
+                            c->clauses[rc-2].ptr = c->watch[c->clauses[rc].lit];
+                            c->watch[c->clauses[rc].lit] = rc;
+                            INC("on-the-fly subsumptions");
+                        }
+                    }
                 }
             }
-
-            if (q == 0 && c->val[var(c->clauses[lc].lit)] == UNSET) {
-                subsumed = true;
-                c->remove_from_watchlist(lc, 0);
-                c->remove_from_watchlist(lc, 1);
-                c->clauses.resize(lc - kHeaderSize);
-                INC("subsumed clauses");
+            
+            lit_t lp = c->trail[t];
+            while (c->stamp[var(lp)] != c->epoch) { t--; lp = c->trail[t]; }
+            
+            // Update slow/fast lbd averages.
+            int lbd = 1;  // lp is on a different level than other vars in clause.
+            for (size_t i = 0; i < r; ++i) {
+                c->lbdstamp[c->lev[var(c->b[i])]] = c->epoch;
             }
-        }
-
-        if (!subsumed &&
-            r > kTrivialClauseMultiplier * static_cast<size_t>(dp)) {
-            // Ex. 269: If dp is significantly smaller than the length of the
-            // learned clause, we can learn the trivial clause that asserts
-            // that all dp + 1 of the decisions we made lead to a conflict, 
-            // i.e., ~(d1 AND d2 AND ... AND dp AND lp).
-            r = static_cast<size_t>(dp);
-            for (size_t j = 0; j < r; ++j) {
-                c->b[j] = c->trail[c->di[j+1]];
+            for (size_t i = 1; i <= static_cast<size_t>(dp); ++i) {
+                if (c->lbdstamp[i] == c->epoch) ++lbd;
             }
-            INC("trivial clauses learned");
+            c->fast_lbd -= c->fast_lbd >>  5;
+            c->fast_lbd += lbd << 15;
+            c->slow_lbd -= c->slow_lbd >> 15;
+            c->slow_lbd += lbd <<  5;
+            
+            // Remove redundant literals from clause
+            // TODO: move this down so that we only process learned clause once? But
+            // would also have to do subsumption check in single loop...
+            lit_t rr = 0;
+            for(size_t i = 0; i < r; ++i) {
+                if (c->lstamp[c->lev[var(c->b[i])]] == c->epoch + 1 &&
+                    c->redundant(-c->b[i])) {
+                    continue;
+                }
+                c->b[rr] = c->b[i];
+                ++rr;
+            }
+            INC("redundant literals", r - rr);
+            r = rr;
+            
+            bool subsumed = false;
+            if (lc != clause_nil) {
+                // Ex. 271: Does this clause subsume the previous learned clause? If
+                // so, we can "just" overwrite it. lc is the most recent learned
+                // clause from a previous iteration.
+                Timer t("subsumed clauses");
+                lit_t q = r+1;
+                for (int j = c->clauses[lc-1].size - 1; q > 0 && j >= q; --j) {
+                    lit_t v = var(c->clauses[lc+j].lit);
+                    if (c->clauses[lc + j].lit == -lp ||
+                        (c->stamp[v] == c->epoch && c->val[v] != UNSET &&
+                         c->lev[v] <= dp)) {
+                        --q;
+                    }
+                }
+                
+                if (q == 0 && c->val[var(c->clauses[lc].lit)] == UNSET) {
+                    subsumed = true;
+                    c->remove_from_watchlist(lc, 0);
+                    c->remove_from_watchlist(lc, 1);
+                    c->clauses.resize(lc - kHeaderSize);
+                    INC("subsumed clauses");
+                }
+            }
+            
+            if (!subsumed &&
+                r > kTrivialClauseMultiplier * static_cast<size_t>(dp)) {
+                // Ex. 269: If dp is significantly smaller than the length of the
+                // learned clause, we can learn the trivial clause that asserts
+                // that all dp + 1 of the decisions we made lead to a conflict, 
+                // i.e., ~(d1 AND d2 AND ... AND dp AND lp).
+                r = static_cast<size_t>(dp);
+                for (size_t j = 0; j < r; ++j) {
+                    c->b[j] = c->trail[c->di[j+1]];
+                }
+                INC("trivial clauses learned");
+            }
+
+            lc = c->learn_clause(lp, r, dp);
+            if (dp < dpmin) { trail_lits.clear(); }
+            if (dp <= dpmin) { trail_lits.push_back(std::make_pair(-lp, lc)); }
+            dpmin = std::min(dpmin, dp);
         }
-        
+            
         // C8: backjump
         LOG(2) << "Before backjump, trail is " << c->print_trail();        
-        c->backjump(dp);
+        c->backjump(dpmin);
+        c->seen_conflict = false;
         LOG(2) << "After backjump, trail is " << c->print_trail();
 
+        // TODO(full run): keep track of all lps on mindp, add all to trail here
+        // TODO(full run): rescale delta each time? or can we share epochs?
+        
         // C9: learn
-        lc = c->learn_clause(lp, r, dp);
-        c->add_to_trail(-lp, lc);
+        //lc = c->learn_clause(lp, r, mindp);
+        for (const auto& tl : trail_lits) {
+            c->add_to_trail(tl.first, tl.second);
+        }
         c->heap.rescale_delta();
         
         LOG(3) << "After clause install, trail is " << c->print_trail();
