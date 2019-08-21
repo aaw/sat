@@ -971,12 +971,15 @@ bool solve(Cnf* c) {
                 }
             }
             
-            if (!subsumed &&
+            if (c->confp == 0 &&
+                !subsumed &&
                 r > kTrivialClauseMultiplier * static_cast<size_t>(dp)) {
-                // Ex. 269: If dp is significantly smaller than the length of the
-                // learned clause, we can learn the trivial clause that asserts
-                // that all dp + 1 of the decisions we made lead to a conflict, 
-                // i.e., ~(d1 AND d2 AND ... AND dp AND lp).
+                // Ex. 269: If dp is significantly smaller than the length of
+                // the learned clause, we can learn the trivial clause that
+                // asserts that all dp + 1 of the decisions we made lead to a
+                // conflict, i.e., ~(d1 AND d2 AND ... AND dp AND lp).
+                // If we're unwinding conflicts during a full run, we should
+                // only apply this optimization to the final conflict.
                 r = static_cast<size_t>(dp);
                 for (size_t j = 0; j < r; ++j) {
                     c->b[j] = c->trail[c->di[j+1]];
