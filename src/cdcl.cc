@@ -997,6 +997,8 @@ bool solve(Cnf* c) {
             }
 
             lc = c->learn_clause(lp, r, dp);
+            c->heap.rescale_delta();
+            
             if (dp < dpmin) { trail_lits.clear(); }
             if (dp <= dpmin) { trail_lits.push_back(std::make_pair(-lp, lc)); }
             dpmin = std::min(dpmin, dp);
@@ -1008,15 +1010,15 @@ bool solve(Cnf* c) {
         c->seen_conflict = false;
         LOG(2) << "After backjump, trail is " << c->print_trail();
 
-        // TODO(full run): keep track of all lps on mindp, add all to trail here
         // TODO(full run): rescale delta each time? or can we share epochs?
         
         // C9: learn
-        //lc = c->learn_clause(lp, r, mindp);
+        // This is slightly different than Knuth's C9 becuase we've incorporated
+        // "full runs". Clause learning and delta rescaling would normally
+        // happen here. Look for them right before step C8 instead.
         for (const auto& tl : trail_lits) {
             c->add_to_trail(tl.first, tl.second);
         }
-        c->heap.rescale_delta();
         
         LOG(3) << "After clause install, trail is " << c->print_trail();
     }
