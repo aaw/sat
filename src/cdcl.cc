@@ -406,21 +406,14 @@ struct Cnf {
             lemma_indexes.push_back(l);
             int lbd = 0;
             for(size_t j = 0; j < cs; ++j) {
-                // TODO: artificially penalizing unset vars below, do a full
-                // run instead.
                 lit_t v = var(clauses[l+j].lit);
-                if (val[v] == UNSET) {
-                    lbds[d] = l; // could also do lbd++ here for bigger penalty.
-                } else {
-                    lbds[lev[v]] = l;
-                }
+                CHECK(val[v] != UNSET) << "reduce_db called without full run.";
+                lbds[lev[v]] = l;
             }
             for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == l) ++lbd; }
             clauses[W1(l)].lit = lbd;
-            lbd = std::min(lbd, d+1);  // only needed b/c not doing full run
-            // TODO: reinstate once we're doing a full run.
-            //CHECK(lbd > 0 && lbd <= d+1) 
-            //    << "Computed impossible LBD: " << lbd << " (d = " << d << ")";
+            CHECK(lbd > 0 && lbd <= d+1) 
+                << "Computed impossible LBD: " << lbd << " (d = " << d << ")";
             hist[lbd]++;
         });
 
@@ -612,9 +605,12 @@ bool solve(Cnf* c) {
                 c->full_runs == 0) {
                 LOG(1) << "Clause database too big, scheduling a full run.";
                 c->full_runs = 1;
-            } else if (c->nlemmas >= kMaxLemmas) {
-                LOG(1) << "Reducing clause database at epoch " << c->epoch;
+            } else if (c->nlemmas >= kMaxLemmas &&
+                       c->f == static_cast<size_t>(c->nvars)) {
+                LOG(1) << "Reducing clause database at epoch " << c->epoch
+                       << ", starting size = " << c->nlemmas;
                 c->reduce_db();
+                LOG(1) << "Clause database reduced to size = " << c->nlemmas;
                 lc = clause_nil;  // disable subsume prev clause for next iter
                 INC("clause database purges");
             }
@@ -638,7 +634,8 @@ bool solve(Cnf* c) {
 
                 last_restart = c->epoch;
                 if (dp < c->d) {
-                    LOG(1) << "Restarting (level " << c->d << " -> " << dp << ")";
+                    LOG(1) << "Agility-driven restart at epoch " << c->epoch
+                           << " (level " << c->d << " -> " << dp << ")";
                     c->backjump(dp);
                     c->full_runs = kWarmUpRuns;
                     c->agility = kMinAgility * pow(2,32);
@@ -650,7 +647,7 @@ bool solve(Cnf* c) {
             } else if (!c->seen_conflict && 
                        c->fast_lbd > (c->slow_lbd / 100) * 125 &&
                        c->epoch - last_restart >= kMinRestartEpochs) {
-                LOG(1) << "restarting at epoch " << c->epoch;
+                LOG(1) << "LBD-driven restart at epoch " << c->epoch;
                 c->fast_lbd = (c->slow_lbd / 100) * 125;
                 last_restart = c->epoch;
                 c->backjump(0);
@@ -662,7 +659,7 @@ bool solve(Cnf* c) {
             if (c->seen_conflict && c->f == static_cast<size_t>(c->nvars)) {
                 INC("full runs");
                 --c->full_runs;
-                LOG(1) << "full run finished, " << c->full_runs << " left.";
+                LOG(1) << "Full run done. " << c->full_runs << " runs left.";
                 c->backjump(0);
                 c->seen_conflict = false;
             }            
