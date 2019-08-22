@@ -44,6 +44,7 @@ constexpr float kPeekProb = 0.02;
 // TODO: tie lower values with lower agility or only flip when agility is high
 constexpr float kPhaseFlipProb = 0.02;  
 constexpr float kTrivialClauseMultiplier = 2.0;
+constexpr size_t kWarmUpRuns = 1;  // number of full runs to do after restarts.
 
 enum State {
     UNSET = 0,
@@ -147,7 +148,7 @@ struct Cnf {
         slow_lbd(1 << 24),
         nlemmas(0),
         d(0),
-        full_runs(1),
+        full_runs(kWarmUpRuns),
         confp(0),
         seen_conflict(false) {
     }
@@ -606,7 +607,12 @@ bool solve(Cnf* c) {
                 return true;
             }
 
-            if (c->nlemmas >= kMaxLemmas) {
+            if (c->nlemmas >= kMaxLemmas &&
+                c->f < static_cast<size_t>(c->nvars) &&
+                c->full_runs == 0) {
+                LOG(1) << "Clause database too big, scheduling a full run.";
+                c->full_runs = 1;
+            } else if (c->nlemmas >= kMaxLemmas) {
                 LOG(1) << "Reducing clause database at epoch " << c->epoch;
                 c->reduce_db();
                 lc = clause_nil;  // disable subsume prev clause for next iter
@@ -634,26 +640,29 @@ bool solve(Cnf* c) {
                 if (dp < c->d) {
                     LOG(1) << "Restarting (level " << c->d << " -> " << dp << ")";
                     c->backjump(dp);
+                    c->full_runs = kWarmUpRuns;
                     c->agility = kMinAgility * pow(2,32);
                     INC("agility restarts");
                     continue;
                 } else {
                     INC("aborted agility restarts");
                 }
-            } else if (c->fast_lbd > (c->slow_lbd / 100) * 125 &&
+            } else if (!c->seen_conflict && 
+                       c->fast_lbd > (c->slow_lbd / 100) * 125 &&
                        c->epoch - last_restart >= kMinRestartEpochs) {
                 LOG(1) << "restarting at epoch " << c->epoch;
                 c->fast_lbd = (c->slow_lbd / 100) * 125;
                 last_restart = c->epoch;
                 c->backjump(0);
-                c->seen_conflict = false;
+                c->full_runs = kWarmUpRuns;
                 INC("lbd restarts");
                 continue;
             }
 
             if (c->seen_conflict && c->f == static_cast<size_t>(c->nvars)) {
-                LOG(1) << "full run finished, " << c->full_runs << " left.";
+                INC("full runs");
                 --c->full_runs;
+                LOG(1) << "full run finished, " << c->full_runs << " left.";
                 c->backjump(0);
                 c->seen_conflict = false;
             }            
@@ -818,19 +827,19 @@ bool solve(Cnf* c) {
         
         if (c->full_runs > 0) {
             // Doing a full run so keep propagating.
-            LOG(1) << "doing a full run, continuing from conflict";
+            LOG(2) << "doing a full run, continuing from conflict";
             continue;
         }
 
         lit_t dpmin = c->d;
         std::vector<std::pair<lit_t, clause_t>> trail_lits;
         while (c->confp > 0) {
-            LOG(1) << "starting loop with confp = " << c->confp;
+            LOG(2) << "starting loop with confp = " << c->confp;
             w = c->conflict[c->confp];
             c->d = c->confp;
             // decrement c->confp for the next round.
             while (c->confp > 0 && c->conflict[--c->confp] == clause_nil);
-            LOG(1) << "decremented confp to " << c->confp << " for next round";
+            LOG(2) << "decremented confp to " << c->confp << " for next round";
         
             // (*) Not mentioned in Knuth's description, but we need to make sure
             // that the rightmost literal on the trail contained in the clause is
