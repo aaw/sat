@@ -45,6 +45,9 @@ constexpr float kPeekProb = 0.02;
 constexpr float kPhaseFlipProb = 0.02;  
 constexpr float kTrivialClauseMultiplier = 2.0;
 constexpr size_t kWarmUpRuns = 1;  // number of full runs to do after restarts.
+// Knuth's psi parameter for restarts. Increasing it increases the likelihood
+// of a restart.
+constexpr float kRestartSensitivity = 1/6.0;
 
 enum State {
     UNSET = 0,
@@ -56,6 +59,30 @@ union clause_bundle_t {
     lit_t lit;
     clause_t size;
     clause_t ptr;
+};
+
+struct restart_sequence {
+    restart_sequence(float psi) :
+        u(1), v(1), m(1), total(0), theta(1), psi(psi) {}
+
+    bool should_restart(uint32_t agility) {
+        total += 1;
+        if (total < m) return false;
+        m += v;
+        if ((u & -u) == v) {
+            ++u;
+            v = 1;
+            theta = psi * (1L << 32);
+        } else {
+            v *= 2;
+            theta += theta >> 4;
+        }
+        return agility <= theta;
+    }
+
+    uint32_t u, v, m, total;
+    uint64_t theta;
+    float psi;
 };
 
 // Flips a coin that lands on heads with probability p. Return true iff heads.
@@ -121,6 +148,8 @@ struct Cnf {
     lit_t confp; // ptr to most recent entry in conflict array.
 
     bool seen_conflict; // have we seen a conflict in this search path?
+
+    restart_sequence agility_seq;
     
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
@@ -150,7 +179,8 @@ struct Cnf {
         d(0),
         full_runs(kWarmUpRuns),
         confp(0),
-        seen_conflict(false) {
+        seen_conflict(false),
+        agility_seq(kRestartSensitivity) {
     }
 
     // Is the literal x false under the current assignment?
@@ -615,9 +645,11 @@ bool solve(Cnf* c) {
                 INC("clause database purges");
             }
 
-            if (!c->seen_conflict &&  // don't restart while there's a conflict
+            /*if (!c->seen_conflict &&  // don't restart while there's a conflict
                 c->agility / pow(2,32) < kMinAgility &&
-                c->epoch - last_restart >= kMinRestartEpochs) {
+                c->epoch - last_restart >= kMinRestartEpochs) {*/
+            if (!c->seen_conflict &&
+                c->agility_seq.should_restart(c->agility)) {
                 
                 // Find unset var of max activity.
                 lit_t vmax = c->heap.peek();
@@ -644,7 +676,7 @@ bool solve(Cnf* c) {
                 } else {
                     INC("aborted agility restarts");
                 }
-            } else if (!c->seen_conflict && 
+            } else if (false && !c->seen_conflict && 
                        c->fast_lbd > (c->slow_lbd / 100) * 125 &&
                        c->epoch - last_restart >= kMinRestartEpochs) {
                 LOG(1) << "LBD-driven restart at epoch " << c->epoch;
