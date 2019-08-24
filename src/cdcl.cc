@@ -38,8 +38,7 @@ constexpr int kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
 constexpr size_t kMinPurgedClauseSize = 4;  
 constexpr size_t kMaxLemmas = 10000;
-constexpr float kMinAgility = 0.18;
-constexpr size_t kMinRestartEpochs = 100;
+constexpr size_t kMaxLemmasDelta = 100;
 constexpr float kPeekProb = 0.02;
 // TODO: tie lower values with lower agility or only flip when agility is high
 constexpr float kPhaseFlipProb = 0.02;  
@@ -63,11 +62,16 @@ union clause_bundle_t {
 
 struct restart_sequence {
     restart_sequence(float psi) :
-        u(1), v(1), m(1), total(0), theta(1), psi(psi) {}
+        u(1), v(1), m(1), M(0), theta(1), psi(psi) {}
 
     bool should_restart(uint32_t agility) {
-        total += 1;
-        if (total < m) return false;
+        // On the kth execution of step C5, Knuth compares M, the total number
+        // of learned clauses, to M_k, the sum of the first k terms of the
+        // "reluctant doubling" sequence. We take a shortcut here and, instead
+        // of tracking M directly, just approximate it with the number of times
+        // we've called this function in step C5.
+        M += 1;
+        if (M < m) return false;
         m += v;
         if ((u & -u) == v) {
             ++u;
@@ -80,7 +84,7 @@ struct restart_sequence {
         return agility <= theta;
     }
 
-    uint32_t u, v, m, total;
+    uint32_t u, v, m, M;
     uint64_t theta;
     float psi;
 };
@@ -135,8 +139,6 @@ struct Cnf {
 
     uint32_t agility;
 
-    uint32_t fast_lbd, slow_lbd;
-    
     size_t nlemmas;
 
     clause_t lemma_start;  // clause index of first learned clause.
@@ -150,6 +152,8 @@ struct Cnf {
     bool seen_conflict; // have we seen a conflict in this search path?
 
     restart_sequence agility_seq;
+
+    size_t npurges;
     
     Cnf(lit_t nvars, clause_t nclauses) :
         val(nvars + 1, UNSET),
@@ -157,7 +161,6 @@ struct Cnf {
         oval(nvars + 1, FALSE),
         stamp(nvars + 1, 0),
         lstamp(nvars + 1, 0),
-        lbdstamp(nvars + 1, 0),
         conflict(nvars + 1, clause_nil),
         heap(nvars),
         trail(nvars + 1, -1),
@@ -173,14 +176,13 @@ struct Cnf {
         nvars(nvars),
         epoch(0),
         agility(0),
-        fast_lbd(1 << 24),
-        slow_lbd(1 << 24),
         nlemmas(0),
         d(0),
         full_runs(kWarmUpRuns),
         confp(0),
         seen_conflict(false),
-        agility_seq(kRestartSensitivity) {
+        agility_seq(kRestartSensitivity),
+        npurges(0) {
     }
 
     // Is the literal x false under the current assignment?
@@ -616,8 +618,6 @@ Cnf parse(const char* filename) {
 bool solve(Cnf* c) {
     Timer t("solve");
 
-    unsigned long last_restart = 0;
-    
     clause_t lc = clause_nil;  // The most recent learned clause
     while (true) {
         // (C2)
@@ -635,19 +635,18 @@ bool solve(Cnf* c) {
                 c->full_runs == 0) {
                 LOG(1) << "Clause database too big, scheduling a full run.";
                 c->full_runs = 1;
-            } else if (c->nlemmas >= kMaxLemmas &&
+            } else if (c->nlemmas >=
+                       kMaxLemmas + c->npurges * kMaxLemmasDelta &&
                        c->f == static_cast<size_t>(c->nvars)) {
                 LOG(1) << "Reducing clause database at epoch " << c->epoch
                        << ", starting size = " << c->nlemmas;
                 c->reduce_db();
+                c->npurges++;
                 LOG(1) << "Clause database reduced to size = " << c->nlemmas;
                 lc = clause_nil;  // disable subsume prev clause for next iter
                 INC("clause database purges");
             }
 
-            /*if (!c->seen_conflict &&  // don't restart while there's a conflict
-                c->agility / pow(2,32) < kMinAgility &&
-                c->epoch - last_restart >= kMinRestartEpochs) {*/
             if (!c->seen_conflict &&
                 c->agility_seq.should_restart(c->agility)) {
                 
@@ -664,28 +663,16 @@ bool solve(Cnf* c) {
                 while(dp < c->d &&
                       c->heap.act(c->trail[c->di[dp]]) >= amax) ++dp;
 
-                last_restart = c->epoch;
                 if (dp < c->d) {
                     LOG(1) << "Agility-driven restart at epoch " << c->epoch
                            << " (level " << c->d << " -> " << dp << ")";
                     c->backjump(dp);
                     c->full_runs = kWarmUpRuns;
-                    c->agility = kMinAgility * pow(2,32);
                     INC("agility restarts");
                     continue;
                 } else {
                     INC("aborted agility restarts");
                 }
-            } else if (false && !c->seen_conflict && 
-                       c->fast_lbd > (c->slow_lbd / 100) * 125 &&
-                       c->epoch - last_restart >= kMinRestartEpochs) {
-                LOG(1) << "LBD-driven restart at epoch " << c->epoch;
-                c->fast_lbd = (c->slow_lbd / 100) * 125;
-                last_restart = c->epoch;
-                c->backjump(0);
-                c->full_runs = kWarmUpRuns;
-                INC("lbd restarts");
-                continue;
             }
 
             if (c->seen_conflict && c->f == static_cast<size_t>(c->nvars)) {
@@ -955,19 +942,6 @@ bool solve(Cnf* c) {
             
             lit_t lp = c->trail[t];
             while (c->stamp[var(lp)] != c->epoch) { t--; lp = c->trail[t]; }
-            
-            // Update slow/fast lbd averages.
-            int lbd = 1;  // lp is on a different level than other vars in clause.
-            for (size_t i = 0; i < r; ++i) {
-                c->lbdstamp[c->lev[var(c->b[i])]] = c->epoch;
-            }
-            for (size_t i = 1; i <= static_cast<size_t>(dp); ++i) {
-                if (c->lbdstamp[i] == c->epoch) ++lbd;
-            }
-            c->fast_lbd -= c->fast_lbd >>  5;
-            c->fast_lbd += lbd << 15;
-            c->slow_lbd -= c->slow_lbd >> 15;
-            c->slow_lbd += lbd <<  5;
             
             // Remove redundant literals from clause
             // TODO: move this down so that we only process learned clause once? But
