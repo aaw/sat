@@ -62,9 +62,15 @@ union clause_bundle_t {
 
 struct restart_sequence {
     restart_sequence(float psi) :
-        u(1), v(1), m(1), M(0), theta(1), psi(psi) {}
+        u(1), v(1), m(1), M(0), agility(0), theta(1), psi(psi) {}
 
-    bool should_restart(uint32_t agility) {
+    void bump(bool phase_change) {
+        agility -= (agility >> 13);
+        if (phase_change) agility += (1 << 19);
+        INC("phase changes", phase_change ? 0 : 1);
+    }
+    
+    bool should_restart() {
         // On the kth execution of step C5, Knuth compares M, the total number
         // of learned clauses, to M_k, the sum of the first k terms of the
         // "reluctant doubling" sequence. We take a shortcut here and, instead
@@ -84,7 +90,7 @@ struct restart_sequence {
         return agility <= theta;
     }
 
-    uint32_t u, v, m, M;
+    uint32_t u, v, m, M, agility;
     uint64_t theta;
     float psi;
 };
@@ -137,8 +143,6 @@ struct Cnf {
     // TODO: explain epoch values here, why they're bumped by 3 each time.
     unsigned long epoch;
 
-    uint32_t agility;
-
     size_t nlemmas;
 
     clause_t lemma_start;  // clause index of first learned clause.
@@ -151,7 +155,7 @@ struct Cnf {
 
     bool seen_conflict; // have we seen a conflict in this search path?
 
-    restart_sequence agility_seq;
+    restart_sequence agility;
 
     size_t npurges;
     
@@ -175,13 +179,12 @@ struct Cnf {
         nclauses(nclauses),
         nvars(nvars),
         epoch(0),
-        agility(0),
         nlemmas(0),
         d(0),
         full_runs(kWarmUpRuns),
         confp(0),
         seen_conflict(false),
-        agility_seq(kRestartSensitivity),
+        agility(kRestartSensitivity),
         npurges(0) {
     }
 
@@ -341,12 +344,7 @@ struct Cnf {
         val[k] = l < 0 ? FALSE : TRUE;
         lev[k] = d;
         reason[k] = r;
-        agility -= (agility >> 13);
-        INC("phase changes", oval[k] == val[k] ? 0 : 1);
-        if (oval[k] != val[k]) agility += (1 << 19);
-        LOG_EVERY_N(1, 10000)
-            << "epoch = " << epoch << ", agility@" << f << ": "
-            << agility / pow(2,32);        
+        agility.bump(oval[k] == val[k]);
     }
 
     void backjump(lit_t level) {
@@ -630,7 +628,7 @@ bool solve(Cnf* c) {
                 return true;
             }
 
-            if (c->nlemmas >= kMaxLemmas &&
+            if (c->nlemmas >= kMaxLemmas + c->npurges * kMaxLemmasDelta &&
                 c->f < static_cast<size_t>(c->nvars) &&
                 c->full_runs == 0) {
                 LOG(1) << "Clause database too big, scheduling a full run.";
@@ -647,9 +645,7 @@ bool solve(Cnf* c) {
                 INC("clause database purges");
             }
 
-            if (!c->seen_conflict &&
-                c->agility_seq.should_restart(c->agility)) {
-                
+            if (!c->seen_conflict && c->agility.should_restart()) {
                 // Find unset var of max activity.
                 lit_t vmax = c->heap.peek();
                 while (c->val[vmax] != UNSET) {
