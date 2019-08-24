@@ -645,7 +645,9 @@ bool solve(Cnf* c) {
                 INC("clause database purges");
             }
 
-            if (!c->seen_conflict && c->agility.should_restart()) {
+            if (c->agility.should_restart() &&
+                !c->seen_conflict &&  // TODO: !seen_conflict && full_runs == 0 redundant?
+                c->full_runs == 0) {
                 // Find unset var of max activity.
                 lit_t vmax = c->heap.peek();
                 while (c->val[vmax] != UNSET) {
