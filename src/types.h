@@ -2,6 +2,7 @@
 #define __TYPES_H__
 
 #include <cassert>
+#include <cstring>
 #include <limits>
 
 // TODO: do this lit/clause size ifdef below better
@@ -46,6 +47,13 @@ enum ReturnValue {
     UNKNOWN = 0,
     SATISFIABLE = 10,
     UNSATISFIABLE = 20
+};
+
+// Comparison functor for using const char* in maps
+struct cstrcmp {
+    bool operator()(const char* x, const char* y) const {
+        return std::strcmp(x, y) < 0;
+    }
 };
 
 #endif  // __TYPES_H__

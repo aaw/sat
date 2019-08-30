@@ -34,19 +34,30 @@
 #define W0(c) (c-2)
 #define W1(c) (c-3)
 
-constexpr int kHeaderSize = 3;
+constexpr clause_t kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
 constexpr size_t kMinPurgedClauseSize = 4;  
-constexpr size_t kMaxLemmas = 10000;
-constexpr size_t kMaxLemmasDelta = 100;
+constexpr size_t kMaxLemmas = 1000; //10000;
+constexpr size_t kMaxLemmasDelta = 100; //100;
+constexpr float kPartialRestartProb = 1.0; 
 constexpr float kPeekProb = 0.02;
 // TODO: tie lower values with lower agility or only flip when agility is high
 constexpr float kPhaseFlipProb = 0.02;  
-constexpr float kTrivialClauseMultiplier = 2.0;
-constexpr size_t kWarmUpRuns = 1;  // number of full runs to do after restarts.
+constexpr float kTrivialClauseMultiplier = 1.5;
+constexpr size_t kWarmUpRuns = 0;  // number of full runs to do after restarts.
 // Knuth's psi parameter for restarts. Increasing it increases the likelihood
 // of a restart.
 constexpr float kRestartSensitivity = 1/6.0;
+
+constexpr bool kSortedWatchlists = false;
+
+constexpr bool kEx257 = true;  // Redundant literal detection
+constexpr bool kEx266 = true;  // Random selection of decisions
+constexpr bool kEx268 = true;  // Lazy level 0 false lit removal
+constexpr bool kEx269 = true;  // Trivial clause learning
+constexpr bool kEx270 = true;  // On-the-fly subsumption
+constexpr bool kEx271 = true;  // Predecessor subsumption
+
 
 enum State {
     UNSET = 0,
@@ -69,7 +80,7 @@ struct restart_sequence {
         if (phase_change) agility += (1 << 19);
         INC("phase changes", phase_change ? 0 : 1);
     }
-    
+
     bool should_restart() {
         // On the kth execution of step C5, Knuth compares M, the total number
         // of learned clauses, to M_k, the sum of the first k terms of the
@@ -212,7 +223,7 @@ struct Cnf {
     }
 
     void for_each_clause_helper(clause_t start,
-                                std::function<void(lit_t,clause_t)> func) {
+                                std::function<void(clause_t,clause_t)> func) {
         clause_t ts = 0;
         clause_t os = 0;
         for(clause_t i = start - 1; i < clauses.size();
@@ -227,26 +238,26 @@ struct Cnf {
         }
     }
 
-    void for_each_clause(std::function<void(lit_t,clause_t)> func) {
+    void for_each_clause(std::function<void(clause_t, clause_t)> func) {
         for_each_clause_helper(kHeaderSize, func);
     }
 
-    void for_each_lemma(std::function<void(lit_t,clause_t)> func) {
+    void for_each_lemma(std::function<void(clause_t, clause_t)> func) {
         for_each_clause_helper(lemma_start, func);
     }    
     
     std::string dump_clauses() {
         std::ostringstream oss;
-        for_each_clause([&](lit_t l, clause_t cs) {
-            oss << print_clause(l) << " "; 
+        for_each_clause([&](clause_t c, clause_t cs) {
+            oss << print_clause(c) << " "; 
         });
         return oss.str();
     }
 
     std::string dump_lemmas() {
         std::ostringstream oss;
-        for_each_lemma([&](lit_t l, clause_t cs) {
-            oss << print_clause(l) << " ";
+        for_each_lemma([&](clause_t c, clause_t cs) {
+            oss << print_clause(c) << " ";
         });
         return oss.str();
     }    
@@ -270,7 +281,6 @@ struct Cnf {
     }
 
     bool redundant(lit_t l) {
-        Timer t("redundant variable elimination");
         lit_t k = var(l);
         clause_t r = reason[k];
         if (r == clause_nil) {
@@ -294,11 +304,27 @@ struct Cnf {
         return true;
     }
 
+    void add_to_watchlist(clause_t cindex, lit_t lit) {
+        if (!kSortedWatchlists) {
+            clauses[cindex-(clauses[cindex].lit == lit ? 2 : 3)].ptr =
+                watch[lit];
+            watch[lit] = cindex;
+        } else {
+            size_t cs = clauses[cindex-1].size;
+            clause_t* x = &watch[lit];
+            // TODO: try sorting by LBD
+            while (*x != clause_nil && clauses[*x-1].size < cs) {
+                x = &clauses[*x-(clauses[*x].lit == lit ? 2 : 3)].ptr;
+            }
+            clauses[cindex-(clauses[cindex].lit == lit ? 2 : 3)].ptr = *x;
+            *x = cindex;
+        }
+    }
+    
     // For a clause c = l_0 l_1 ... l_k at index cindex in the clauses array,
     // removes either l_0 (if offset is 0) or l_1 (if offset is 1) from its
     // watchlist. No-op if k == 0.
     void remove_from_watchlist(clause_t cindex, lit_t offset) {
-        Timer t("remove from watchlist");
         if (offset == 1 && clauses[cindex-1].size == 1) return;
         lit_t l = cindex + offset;
         clause_t* x = &watch[clauses[l].lit];
@@ -314,7 +340,6 @@ struct Cnf {
 
     // t: if non-null, will be set to the max tloc of any var in the clause.
     void blit(clause_t c, size_t* r, lit_t* dp, size_t* q, lit_t* t) {
-        Timer timer("blit");
         if (t != nullptr) *t = tloc[var(clauses[c].lit)];
         for(size_t j = 1; j < clauses[c-1].size; ++j) {
             lit_t m = clauses[c+j].lit;
@@ -348,7 +373,6 @@ struct Cnf {
     }
 
     void backjump(lit_t level) {
-        Timer t("backjump");
         while (f > di[level+1]) {
             f--;
             lit_t k = var(trail[f]);
@@ -375,16 +399,17 @@ struct Cnf {
         LOG(3) << "adding a clause of size " << r+1;
         clause_t lc = clauses.size();
         clauses.push_back({-lp});
-        watch[-lp] = lc;
-        clauses.push_back({lit_nil}); // to be set in else below
+        add_to_watchlist(lc, -lp); // watch[-lp] = lc;
+        clauses.push_back({lit_nil}); // clauses[lc+1], to be set in else below
         bool found_watch = false;
         for (size_t j = 0; j < r; ++j) {
             if (found_watch || lev[var(b[j])] < dp) {
                 clauses.push_back({-b[j]});
             } else {
                 clauses[lc+1].lit = -b[j];
-                clauses[lc-3].ptr = watch[-b[j]];
-                watch[-b[j]] = lc;
+                //clauses[lc-3].ptr = watch[-b[j]];
+                // watch[-b[j]] = lc;
+                add_to_watchlist(lc, -b[j]); 
                 found_watch = true;
             }
         }
@@ -398,7 +423,7 @@ struct Cnf {
         INC("learned clauses");
         return lc;
     }
-    
+
     // Use W1(c) as LBD, use W0(c) as pin.
     // First, pin everything used as a reason.
     // Next, iterate through all clauses, computing LBD and storing in W1
@@ -410,13 +435,13 @@ struct Cnf {
     // watchlist
     void reduce_db() {
         Timer t("clause database purges");
-        std::vector<lit_t> lbds(d+2, 0);
-        std::vector<lit_t> hist(d+2, 0);  // lbd histogram.
+        std::vector<clause_t> lbds(d+2, 0);
+        std::vector<clause_t> hist(d+2, 0);  // lbd histogram.
         size_t target_lemmas = nlemmas / 2;
 
-        for_each_lemma([&](lit_t l, clause_t cs) {        
-          clauses[W0(l)].lit = 2;
-          clauses[W1(l)].lit = 2;          
+        for_each_lemma([&](clause_t c, clause_t cs) {        
+          clauses[W0(c)].lit = 2;
+          clauses[W1(c)].lit = 2;          
         });
         
         // Pin learned clauses that are reasons. Note W0(c) <= 1 means pin;
@@ -432,26 +457,26 @@ struct Cnf {
         // Compute LBD, store in W1(c). Store lemma indexes so we can iterate
         // in reverse over clauses next.        
         std::vector<lit_t> lemma_indexes;
-        for_each_lemma([&](lit_t l, clause_t cs) {
-            lemma_indexes.push_back(l);
+        for_each_lemma([&](clause_t c, clause_t cs) {
+            lemma_indexes.push_back(c);
             int lbd = 0;
             for(size_t j = 0; j < cs; ++j) {
-                lit_t v = var(clauses[l+j].lit);
+                lit_t v = var(clauses[c+j].lit);
                 CHECK(val[v] != UNSET) << "reduce_db called without full run.";
-                lbds[lev[v]] = l;
+                lbds[lev[v]] = c;
             }
-            for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == l) ++lbd; }
-            clauses[W1(l)].lit = lbd;
+            for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == c) ++lbd; }
+            clauses[W1(c)].lit = lbd;
             CHECK(lbd > 0 && lbd <= d+1) 
                 << "Computed impossible LBD: " << lbd << " (d = " << d << ")";
             hist[lbd]++;
         });
 
         // Pin any small clauses.
-        for_each_lemma([&](lit_t l, clause_t cs) {
+        for_each_lemma([&](clause_t c, clause_t cs) {
            if (target_lemmas == 0) return; // continue
-           if (cs < kMinPurgedClauseSize && clauses[W0(l)].lit > 1) {
-               clauses[W0(l)].lit = 1;
+           if (cs < kMinPurgedClauseSize && clauses[W0(c)].lit > 1) {
+               clauses[W0(c)].lit = 1;
                --target_lemmas;
            }
         });
@@ -483,28 +508,26 @@ struct Cnf {
 
         // Compact clauses.
         lit_t tail = lemma_start;
-        for_each_lemma([&](lit_t l, clause_t cs) {        
-            if (clauses[W0(l)].lit > 1) return;  // continue
-            if (clauses[W0(l)].lit < 0) {
-                reason[var(clauses[W0(l)].lit)] = tail;
+        for_each_lemma([&](clause_t c, clause_t cs) {        
+            if (clauses[W0(c)].lit > 1) return;  // continue
+            if (clauses[W0(c)].lit < 0) {
+                reason[var(clauses[W0(c)].lit)] = tail;
             }
             WATCH1(tail) = 1;  // placeholder, anything != 0
             WATCH0(tail) = 1;  // placeholder, anything != 0
             SIZE(tail) = cs;
             for(size_t j = 0; j < cs; ++j) {
-                clauses[tail+j].lit = clauses[l+j].lit;
+                clauses[tail+j].lit = clauses[c+j].lit;
             }
             tail += cs + kHeaderSize;
         });
         clauses.resize(tail - kHeaderSize);
 
         // Recompute all watch lists
-        for_each_clause([&](lit_t l, clause_t cs) {
-            WATCH0(l) = watch[LIT0(l)];
-            watch[LIT0(l)] = l;
+        for_each_clause([&](clause_t c, clause_t cs) {
             if (cs > 1) {
-                WATCH1(l) = watch[LIT1(l)];
-                watch[LIT1(l)] = l;
+                add_to_watchlist(c, clauses[c].lit);
+                add_to_watchlist(c, clauses[c+1].lit);
             }
         });
         nlemmas = target_lemmas;
@@ -574,7 +597,7 @@ Cnf parse(const char* filename) {
             UNSAT_EXIT;
         } else if (cs == 0 && nc == EOF) {
             // Clean up from (now unnecessary) c.clauses.push_backs above.
-            for(int i = 0; i < kHeaderSize; ++i) { c.clauses.pop_back(); }
+            for(clause_t i = 0; i < kHeaderSize; ++i) { c.clauses.pop_back(); }
         } else if (cs == 1) {
             lit_t x = c.clauses[c.clauses.size() - 1].lit;
             LOG(3) << "Found unit clause " << x;
@@ -588,17 +611,21 @@ Cnf parse(const char* filename) {
             c.tloc[v] = c.f;
             c.trail[c.f++] = x;
             c.lev[v] = 0;
-        }
+        } 
         if (!read_lit) break;
         CHECK(cs > 0);
         // Record the size of the clause in offset -1.
         c.clauses[start - 1].size = cs;
         // Set watch lists for non-unit clauses.
         if (cs > 1) {
+            c.add_to_watchlist(start, c.clauses[start].lit);
+            c.add_to_watchlist(start, c.clauses[start+1].lit);
+            /*
             c.clauses[start - 2].ptr = c.watch[c.clauses[start].lit];
             c.watch[c.clauses[start].lit] = start;
             c.clauses[start - 3].ptr = c.watch[c.clauses[start + 1].lit];
             c.watch[c.clauses[start + 1].lit] = start;
+            */
         }
     } while (nc != EOF);
 
@@ -615,14 +642,15 @@ Cnf parse(const char* filename) {
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer t("solve");
-
     clause_t lc = clause_nil;  // The most recent learned clause
+
     while (true) {
         // (C2)
         LOG(3) << "C2";
 
         if (c->f == c->g) {
             LOG(3) << "C5";
+            
             // C5
             if (!c->seen_conflict && c->f == static_cast<size_t>(c->nvars)) {
                 return true;
@@ -648,18 +676,20 @@ bool solve(Cnf* c) {
             if (c->agility.should_restart() &&
                 !c->seen_conflict &&  // TODO: !seen_conflict && full_runs == 0 redundant?
                 c->full_runs == 0) {
-                // Find unset var of max activity.
-                lit_t vmax = c->heap.peek();
-                while (c->val[vmax] != UNSET) {
-                    c->heap.delete_max();
-                    vmax = c->heap.peek();
-                }
-                double amax = c->heap.act(vmax);
-
                 // Find lowest level where choices will substantially differ.
                 lit_t dp = 0;
-                while(dp < c->d &&
-                      c->heap.act(c->trail[c->di[dp]]) >= amax) ++dp;
+                if (flip(kPartialRestartProb)) {
+                    // Find unset var of max activity.
+                    lit_t vmax = c->heap.peek();
+                    while (c->val[vmax] != UNSET) {
+                        c->heap.delete_max();
+                        vmax = c->heap.peek();
+                    }
+                    double amax = c->heap.act(vmax);
+
+                    while(dp < c->d &&
+                          c->heap.act(c->trail[c->di[dp]]) >= amax) ++dp;
+                }
 
                 if (dp < c->d) {
                     LOG(1) << "Agility-driven restart at epoch " << c->epoch
@@ -686,10 +716,12 @@ bool solve(Cnf* c) {
             
             // C6
             INC("decisions");
-            lit_t k = flip(kPeekProb) ? c->heap.rpeek() : c->heap.delete_max();
+            lit_t k = (kEx266 && flip(kPeekProb)) ?
+                c->heap.rpeek() : c->heap.delete_max();
             while (c->val[k] != UNSET) {
                 LOG(3) << k << " set, rolling again";
-                k = flip(kPeekProb) ? c->heap.rpeek() : c->heap.delete_max();
+                k = (kEx266 && flip(kPeekProb)) ?
+                    c->heap.rpeek() : c->heap.delete_max();
             }
             CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
             LOG(3) << "Decided on variable " << k;
@@ -729,7 +761,8 @@ bool solve(Cnf* c) {
                     // If we see a false literal from level zero, go ahead and
                     // and remove it from the clause now by replacing it with a
                     // tombstone (Ex. 268)
-                    if (c->is_false(c->clauses[w + i].lit) &&
+                    if (kEx268 &&
+                        c->is_false(c->clauses[w + i].lit) &&
                         c->lev[var(c->clauses[w + i].lit)] == 0) {
                         c->clauses[w + i].lit = lit_nil;
                         tombstones = true;
@@ -747,16 +780,16 @@ bool solve(Cnf* c) {
                         LOG(4) << "Before putting " << c->print_clause(w)
                                << " on " << ln << "'s watch list: "
                                << c->print_watchlist(ln);
-                        size_t tmp = c->watch[ln];
+                        c->add_to_watchlist(w, ln);
+                        /*size_t tmp = c->watch[ln];
                         c->watch[ln] = w;
-                        c->clauses[w - 2].ptr = tmp;
+                        c->clauses[w - 2].ptr = tmp;*/
                         break;
                     }
                 }
                 // Compact any tombstones we just added to the clause
                 // TODO: rewrite this compaction
                 if (tombstones) {
-                    Timer t("tombstone compaction");
                     size_t j = 2;
                     for(size_t i = 2; i < c->clauses[w-1].size; ++i) {
                         if (c->clauses[w+i].lit != lit_nil) {
@@ -846,7 +879,8 @@ bool solve(Cnf* c) {
         }
 
         lit_t dpmin = c->d;
-        std::vector<std::pair<lit_t, clause_t>> trail_lits;
+        // TODO: add this to C with fixed storge
+        std::vector<std::pair<lit_t, clause_t>> trail_lits; 
         while (c->confp > 0) {
             LOG(2) << "starting loop with confp = " << c->confp;
             w = c->conflict[c->confp];
@@ -909,9 +943,9 @@ bool solve(Cnf* c) {
                         LOG(3) << "Reason for " << l << ": " << c->print_clause(rc);
                         c->blit(rc, &r, &dp, &q, nullptr);                    
                         
-                        if (q + r + 1 < c->clauses[rc-1].size && q > 0) {
+                        if (kEx270 &&
+                            q + r + 1 < c->clauses[rc-1].size && q > 0) {
                             // On-the-fly subsumption.
-                            Timer t("on-the-fly subsumption");
                             c->remove_from_watchlist(rc, 0);
                             lit_t li = lit_nil;
                             lit_t len = c->clauses[rc-1].size;
@@ -944,24 +978,25 @@ bool solve(Cnf* c) {
             // Remove redundant literals from clause
             // TODO: move this down so that we only process learned clause once? But
             // would also have to do subsumption check in single loop...
-            lit_t rr = 0;
-            for(size_t i = 0; i < r; ++i) {
-                if (c->lstamp[c->lev[var(c->b[i])]] == c->epoch + 1 &&
-                    c->redundant(-c->b[i])) {
-                    continue;
+            if (kEx257) {
+                lit_t rr = 0;
+                for(size_t i = 0; i < r; ++i) {
+                    if (c->lstamp[c->lev[var(c->b[i])]] == c->epoch + 1 &&
+                        c->redundant(-c->b[i])) {
+                        continue;
+                    }
+                    c->b[rr] = c->b[i];
+                    ++rr;
                 }
-                c->b[rr] = c->b[i];
-                ++rr;
+                INC("redundant literals", r - rr);
+                r = rr;
             }
-            INC("redundant literals", r - rr);
-            r = rr;
             
             bool subsumed = false;
-            if (lc != clause_nil) {
+            if (kEx271 && lc != clause_nil) {
                 // Ex. 271: Does this clause subsume the previous learned clause? If
                 // so, we can "just" overwrite it. lc is the most recent learned
                 // clause from a previous iteration.
-                Timer t("subsumed clauses");
                 lit_t q = r+1;
                 for (int j = c->clauses[lc-1].size - 1; q > 0 && j >= q; --j) {
                     lit_t v = var(c->clauses[lc+j].lit);
@@ -981,7 +1016,8 @@ bool solve(Cnf* c) {
                 }
             }
             
-            if (c->confp == 0 &&
+            if (kEx269 &&
+                c->confp == 0 &&
                 !subsumed &&
                 r > kTrivialClauseMultiplier * static_cast<size_t>(dp)) {
                 // Ex. 269: If dp is significantly smaller than the length of

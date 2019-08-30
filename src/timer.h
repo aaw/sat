@@ -7,10 +7,10 @@
 #include <ctime>
 #include <iomanip>
 #include <map>
-#include <string>
 #include <sstream>
 
 #include "logging.h"
+#include "types.h"
 
 extern bool FLAGS_time;
 
@@ -54,8 +54,8 @@ public:
         return oss.str();
     }
 private:
-    std::map<std::string, double> sums_;
-    std::map<std::string, uint64_t> counts_;
+    std::map<const char*, double, cstrcmp> sums_;
+    std::map<const char*, uint64_t, cstrcmp> counts_;
 };
 
 static Timers _timers;

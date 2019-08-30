@@ -7,6 +7,7 @@
 #include <string>
 
 #include "logging.h"
+#include "types.h"
 
 extern bool FLAGS_counters;
 
@@ -35,8 +36,8 @@ public:
     }
     
 private:
-    std::map<std::string, uint64_t> sums_;
-    std::map<std::string, uint64_t> counts_;
+    std::map<const char*, uint64_t, cstrcmp> sums_;
+    std::map<const char*, uint64_t, cstrcmp> counts_;
 };
 
 static Counters _counters;
