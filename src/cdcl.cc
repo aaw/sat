@@ -43,8 +43,9 @@ constexpr float kPartialRestartProb = 1.0;
 constexpr float kPeekProb = 0.02;
 // TODO: tie lower values with lower agility or only flip when agility is high
 constexpr float kPhaseFlipProb = 0.02;  
+constexpr float kOvalFlipOnRestartProb = 0.2;
 constexpr float kTrivialClauseMultiplier = 1.5;
-constexpr size_t kWarmUpRuns = 0;  // number of full runs to do after restarts.
+constexpr size_t kWarmUpRuns = 5;  // number of full runs to do after restarts.
 // Knuth's psi parameter for restarts. Increasing it increases the likelihood
 // of a restart.
 constexpr float kRestartSensitivity = 1/6.0;
@@ -691,6 +692,13 @@ bool solve(Cnf* c) {
                           c->heap.act(c->trail[c->di[dp]]) >= amax) ++dp;
                 }
 
+                if (flip(kOvalFlipOnRestartProb)) {
+                    for (int k = 1; k < c->nvars; ++k) {
+                        c->oval[var(k)] =
+                            (c->oval[var(k)] == FALSE) ? TRUE : FALSE;
+                    }
+                }
+                
                 if (dp < c->d) {
                     LOG(1) << "Agility-driven restart at epoch " << c->epoch
                            << " (level " << c->d << " -> " << dp << ")";
