@@ -439,10 +439,10 @@ struct Cnf {
         std::vector<clause_t> lbds(d+2, 0);
         std::vector<clause_t> hist(d+2, 0);  // lbd histogram.
         size_t target_lemmas = nlemmas / 2;
-
+        
         for_each_lemma([&](clause_t c, clause_t cs) {        
-          clauses[W0(c)].lit = 2;
-          clauses[W1(c)].lit = 2;          
+          clauses[W0(c)].lit = 2; // >= 2 == not pinned
+          clauses[W1(c)].lit = 2; // lbd
         });
         
         // Pin learned clauses that are reasons. Note W0(c) <= 1 means pin;
@@ -455,10 +455,18 @@ struct Cnf {
             if (target_lemmas > 0) --target_lemmas;
         }
 
-        // Compute LBD, store in W1(c). Store lemma indexes so we can iterate
-        // in reverse over clauses next.        
+        // Pin any small clauses. For anything else,
+        // Compute LBD, store in W1(c). Store lemma indexes of LBD candidates so
+        // we can iterate in reverse over clauses next.        
         std::vector<lit_t> lemma_indexes;
         for_each_lemma([&](clause_t c, clause_t cs) {
+            if (target_lemmas == 0) return; // continue
+            if (clauses[W0(c)].lit < 0) return; // continue, already pinned
+            if (cs < kMinPurgedClauseSize && clauses[W0(c)].lit > 1) {
+               clauses[W0(c)].lit = 1;
+               --target_lemmas;
+               return; // continue
+            }
             lemma_indexes.push_back(c);
             int lbd = 0;
             for(size_t j = 0; j < cs; ++j) {
@@ -473,27 +481,19 @@ struct Cnf {
             hist[lbd]++;
         });
 
-        // Pin any small clauses.
-        for_each_lemma([&](clause_t c, clause_t cs) {
-           if (target_lemmas == 0) return; // continue
-           if (cs < kMinPurgedClauseSize && clauses[W0(c)].lit > 1) {
-               clauses[W0(c)].lit = 1;
-               --target_lemmas;
-           }
-        });
-
         INC("LBD purge budget", target_lemmas);
         int max_lbd = 1;
         size_t total_lemmas = 0;
         while (max_lbd <= d && total_lemmas + hist[max_lbd] <= target_lemmas) {
-            total_lemmas += hist[max_lbd++];
+            total_lemmas += hist[max_lbd];
+            ++max_lbd;
         }
         int max_lbd_budget = target_lemmas - total_lemmas;
-
+        
         // Mark clauses we want to keep because of LBD.
         for(size_t i = 0; i < lemma_indexes.size(); ++i) {
             lit_t lc = lemma_indexes[lemma_indexes.size() - i - 1];
-            if (clauses[W0(lc)].lit < 0) continue; // already pinned
+            if (clauses[W0(lc)].lit < 2) continue; // already pinned
             if (clauses[W1(lc)].lit == max_lbd && max_lbd_budget > 0) {
                 clauses[W0(lc)].lit = 1;
                 --max_lbd_budget;
@@ -501,7 +501,7 @@ struct Cnf {
                 clauses[W0(lc)].lit = 1;
             }
         }
-
+        
         // Clear top-level watch pointers.
         for(size_t i = 0; i < watch_storage.size(); ++i) {
             watch_storage[i] = clause_nil;
@@ -509,6 +509,7 @@ struct Cnf {
 
         // Compact clauses.
         lit_t tail = lemma_start;
+        nlemmas = 0;
         for_each_lemma([&](clause_t c, clause_t cs) {        
             if (clauses[W0(c)].lit > 1) return;  // continue
             if (clauses[W0(c)].lit < 0) {
@@ -521,6 +522,7 @@ struct Cnf {
                 clauses[tail+j].lit = clauses[c+j].lit;
             }
             tail += cs + kHeaderSize;
+            ++nlemmas;
         });
         clauses.resize(tail - kHeaderSize);
 
@@ -531,7 +533,6 @@ struct Cnf {
                 add_to_watchlist(c, clauses[c+1].lit);
             }
         });
-        nlemmas = target_lemmas;
     }
 };
 
@@ -589,7 +590,6 @@ Cnf parse(const char* filename) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
             c.clauses.push_back({lit});
-            c.heap.bump(var(lit));
             read_lit = true;
         }
         int cs = c.clauses.size() - start;
@@ -689,7 +689,7 @@ bool solve(Cnf* c) {
                     double amax = c->heap.act(vmax);
 
                     while(dp < c->d &&
-                          c->heap.act(c->trail[c->di[dp]]) >= amax) ++dp;
+                          c->heap.act(c->trail[c->di[dp+1]]) >= amax) ++dp;
                 }
 
                 if (flip(kOvalFlipOnRestartProb)) {
@@ -698,7 +698,7 @@ bool solve(Cnf* c) {
                             (c->oval[var(k)] == FALSE) ? TRUE : FALSE;
                     }
                 }
-                
+
                 if (dp < c->d) {
                     LOG(1) << "Agility-driven restart at epoch " << c->epoch
                            << " (level " << c->d << " -> " << dp << ")";

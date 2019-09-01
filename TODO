@@ -1,3 +1,4 @@
+* trace through restart (d=0) and clause purging -- am I losing forced literals from learned unit clauses?
 * why is pigeonhole_20_20 performance worse with trivial clauses?
 * improve performance on waerden_5_5_177: -s1 and kPeekProb=0 solves it in < 1 s
 * with kPeekProb=1, ./bin/cdcl -s1 -t -c test/bf0432-007.cnf crashes. why?

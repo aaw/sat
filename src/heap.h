@@ -14,7 +14,7 @@
 
 extern unsigned long FLAGS_seed;
 
-constexpr double kRho = 0.95;
+constexpr double kRho = 0.96;
 const double kMaxScore = pow(10,100);
 
 // max heap, stores variables
@@ -88,6 +88,7 @@ struct Heap {
     void rescale_delta() {
         delta /= kRho;
         if (max_key >= kMaxScore) {
+            INC("rescale heap delta");
             LOG(2) << "Scaling all heap scores down.";
             for (size_t i = 1; i < key.size(); ++i) {
                 key[i] /= kMaxScore;
