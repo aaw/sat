@@ -49,6 +49,8 @@ constexpr size_t kWarmUpRuns = 5;  // number of full runs to do after restarts.
 // Knuth's psi parameter for restarts. Increasing it increases the likelihood
 // of a restart.
 constexpr float kRestartSensitivity = 1/6.0;
+// try to keep this fraction of clauses during a reduce_db call
+constexpr float kReduceDbFraction = 0.55;
 
 constexpr bool kSortedWatchlists = false;
 
@@ -438,7 +440,7 @@ struct Cnf {
         Timer t("clause database purges");
         std::vector<clause_t> lbds(d+2, 0);
         std::vector<clause_t> hist(d+2, 0);  // lbd histogram.
-        size_t target_lemmas = nlemmas / 2;
+        size_t target_lemmas = nlemmas * kReduceDbFraction;
         
         for_each_lemma([&](clause_t c, clause_t cs) {        
           clauses[W0(c)].lit = 2; // >= 2 == not pinned
