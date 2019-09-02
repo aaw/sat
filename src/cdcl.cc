@@ -44,11 +44,11 @@ constexpr float kPeekProb = 0.02;
 // TODO: tie lower values with lower agility or only flip when agility is high
 constexpr float kPhaseFlipProb = 0.02;  
 constexpr float kOvalFlipOnRestartProb = 0.2;
-constexpr float kTrivialClauseMultiplier = 1.5;
-constexpr size_t kWarmUpRuns = 5;  // number of full runs to do after restarts.
+constexpr float kTrivialClauseMultiplier = 1.6;
+constexpr size_t kWarmUpRuns = 10;  // number of full runs to do after restarts.
 // Knuth's psi parameter for restarts. Increasing it increases the likelihood
 // of a restart.
-constexpr float kRestartSensitivity = 1/6.0;
+constexpr float kRestartSensitivity = 1/5.0;
 // try to keep this fraction of clauses during a reduce_db call
 constexpr float kReduceDbFraction = 0.55;
 
