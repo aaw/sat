@@ -129,7 +129,7 @@ struct Cnf {
 
     std::vector<clause_t> conflict;  // first conflict clause by level.
     
-    Heap<4> heap;
+    Heap<8> heap;
 
     std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
     // inverse map from literal to trail index. -1 if there's no index in trail.
@@ -147,8 +147,10 @@ struct Cnf {
 
     std::vector<lit_t> b;  // temp storage for learned clause
 
-    clause_t nclauses;
-
+    // Used in full runs to keep track of all the lits + reasons at the
+    // highest backjump level;
+    std::vector<std::pair<lit_t, clause_t>> trail_lits;
+    
     lit_t nvars;
 
     // TODO: explain epoch values here, why they're bumped by 3 each time.
@@ -170,7 +172,7 @@ struct Cnf {
 
     size_t npurges;
     
-    Cnf(lit_t nvars, clause_t nclauses) :
+    Cnf(lit_t nvars) :
         val(nvars + 1, UNSET),
         lev(nvars + 1, -1),
         oval(nvars + 1, FALSE),
@@ -187,7 +189,7 @@ struct Cnf {
         watch_storage(2 * nvars + 1, clause_nil),
         watch(&watch_storage[nvars]),
         b(nvars, -1),
-        nclauses(nclauses),
+        trail_lits(nvars),
         nvars(nvars),
         epoch(0),
         nlemmas(0),
@@ -339,7 +341,7 @@ struct Cnf {
 
     // t: if non-null, will be set to the max tloc of any var in the clause.
     void blit(clause_t c, size_t* r, lit_t* dp, size_t* q, lit_t* t) {
-        if (t != nullptr) *t = tloc[var(L0(c))];
+        if (t != nullptr) *t = tloc[var(LIT0(c))];
         for(size_t j = 1; j < SIZE(c); ++j) {
             lit_t m = clauses[c+j].lit;
             lit_t v = var(m);
@@ -527,8 +529,8 @@ struct Cnf {
         // Recompute all watch lists
         for_each_clause([&](clause_t c, clause_t cs) {
             if (cs > 1) {
-                add_to_watchlist(c, L0(c));
-                add_to_watchlist(c, L1(c));
+                add_to_watchlist(c, LIT0(c));
+                add_to_watchlist(c, LIT1(c));
             }
         });
     }
@@ -569,8 +571,8 @@ Cnf parse(const char* filename) {
     CHECK_NO_OVERFLOW(lit_t, nvars);
     CHECK_NO_OVERFLOW(clause_t, nclauses);
     
-    // Initialize data structures now that we know nvars and nclauses.
-    Cnf c(static_cast<lit_t>(nvars), static_cast<clause_t>(nclauses));
+    // Initialize data structures now that we know nvars.
+    Cnf c(static_cast<lit_t>(nvars));
 
     // Read clauses until EOF.
     int lit;
@@ -885,8 +887,7 @@ bool solve(Cnf* c) {
         }
 
         lit_t dpmin = c->d;
-        // TODO: add this to C with fixed storge
-        std::vector<std::pair<lit_t, clause_t>> trail_lits; 
+        c->trail_lits.clear();
         while (c->confp > 0) {
             LOG(2) << "starting loop with confp = " << c->confp;
             w = c->conflict[c->confp];
@@ -1042,8 +1043,10 @@ bool solve(Cnf* c) {
             lc = c->learn_clause(lp, r, dp);
             c->heap.rescale_delta();
             
-            if (dp < dpmin) { trail_lits.clear(); }
-            if (dp <= dpmin) { trail_lits.push_back(std::make_pair(-lp, lc)); }
+            if (dp < dpmin) { c->trail_lits.clear(); }
+            if (dp <= dpmin) {
+                c->trail_lits.push_back(std::make_pair(-lp, lc));
+            }
             dpmin = std::min(dpmin, dp);
         }
             
@@ -1057,7 +1060,7 @@ bool solve(Cnf* c) {
         // This is slightly different than Knuth's C9 becuase we've incorporated
         // "full runs". Clause learning and delta rescaling would normally
         // happen here. Look for them right before step C8 instead.
-        for (const auto& tl : trail_lits) {
+        for (const auto& tl : c->trail_lits) {
             c->add_to_trail(tl.first, tl.second);
         }
         
