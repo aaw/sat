@@ -28,11 +28,8 @@
 #define WATCH0(c) (clauses[c-2].ptr)
 #define WATCH1(c) (clauses[c-3].ptr)
 
-#define L1(c) (c+1)
-#define L0(c) (c)
-#define CS(c) (c-1)
-#define W0(c) (c-2)
-#define W1(c) (c-3)
+#define PIN(c) (clauses[c-2].lit)
+#define LBD(c) (clauses[c-3].lit)
 
 constexpr clause_t kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
@@ -217,9 +214,9 @@ struct Cnf {
     std::string print_clause(clause_t c) const {
         std::ostringstream oss;
         oss << "(";
-        for (size_t i = 0; i < clauses[c-1].size; ++i) {
+        for (size_t i = 0; i < SIZE(c); ++i) {
             oss << clauses[c+i].lit;
-            if (i != clauses[c-1].size - 1) oss << " ";
+            if (i != SIZE(c) - 1) oss << " ";
         }
         oss << ")";
         return oss.str();
@@ -276,8 +273,7 @@ struct Cnf {
     std::string print_watchlist(lit_t l) {
         std::ostringstream oss;
         for (clause_t c = watch[l]; c != clause_nil;
-             clauses[c].lit == l ? 
-                 (c = clauses[W0(c)].ptr) : (c = clauses[W1(c)].ptr)) {
+             clauses[c].lit == l ? (c = WATCH0(c)) : (c = WATCH1(c))) {
             oss << "[" << c << "] " << print_clause(c) << " ";
         }
         return oss.str();
@@ -289,7 +285,7 @@ struct Cnf {
         if (r == clause_nil) {
             return false;
         }
-        for (size_t i = 0; i < clauses[r-1].size; ++i) {
+        for (size_t i = 0; i < SIZE(r); ++i) {
             lit_t a = clauses[r+i].lit;
             lit_t v = var(a);
             if (k == v) continue;
@@ -309,17 +305,17 @@ struct Cnf {
 
     void add_to_watchlist(clause_t cindex, lit_t lit) {
         if (!kSortedWatchlists) {
-            clauses[cindex-(clauses[cindex].lit == lit ? 2 : 3)].ptr =
+            (LIT0(cindex) == lit ? WATCH0(cindex) : WATCH1(cindex)) =
                 watch[lit];
             watch[lit] = cindex;
         } else {
-            size_t cs = clauses[cindex-1].size;
+            size_t cs = SIZE(cindex);
             clause_t* x = &watch[lit];
             // TODO: try sorting by LBD
-            while (*x != clause_nil && clauses[*x-1].size < cs) {
-                x = &clauses[*x-(clauses[*x].lit == lit ? 2 : 3)].ptr;
+            while (*x != clause_nil && SIZE(*x) < cs) {
+                x = &(LIT0(*x) == lit ? WATCH0(*x) : WATCH1(*x));
             }
-            clauses[cindex-(clauses[cindex].lit == lit ? 2 : 3)].ptr = *x;
+            (LIT0(cindex) == lit ? WATCH0(cindex) : WATCH1(cindex)) = *x;
             *x = cindex;
         }
     }
@@ -328,23 +324,23 @@ struct Cnf {
     // removes either l_0 (if offset is 0) or l_1 (if offset is 1) from its
     // watchlist. No-op if k == 0.
     void remove_from_watchlist(clause_t cindex, lit_t offset) {
-        if (offset == 1 && clauses[cindex-1].size == 1) return;
+        if (offset == 1 && SIZE(cindex) == 1) return;
         lit_t l = cindex + offset;
         clause_t* x = &watch[clauses[l].lit];
         while (*x != static_cast<clause_t>(cindex)) {
-            if (clauses[*x].lit == clauses[l].lit) {
-                x = (clause_t*)(&clauses[*x-2].ptr);
-            } else /* clauses[*x+1].lit == clauses[l].lit */ {
-                x = (clause_t*)(&clauses[*x-3].ptr);
+            if (LIT0(*x) == clauses[l].lit) {
+                x = (clause_t*)(&WATCH0(*x));
+            } else /* LIT1(*x) == clauses[l].lit */ {
+                x = (clause_t*)(&WATCH1(*x));
             }
         }
-        *x = clauses[*x-(clauses[*x].lit == clauses[l].lit ? 2 : 3)].ptr;
+        *x = LIT0(*x) == clauses[l].lit ? WATCH0(*x) : WATCH1(*x);
     }
 
     // t: if non-null, will be set to the max tloc of any var in the clause.
     void blit(clause_t c, size_t* r, lit_t* dp, size_t* q, lit_t* t) {
-        if (t != nullptr) *t = tloc[var(clauses[c].lit)];
-        for(size_t j = 1; j < clauses[c-1].size; ++j) {
+        if (t != nullptr) *t = tloc[var(L0(c))];
+        for(size_t j = 1; j < SIZE(c); ++j) {
             lit_t m = clauses[c+j].lit;
             lit_t v = var(m);
             if (t != nullptr && tloc[v] >= *t) *t = tloc[v];
@@ -442,18 +438,18 @@ struct Cnf {
         std::vector<clause_t> hist(d+2, 0);  // lbd histogram.
         size_t target_lemmas = nlemmas * kReduceDbFraction;
         
-        for_each_lemma([&](clause_t c, clause_t cs) {        
-          clauses[W0(c)].lit = 2; // >= 2 == not pinned
-          clauses[W1(c)].lit = 2; // lbd
+        for_each_lemma([&](clause_t c, clause_t cs) {
+          PIN(c) = 2; // >= 2 == not pinned
+          LBD(c) = 2;
         });
         
-        // Pin learned clauses that are reasons. Note W0(c) <= 1 means pin;
+        // Pin learned clauses that are reasons. Note PIN(c) <= 1 means pin;
         // 1 will never be a watch pointer because 1 < kHeaderSize.
         for (size_t i = 0; i < f; ++i) {
             lit_t v = var(trail[i]);
             if (reason[v] == clause_nil) continue;
             if (reason[v] < lemma_start) continue;
-            clauses[W0(reason[v])].lit = -v;
+            PIN(reason[v]) = -v;
             if (target_lemmas > 0) --target_lemmas;
         }
 
@@ -463,11 +459,11 @@ struct Cnf {
         std::vector<lit_t> lemma_indexes;
         for_each_lemma([&](clause_t c, clause_t cs) {
             if (target_lemmas == 0) return; // continue
-            if (clauses[W0(c)].lit < 0) return; // continue, already pinned
-            if (cs < kMinPurgedClauseSize && clauses[W0(c)].lit > 1) {
-               clauses[W0(c)].lit = 1;
-               --target_lemmas;
-               return; // continue
+            if (PIN(c) < 0) return; // continue, already pinned
+            if (cs < kMinPurgedClauseSize && PIN(c) > 1) {
+                PIN(c) = 1;
+                --target_lemmas;
+                return; // continue
             }
             lemma_indexes.push_back(c);
             int lbd = 0;
@@ -477,7 +473,7 @@ struct Cnf {
                 lbds[lev[v]] = c;
             }
             for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == c) ++lbd; }
-            clauses[W1(c)].lit = lbd;
+            LBD(c) = lbd;
             CHECK(lbd > 0 && lbd <= d+1) 
                 << "Computed impossible LBD: " << lbd << " (d = " << d << ")";
             hist[lbd]++;
@@ -495,12 +491,12 @@ struct Cnf {
         // Mark clauses we want to keep because of LBD.
         for(size_t i = 0; i < lemma_indexes.size(); ++i) {
             lit_t lc = lemma_indexes[lemma_indexes.size() - i - 1];
-            if (clauses[W0(lc)].lit < 2) continue; // already pinned
-            if (clauses[W1(lc)].lit == max_lbd && max_lbd_budget > 0) {
-                clauses[W0(lc)].lit = 1;
+            if (PIN(lc) < 2) continue; // already pinned
+            if (LBD(lc) == max_lbd && max_lbd_budget > 0) {
+                PIN(lc) = 1;
                 --max_lbd_budget;
-            } else if (clauses[W1(lc)].lit < max_lbd) {
-                clauses[W0(lc)].lit = 1;
+            } else if (LBD(lc) < max_lbd) {
+                PIN(lc) = 1;
             }
         }
         
@@ -513,12 +509,12 @@ struct Cnf {
         lit_t tail = lemma_start;
         nlemmas = 0;
         for_each_lemma([&](clause_t c, clause_t cs) {        
-            if (clauses[W0(c)].lit > 1) return;  // continue
-            if (clauses[W0(c)].lit < 0) {
-                reason[var(clauses[W0(c)].lit)] = tail;
+            if (PIN(c) > 1) return;  // continue
+            if (PIN(c) < 0) {
+                reason[var(PIN(c))] = tail;
             }
             WATCH1(tail) = 1;  // placeholder, anything != 0
-            WATCH0(tail) = 1;  // placeholder, anything != 0
+            PIN(tail) = 1;  // placeholder, anything != 0
             SIZE(tail) = cs;
             for(size_t j = 0; j < cs; ++j) {
                 clauses[tail+j].lit = clauses[c+j].lit;
@@ -531,8 +527,8 @@ struct Cnf {
         // Recompute all watch lists
         for_each_clause([&](clause_t c, clause_t cs) {
             if (cs > 1) {
-                add_to_watchlist(c, clauses[c].lit);
-                add_to_watchlist(c, clauses[c+1].lit);
+                add_to_watchlist(c, L0(c));
+                add_to_watchlist(c, L1(c));
             }
         });
     }
@@ -1057,8 +1053,6 @@ bool solve(Cnf* c) {
         c->seen_conflict = false;
         LOG(2) << "After backjump, trail is " << c->print_trail();
 
-        // TODO(full run): rescale delta each time? or can we share epochs?
-        
         // C9: learn
         // This is slightly different than Knuth's C9 becuase we've incorporated
         // "full runs". Clause learning and delta rescaling would normally
