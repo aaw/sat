@@ -4,8 +4,10 @@
 #include <iostream>
 #include <limits>
 #include <getopt.h>
+#include <string>
 
 #include "logging.h"
+#include "params.h"
 
 // To add and use a new flag:
 // (1) Declare it and its default below globally as FLAGS_xxx = default.
@@ -17,6 +19,7 @@ int FLAGS_verbosity = 0;
 unsigned long FLAGS_seed = 0;
 bool FLAGS_time = false;
 bool FLAGS_counters = false;
+std::string FLAGS_params = "";
 
 bool parse_flags(int argc, char* argv[], int* option_index) {
     *option_index = 0;
@@ -27,10 +30,11 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
         { "seed",           required_argument,  NULL, 's' },
         { "time",           no_argument,        NULL, 't' },
         { "counters",       no_argument,        NULL, 'c' },
+        { "params",         required_argument,  NULL, 'p' },
         { 0, 0, 0, 0}
     };
 
-    char optstring[] = "v:s:tc";
+    char optstring[] = "v:s:p:tc";
 
     while (1) {
         c = getopt_long(argc, argv, optstring, long_options, nullptr);
@@ -51,6 +55,9 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
             PRINT << "c Setting random seed = " << FLAGS_seed
                   << std::endl;
             break;
+        case 'p':
+            FLAGS_params = optarg;
+            Params::singleton().parse(FLAGS_params);
         case 't':
             PRINT << "c Timing enabled" << std::endl;
             FLAGS_time = true;

@@ -21,6 +21,7 @@
 #include "logging.h"
 #include "timer.h"
 #include "types.h"
+#include "params.h"
 
 #define LIT1(c) (clauses[c+1].lit)
 #define LIT0(c) (clauses[c].lit)
@@ -33,6 +34,9 @@
 
 constexpr clause_t kHeaderSize = 3;
 // we won't purge lemmas smaller than this during a reduce_db
+
+DEFINE_PARAM(min_purged_clause_size, 4, "");
+
 constexpr size_t kMinPurgedClauseSize = 4;  
 constexpr size_t kMaxLemmas = 1000; //10000;
 constexpr size_t kMaxLemmasDelta = 500; //100;
