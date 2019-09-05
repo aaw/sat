@@ -1,11 +1,12 @@
 #ifndef __PARAMS_H__
 #define __PARAMS_H__
 
-#include "types.h"
-
 #include <cstdio>
+#include <map>
 #include <sstream>
 #include <string>
+
+#include "types.h"
 
 #define STRING_TOKEN(x) #x
 #define STRING(x) STRING_TOKEN(x)

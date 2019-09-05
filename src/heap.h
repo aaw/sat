@@ -8,6 +8,7 @@
 
 #include <sstream>
 
+#include "counters.h"
 #include "flags.h"
 #include "logging.h"
 #include "types.h"
