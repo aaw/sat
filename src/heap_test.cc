@@ -9,14 +9,14 @@
 #define RUN(x) test_##x()
 
 TEST(basic,
-     Heap<2> h(1);
+     Heap h(1, 2);
      EXPECT_EQ(h.delete_max(), 1);
      EXPECT_EQ(h.delete_max(), lit_nil);
      EXPECT_EQ(h.delete_max(), lit_nil);
     )
 
 TEST(double_insert,
-     Heap<2> h(1);
+     Heap h(1, 2);
      h.insert(1);
      h.insert(1);
      EXPECT_EQ(h.delete_max(), 1);
@@ -24,7 +24,7 @@ TEST(double_insert,
     )
 
 TEST(insert_after_delete,
-     Heap<2> h(1);
+     Heap h(1, 2);
      EXPECT_EQ(h.delete_max(), 1);
      EXPECT_EQ(h.delete_max(), lit_nil);
      h.insert(1);
@@ -33,7 +33,7 @@ TEST(insert_after_delete,
     )
 
 TEST(delete_max,
-     Heap<2> h(2);
+     Heap h(2, 2);
      h.bump(2);
      EXPECT_EQ(h.delete_max(), 2);
      EXPECT_EQ(h.delete_max(), 1);
@@ -50,7 +50,7 @@ TEST(delete_max,
     )
 
 TEST(multiple_bumps_2,
-     Heap<2> h(10);
+     Heap h(10, 2);
      for (int i = 0; i < 200; ++i) { h.bump(10); }
      for (int i = 0; i < 50; ++i) { h.bump(8); }
      for (int i = 0; i < 180; ++i) { h.bump(9); }
@@ -69,7 +69,7 @@ TEST(multiple_bumps_2,
     )
 
 TEST(multiple_bumps_3,
-     Heap<3> h(10);
+     Heap h(10, 3);
      for (int i = 0; i < 200; ++i) { h.bump(10); }
      for (int i = 0; i < 50; ++i) { h.bump(8); }
      for (int i = 0; i < 180; ++i) { h.bump(9); }
@@ -88,7 +88,7 @@ TEST(multiple_bumps_3,
     )
 
 TEST(multiple_bumps_4,
-     Heap<4> h(10);
+     Heap h(10, 4);
      for (int i = 0; i < 200; ++i) { h.bump(10); }
      for (int i = 0; i < 50; ++i) { h.bump(8); }
      for (int i = 0; i < 180; ++i) { h.bump(9); }

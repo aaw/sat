@@ -11,19 +11,27 @@
 #include "flags.h"
 #include "logging.h"
 #include "types.h"
+#include "params.h"
 
 extern unsigned long FLAGS_seed;
 
-constexpr double kRho = 0.96;
 const double kMaxScore = pow(10,100);
 
+DEFINE_PARAM(heap_rho, 0.96,
+             "Scaling factor for literal activities. The bump applied to "
+             "all active literals is divided by this factor after each epoch.");
+
+DEFINE_PARAM(heap_d, 8,
+             "d-heap parameter defining the branching factor of the heap.");
+
 // max heap, stores variables
-template <unsigned int D>
+// TODO: make D a param that can change at runtime, not a template parameter
 struct Heap {
-    Heap(lit_t nvars) :
+    Heap(lit_t nvars, size_t D=PARAM_heap_d) :
       hloc(nvars + 1),
       heap(nvars),
       key(nvars + 1, 0.0),
+      D(D),
       delta(1.0),
       max_key(std::numeric_limits<double>::min()) {
         if (FLAGS_seed == 0) {
@@ -86,7 +94,7 @@ struct Heap {
     }
 
     void rescale_delta() {
-        delta /= kRho;
+        delta /= PARAM_heap_rho;
         if (max_key >= kMaxScore) {
             INC("rescale heap delta");
             LOG(2) << "Scaling all heap scores down.";
@@ -161,6 +169,7 @@ struct Heap {
     std::vector<size_t> hloc; // std::numeric_limits<size_t>::max() == nil, hloc is 1-indexed.
     std::vector<lit_t> heap;  // heap is 0-indexed.
     std::vector<double> key;  // key is 1-indexed
+    const size_t D;
     double delta;
     double max_key;
 };

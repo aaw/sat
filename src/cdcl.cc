@@ -155,7 +155,7 @@ struct Cnf {
 
     std::vector<clause_t> conflict;  // first conflict clause by level.
     
-    Heap<8> heap;
+    Heap heap;
 
     std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
     // inverse map from literal to trail index. -1 if there's no index in trail.
