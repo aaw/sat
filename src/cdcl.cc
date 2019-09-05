@@ -32,6 +32,7 @@
 #define PIN(c) (clauses[c-2].lit)
 #define LBD(c) (clauses[c-3].lit)
 
+// Size of the header for each clause: two watchlist pointers plus size info.
 constexpr clause_t kHeaderSize = 3;
 
 DEFINE_PARAM(min_purged_clause_size, 4,
@@ -42,6 +43,10 @@ DEFINE_PARAM(max_lemmas, 1000, "Initial maximum number of lemmas to retain.");
 
 DEFINE_PARAM(max_lemmas_delta, 500,
              "Increment to max_lemmas each time we reduce the lemma database.");
+
+DEFINE_PARAM(reduce_db_fraction, 0.55,
+             "A number between 0 and 1, the fraction of lemmas we attempt to "
+             "retain during a lemma database reduction.");
 
 DEFINE_PARAM(partial_restart_prob, 1.0,
              "When restarting, probability that we attempt to find a higher "
@@ -64,15 +69,11 @@ DEFINE_PARAM(trivial_clause_multiplier, 1.6,
              "clause, we'll learn the trivial clause instead.");
 
 DEFINE_PARAM(warm_up_runs, 10,
-             "Perform this many full runs After a restart");
+             "Perform this many full runs After a restart.");
 
 DEFINE_PARAM(restart_sensitivity, 1/5.0,
              "Knuth's ψ parameter, a value between 0 and 1. Increasing this "
              "parameter increases the likelihood we restart.");
-
-DEFINE_PARAM(reduce_db_fraction, 0.55,
-             "A number between 0 and 1, the fraction of lemmas we attempt to "
-             "retain during a lemma database reduction.");
 
 constexpr bool kSortedWatchlists = false;
 
@@ -83,7 +84,7 @@ constexpr bool kEx269 = true;  // Trivial clause learning
 constexpr bool kEx270 = true;  // On-the-fly subsumption
 constexpr bool kEx271 = true;  // Predecessor subsumption
 
-
+// Possible states for a literal during search.
 enum State {
     UNSET = 0,
     FALSE = 1,
