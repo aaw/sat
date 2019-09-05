@@ -33,25 +33,46 @@
 #define LBD(c) (clauses[c-3].lit)
 
 constexpr clause_t kHeaderSize = 3;
-// we won't purge lemmas smaller than this during a reduce_db
 
-DEFINE_PARAM(min_purged_clause_size, 4, "");
+DEFINE_PARAM(min_purged_clause_size, 4,
+             "Only clauses with at least this many literals are candidates "
+             "for removal during a lemma database reduction.");
 
-constexpr size_t kMinPurgedClauseSize = 4;  
-constexpr size_t kMaxLemmas = 1000; //10000;
-constexpr size_t kMaxLemmasDelta = 500; //100;
-constexpr float kPartialRestartProb = 1.0; 
-constexpr float kPeekProb = 0.02;
-// TODO: tie lower values with lower agility or only flip when agility is high
-constexpr float kPhaseFlipProb = 0.02;  
-constexpr float kOvalFlipOnRestartProb = 0.2;
-constexpr float kTrivialClauseMultiplier = 1.6;
-constexpr size_t kWarmUpRuns = 10;  // number of full runs to do after restarts.
-// Knuth's psi parameter for restarts. Increasing it increases the likelihood
-// of a restart.
-constexpr float kRestartSensitivity = 1/5.0;
-// try to keep this fraction of clauses during a reduce_db call
-constexpr float kReduceDbFraction = 0.55;
+DEFINE_PARAM(max_lemmas, 1000, "Initial maximum number of lemmas to retain.");
+
+DEFINE_PARAM(max_lemmas_delta, 500,
+             "Increment to max_lemmas each time we reduce the lemma database.");
+
+DEFINE_PARAM(partial_restart_prob, 1.0,
+             "When restarting, probability that we attempt to find a higher "
+             "non-zero level to backjump to.");
+
+DEFINE_PARAM(peek_prob, 0.02,
+             "Probability that we'll randomly select a decision literal "
+             "instead of using the one with maximum activity.");
+
+DEFINE_PARAM(phase_flip_prob, 0.02,
+             "Probability that we'll flip the phase of a decision variable "
+             "to the opposite of what the saved phase suggests.");
+
+DEFINE_PARAM(oval_flip_on_restart_prob, 0.0,
+             "Probability that we'll flip all phases of all literals when "
+             "a restart happens.");
+
+DEFINE_PARAM(trivial_clause_multiplier, 1.6,
+             "If learned clauses are this many times longer than the trivial "
+             "clause, we'll learn the trivial clause instead.");
+
+DEFINE_PARAM(warm_up_runs, 10,
+             "Perform this many full runs After a restart");
+
+DEFINE_PARAM(restart_sensitivity, 1/5.0,
+             "Knuth's ψ parameter, a value between 0 and 1. Increasing this "
+             "parameter increases the likelihood we restart.");
+
+DEFINE_PARAM(reduce_db_fraction, 0.55,
+             "A number between 0 and 1, the fraction of lemmas we attempt to "
+             "retain during a lemma database reduction.");
 
 constexpr bool kSortedWatchlists = false;
 
@@ -198,10 +219,10 @@ struct Cnf {
         epoch(0),
         nlemmas(0),
         d(0),
-        full_runs(kWarmUpRuns),
+        full_runs(PARAM_warm_up_runs),
         confp(0),
         seen_conflict(false),
-        agility(kRestartSensitivity),
+        agility(PARAM_restart_sensitivity),
         npurges(0) {
     }
 
@@ -442,7 +463,7 @@ struct Cnf {
         Timer t("clause database purges");
         std::vector<clause_t> lbds(d+2, 0);
         std::vector<clause_t> hist(d+2, 0);  // lbd histogram.
-        size_t target_lemmas = nlemmas * kReduceDbFraction;
+        size_t target_lemmas = nlemmas * PARAM_reduce_db_fraction;
         
         for_each_lemma([&](clause_t c, clause_t cs) {
           PIN(c) = 2; // >= 2 == not pinned
@@ -466,7 +487,7 @@ struct Cnf {
         for_each_lemma([&](clause_t c, clause_t cs) {
             if (target_lemmas == 0) return; // continue
             if (PIN(c) < 0) return; // continue, already pinned
-            if (cs < kMinPurgedClauseSize && PIN(c) > 1) {
+            if (cs < PARAM_min_purged_clause_size && PIN(c) > 1) {
                 PIN(c) = 1;
                 --target_lemmas;
                 return; // continue
@@ -661,13 +682,14 @@ bool solve(Cnf* c) {
                 return true;
             }
 
-            if (c->nlemmas >= kMaxLemmas + c->npurges * kMaxLemmasDelta &&
+            size_t max_lemmas =
+                PARAM_max_lemmas + c->npurges * PARAM_max_lemmas_delta;
+            if (c->nlemmas >= max_lemmas &&
                 c->f < static_cast<size_t>(c->nvars) &&
                 c->full_runs == 0) {
                 LOG(1) << "Clause database too big, scheduling a full run.";
                 c->full_runs = 1;
-            } else if (c->nlemmas >=
-                       kMaxLemmas + c->npurges * kMaxLemmasDelta &&
+            } else if (c->nlemmas >= max_lemmas &&
                        c->f == static_cast<size_t>(c->nvars)) {
                 LOG(1) << "Reducing clause database at epoch " << c->epoch
                        << ", starting size = " << c->nlemmas;
@@ -683,7 +705,7 @@ bool solve(Cnf* c) {
                 c->full_runs == 0) {
                 // Find lowest level where choices will substantially differ.
                 lit_t dp = 0;
-                if (flip(kPartialRestartProb)) {
+                if (flip(PARAM_partial_restart_prob)) {
                     // Find unset var of max activity.
                     lit_t vmax = c->heap.peek();
                     while (c->val[vmax] != UNSET) {
@@ -696,7 +718,7 @@ bool solve(Cnf* c) {
                           c->heap.act(c->trail[c->di[dp+1]]) >= amax) ++dp;
                 }
 
-                if (flip(kOvalFlipOnRestartProb)) {
+                if (flip(PARAM_oval_flip_on_restart_prob)) {
                     for (int k = 1; k < c->nvars; ++k) {
                         c->oval[var(k)] =
                             (c->oval[var(k)] == FALSE) ? TRUE : FALSE;
@@ -707,7 +729,7 @@ bool solve(Cnf* c) {
                     LOG(1) << "Agility-driven restart at epoch " << c->epoch
                            << " (level " << c->d << " -> " << dp << ")";
                     c->backjump(dp);
-                    c->full_runs = kWarmUpRuns;
+                    c->full_runs = PARAM_warm_up_runs;
                     INC("agility restarts");
                     continue;
                 } else {
@@ -728,17 +750,20 @@ bool solve(Cnf* c) {
             
             // C6
             INC("decisions");
-            lit_t k = (kEx266 && flip(kPeekProb)) ?
+            lit_t k = (kEx266 && flip(PARAM_peek_prob)) ?
                 c->heap.rpeek() : c->heap.delete_max();
             while (c->val[k] != UNSET) {
                 LOG(3) << k << " set, rolling again";
-                k = (kEx266 && flip(kPeekProb)) ?
+                k = (kEx266 && flip(PARAM_peek_prob)) ?
                     c->heap.rpeek() : c->heap.delete_max();
             }
             CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
             LOG(3) << "Decided on variable " << k;
             lit_t l = c->oval[k] == FALSE ? -k : k;
-            if (flip(kPhaseFlipProb)) { INC("forced phase flips"); l = -l; }
+            if (flip(PARAM_phase_flip_prob)) {
+                INC("forced phase flips");
+                l = -l;
+            }
             LOG(3) << "Adding " << l << " to the trail.";
             c->add_to_trail(l, clause_nil);
         }
@@ -1030,7 +1055,7 @@ bool solve(Cnf* c) {
             if (kEx269 &&
                 c->confp == 0 &&
                 !subsumed &&
-                r > kTrivialClauseMultiplier * static_cast<size_t>(dp)) {
+                r > PARAM_trivial_clause_multiplier * static_cast<size_t>(dp)) {
                 // Ex. 269: If dp is significantly smaller than the length of
                 // the learned clause, we can learn the trivial clause that
                 // asserts that all dp + 1 of the decisions we made lead to a
