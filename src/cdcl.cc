@@ -8,6 +8,13 @@
 //   - Ex. 269: Learning a shorter trivial clause
 //   - Ex. 270: On-the-fly subsumption
 //   - Ex. 271: Subsumption of immediate predecessor learned clauses
+//
+// The restart scheme we use is almost exactly as Knuth describes. The clause
+// purging scheme we use is a little different: although we do execute "full
+// runs" before each lemma database reduction, we don't use extra storage in
+// the clause array to track clause activity and a usefulness metric derived
+// from literal block distance (LBD). Instead, we just compute LBD directly
+// and use it to gauge clause usefulness during purging.
 
 #include <ctime>
 #include <cstdlib>
@@ -23,16 +30,37 @@
 #include "types.h"
 #include "params.h"
 
+// All clauses are stored linearly in one big array using elements of this union
+// type. The layout for each clause is:
+// 
+//     [ptr][ptr][size][lit]...[lit]
+//
+// The first two ptr elements are watchlist pointers for the second and first
+// literals in the clause, respectively. The size element stores the length of
+// the clause, and the rest of the storage for the clause consists of the
+// literals themselves.
+union clause_elem_t {
+    lit_t lit;
+    clause_t size;
+    clause_t ptr;
+};
+
+// Helper macros for accessing clause components. Each clause is addressed by
+// the index of its first literal.
 #define LIT1(c) (clauses[c+1].lit)
 #define LIT0(c) (clauses[c].lit)
 #define SIZE(c) (clauses[c-1].size)
 #define WATCH0(c) (clauses[c-2].ptr)
 #define WATCH1(c) (clauses[c-3].ptr)
 
+// During a lemma database reduction, we'll temporarily re-purpose some of the
+// watchlist pointer storage to tag clauses that we want to keep and to store
+// the literal block distance of the clause.
 #define PIN(c) (clauses[c-2].lit)
 #define LBD(c) (clauses[c-3].lit)
 
-// Size of the header for each clause: two watchlist pointers plus size info.
+// Size of the header for each clause in the clause array, consisting of two
+// watchlist pointers plus size info.
 constexpr clause_t kHeaderSize = 3;
 
 DEFINE_PARAM(min_purged_clause_size, 4,
@@ -91,12 +119,6 @@ enum State {
     TRUE = 2,
 };
 
-union clause_bundle_t {
-    lit_t lit;
-    clause_t size;
-    clause_t ptr;
-};
-
 struct restart_sequence {
     restart_sequence(float psi) :
         u(1), v(1), m(1), M(0), agility(0), theta(1), psi(psi) {}
@@ -139,7 +161,7 @@ static bool flip(float p) {
 
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
-    std::vector<clause_bundle_t> clauses;
+    std::vector<clause_elem_t> clauses;
 
     std::vector<State> val;
 
@@ -414,13 +436,13 @@ struct Cnf {
     }
 
     clause_t learn_clause(lit_t lp, size_t r, lit_t dp) {
-        clause_bundle_t nil_ptr;  // TODO: make constant
+        clause_elem_t nil_ptr;  // TODO: make constant
         nil_ptr.ptr = clause_nil;
         clauses.push_back(nil_ptr); // watch list for l1
-        clause_bundle_t wlp;
+        clause_elem_t wlp;
         wlp.ptr = watch[-lp];
         clauses.push_back(wlp); // watch list for l0
-        clause_bundle_t s;
+        clause_elem_t s;
         s.size = r+1;
         clauses.push_back(s); // size
         LOG(3) << "adding a clause of size " << r+1;
@@ -604,9 +626,9 @@ Cnf parse(const char* filename) {
     int lit;
     do {
         bool read_lit = false;
-        clause_bundle_t nil_ptr;  // TODO: make these constants
+        clause_elem_t nil_ptr;  // TODO: make these constants
         nil_ptr.ptr = clause_nil;
-        clause_bundle_t zero_size;
+        clause_elem_t zero_size;
         zero_size.size = 0;
         c.clauses.push_back(nil_ptr);  // watch ptr for clause's second lit
         c.clauses.push_back(nil_ptr);  // watch ptr for clause's first lit
@@ -647,12 +669,6 @@ Cnf parse(const char* filename) {
         if (cs > 1) {
             c.add_to_watchlist(start, c.clauses[start].lit);
             c.add_to_watchlist(start, c.clauses[start+1].lit);
-            /*
-            c.clauses[start - 2].ptr = c.watch[c.clauses[start].lit];
-            c.watch[c.clauses[start].lit] = start;
-            c.clauses[start - 3].ptr = c.watch[c.clauses[start + 1].lit];
-            c.watch[c.clauses[start + 1].lit] = start;
-            */
         }
     } while (nc != EOF);
 
@@ -819,9 +835,6 @@ bool solve(Cnf* c) {
                                << " on " << ln << "'s watch list: "
                                << c->print_watchlist(ln);
                         c->add_to_watchlist(w, ln);
-                        /*size_t tmp = c->watch[ln];
-                        c->watch[ln] = w;
-                        c->clauses[w - 2].ptr = tmp;*/
                         break;
                     }
                 }

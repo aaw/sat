@@ -22,7 +22,7 @@ DEFINE_PARAM(heap_rho, 0.96,
              "Scaling factor for literal activities. The bump applied to "
              "all active literals is divided by this factor after each epoch.");
 
-DEFINE_PARAM(heap_d, 8,
+DEFINE_PARAM(heap_d, 32,
              "d-heap parameter defining the branching factor of the heap.");
 
 // max heap, stores variables
