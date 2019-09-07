@@ -33,7 +33,7 @@
 // All clauses are stored linearly in one big array using elements of this union
 // type. The layout for each clause is:
 // 
-//     [ptr][ptr][size][lit]...[lit]
+//     [ptr_1][ptr_0][size][lit_0][lit_1]...[lit_n]
 //
 // The first two ptr elements are watchlist pointers for the second and first
 // literals in the clause, respectively. The size element stores the length of
@@ -80,6 +80,8 @@ DEFINE_PARAM(partial_restart_prob, 1.0,
              "When restarting, probability that we attempt to find a higher "
              "non-zero level to backjump to.");
 
+// Setting this to a non-zero value enables the optimization described in
+// Exercise 266 (Random selection of decisions).
 DEFINE_PARAM(peek_prob, 0.02,
              "Probability that we'll randomly select a decision literal "
              "instead of using the one with maximum activity.");
@@ -92,6 +94,8 @@ DEFINE_PARAM(oval_flip_on_restart_prob, 0.0,
              "Probability that we'll flip all phases of all literals when "
              "a restart happens.");
 
+// Optimization described in Exercise 269 (Learning the trivial clause). To
+// disable this optimization, set this param to something large like 1000.
 DEFINE_PARAM(trivial_clause_multiplier, 1.6,
              "If learned clauses are this many times longer than the trivial "
              "clause, we'll learn the trivial clause instead.");
@@ -103,14 +107,27 @@ DEFINE_PARAM(restart_sensitivity, 1/5.0,
              "Knuth's ψ parameter, a value between 0 and 1. Increasing this "
              "parameter increases the likelihood we restart.");
 
-constexpr bool kSortedWatchlists = false;
+DEFINE_PARAM(sorted_watchlists, 0,
+             "If set to 1, watchlists are kept in increasing order of clause "
+             "length");
 
-constexpr bool kEx257 = true;  // Redundant literal detection
-constexpr bool kEx266 = true;  // Random selection of decisions
-constexpr bool kEx268 = true;  // Lazy level 0 false lit removal
-constexpr bool kEx269 = true;  // Trivial clause learning
-constexpr bool kEx270 = true;  // On-the-fly subsumption
-constexpr bool kEx271 = true;  // Predecessor subsumption
+// Optimization described in Exercise 257 (Redundant literal detection).
+DEFINE_PARAM(remove_redundant_literals, 1,
+             "If set to 1, redundant literals in learned clauses are removed.");
+
+// Optimization described in Exercise 268 (Lazy level 0 false literal removal).
+DEFINE_PARAM(remove_level_0_false_lits, 1,
+             "If set to 1, literals appearing on level 0 will be lazily "
+             "removed from clauses.");
+
+// Optimization described in Exercise 270 (On-the-fly subsumption).
+DEFINE_PARAM(on_the_fly_subsumption, 1,
+             "If set to 1, strengthen clauses while resolving when possible.");
+
+// Optimization described in Exercise 271 (Immediate predecessor subsumption).
+DEFINE_PARAM(predecessor_subsumption, 1,
+             "If set to 1, check the previous clause we learned when learning "
+             "a new clause to see if the new clause subsumes the older one.");
 
 // Possible states for a literal during search.
 enum State {
@@ -354,7 +371,7 @@ struct Cnf {
     }
 
     void add_to_watchlist(clause_t cindex, lit_t lit) {
-        if (!kSortedWatchlists) {
+        if (PARAM_sorted_watchlists != 1) {
             (LIT0(cindex) == lit ? WATCH0(cindex) : WATCH1(cindex)) =
                 watch[lit];
             watch[lit] = cindex;
@@ -767,11 +784,11 @@ bool solve(Cnf* c) {
             
             // C6
             INC("decisions");
-            lit_t k = (kEx266 && flip(PARAM_peek_prob)) ?
+            lit_t k = flip(PARAM_peek_prob) ?
                 c->heap.rpeek() : c->heap.delete_max();
             while (c->val[k] != UNSET) {
                 LOG(3) << k << " set, rolling again";
-                k = (kEx266 && flip(PARAM_peek_prob)) ?
+                k = flip(PARAM_peek_prob) ?
                     c->heap.rpeek() : c->heap.delete_max();
             }
             CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
@@ -815,7 +832,7 @@ bool solve(Cnf* c) {
                     // If we see a false literal from level zero, go ahead and
                     // and remove it from the clause now by replacing it with a
                     // tombstone (Ex. 268)
-                    if (kEx268 &&
+                    if (PARAM_remove_level_0_false_lits == 1 &&
                         c->is_false(c->clauses[w + i].lit) &&
                         c->lev[var(c->clauses[w + i].lit)] == 0) {
                         c->clauses[w + i].lit = lit_nil;
@@ -993,7 +1010,7 @@ bool solve(Cnf* c) {
                         LOG(3) << "Reason for " << l << ": " << c->print_clause(rc);
                         c->blit(rc, &r, &dp, &q, nullptr);                    
                         
-                        if (kEx270 &&
+                        if (PARAM_on_the_fly_subsumption == 1 &&
                             q + r + 1 < c->clauses[rc-1].size && q > 0) {
                             // On-the-fly subsumption.
                             c->remove_from_watchlist(rc, 0);
@@ -1028,7 +1045,7 @@ bool solve(Cnf* c) {
             // Remove redundant literals from clause
             // TODO: move this down so that we only process learned clause once? But
             // would also have to do subsumption check in single loop...
-            if (kEx257) {
+            if (PARAM_remove_redundant_literals == 1) {
                 lit_t rr = 0;
                 for(size_t i = 0; i < r; ++i) {
                     if (c->lstamp[c->lev[var(c->b[i])]] == c->epoch + 1 &&
@@ -1043,7 +1060,7 @@ bool solve(Cnf* c) {
             }
             
             bool subsumed = false;
-            if (kEx271 && lc != clause_nil) {
+            if (PARAM_predecessor_subsumption == 1 && lc != clause_nil) {
                 // Ex. 271: Does this clause subsume the previous learned clause? If
                 // so, we can "just" overwrite it. lc is the most recent learned
                 // clause from a previous iteration.
@@ -1066,8 +1083,7 @@ bool solve(Cnf* c) {
                 }
             }
             
-            if (kEx269 &&
-                c->confp == 0 &&
+            if (c->confp == 0 &&
                 !subsumed &&
                 r > PARAM_trivial_clause_multiplier * static_cast<size_t>(dp)) {
                 // Ex. 269: If dp is significantly smaller than the length of
