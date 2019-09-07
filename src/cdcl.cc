@@ -136,16 +136,28 @@ enum State {
     TRUE = 2,
 };
 
+// Knuth's restart sequence based on Armin Biere's agility measure. Essentially
+// keeps a moving average of how often literals are assigned values that
+// disagree with their previous values. A "reluctant doubling" sequence is used
+// to gate restarts, with each restart happening only when agility is deemed
+// low enough that it seems like the algorithm is stuck in a rut. The psi
+// parameter can be increased / decreased to speed up / slow down restarts,
+// respectively.
 struct restart_sequence {
     restart_sequence(float psi) :
         u(1), v(1), m(1), M(0), agility(0), theta(1), psi(psi) {}
 
+    // Called every time a literal is assigned a value. phase_change indicates
+    // whether the new value is equal to the previous value of the literal.
     void bump(bool phase_change) {
         agility -= (agility >> 13);
         if (phase_change) agility += (1 << 19);
         INC("phase changes", phase_change ? 0 : 1);
     }
 
+    // Called after each new learned clause. Exception: we don't actually call
+    // this if we're in the middle of a full run, which might learn multiple
+    // clauses.
     bool should_restart() {
         // On the kth execution of step C5, Knuth compares M, the total number
         // of learned clauses, to M_k, the sum of the first k terms of the
