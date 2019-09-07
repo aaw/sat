@@ -103,7 +103,7 @@ DEFINE_PARAM(trivial_clause_multiplier, 1.6,
 DEFINE_PARAM(warm_up_runs, 10,
              "Perform this many full runs After a restart.");
 
-DEFINE_PARAM(restart_sensitivity, 1/5.0,
+DEFINE_PARAM(restart_sensitivity, 0.19,
              "Knuth's ψ parameter, a value between 0 and 1. Increasing this "
              "parameter increases the likelihood we restart.");
 
@@ -136,15 +136,15 @@ enum State {
     TRUE = 2,
 };
 
-// Knuth's restart sequence based on Armin Biere's agility measure. Essentially
-// keeps a moving average of how often literals are assigned values that
-// disagree with their previous values. A "reluctant doubling" sequence is used
-// to gate restarts, with each restart happening only when agility is deemed
-// low enough that it seems like the algorithm is stuck in a rut. The psi
-// parameter can be increased / decreased to speed up / slow down restarts,
-// respectively.
-struct restart_sequence {
-    restart_sequence(float psi) :
+// Knuth's restart heuristic based on Armin Biere's agility measure. Essentially
+// computes a moving average called "agility" measuring how often literals are
+// assigned values that disagree with their previous values. A "reluctant
+// doubling" sequence is used to gate restarts, with each restart happening only
+// when agility is deemed low enough that it seems like the algorithm is stuck
+// in a rut. The psi parameter can be increased / decreased to speed up / slow
+// down restarts, respectively.
+struct restart_oracle {
+    restart_oracle(float psi) :
         u(1), v(1), m(1), M(0), agility(0), theta(1), psi(psi) {}
 
     // Called every time a literal is assigned a value. phase_change indicates
@@ -166,7 +166,7 @@ struct restart_sequence {
         // we've called this function in step C5.
         M += 1;
         if (M < m) return false;
-        m += v;
+        m += v;  // increment m by the reluctant doubling delta.
         if ((u & -u) == v) {
             ++u;
             v = 1;
@@ -188,21 +188,30 @@ static bool flip(float p) {
     return static_cast<float>(rand())/RAND_MAX <= p;
 }
 
-// Storage for the DPLL search and the final assignment, if one exists.
+// Storage for the search and the final assignment, if one exists. Variables can
+// take on only positive values and literals can take on both positive and
+// negative values.
 struct Cnf {
+    // Array of all clauses. Consists of both clauses in the original formula
+    // and lemmas learned by CDCL. All learned lemmas appear after original
+    // clauses. The comment above clause_elem_t describes the layout.
     std::vector<clause_elem_t> clauses;
 
+    // The current value of a variable: either TRUE, FALSE, or UNSET.
     std::vector<State> val;
 
-    std::vector<lit_t> lev;  // maps variable to level it was set on.
-    
+    // The level on which a variable was set. Level 0 contains variables forced
+    // by unit clauses.
+    std::vector<lit_t> lev;
+
+    // The previous value of a variable. Initialized to all FALSE. Used for
+    // phase-saving.
     std::vector<State> oval;
 
+    
     std::vector<unsigned long> stamp;  // TODO: what's the right type here?
 
     std::vector<unsigned long> lstamp;  // maps levels to stamp values
-
-    std::vector<unsigned long> lbdstamp;
 
     std::vector<clause_t> conflict;  // first conflict clause by level.
     
@@ -245,7 +254,10 @@ struct Cnf {
 
     bool seen_conflict; // have we seen a conflict in this search path?
 
-    restart_sequence agility;
+    // A black box that tells us when to restart. Every time a literal is
+    // assigned a value, we tell this oracle about it. Every time we learn
+    // a new lemma, we ask it if we should restart.
+    restart_oracle agility;
 
     size_t npurges;
     
