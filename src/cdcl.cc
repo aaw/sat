@@ -223,6 +223,8 @@ struct Cnf {
     // Max heap storing variable activities. Used to select decision variables.
     Heap heap;
 
+    // The trail: an ordered list of literals that have been set during the
+    // current search path. TODO: use trail.size() instead of f
     std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
     // inverse map from literal to trail index. -1 if there's no index in trail.
     std::vector<lit_t> tloc;  // variables -> trail locations; -1 == nil
