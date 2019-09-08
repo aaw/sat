@@ -208,13 +208,19 @@ struct Cnf {
     // phase-saving.
     std::vector<State> oval;
 
-    
-    std::vector<unsigned long> stamp;  // TODO: what's the right type here?
+    // Maps variables to epochs so we can figure out if a variables has been
+    // processed during a given epoch.
+    std::vector<uint64_t> stamp;
 
-    std::vector<unsigned long> lstamp;  // maps levels to stamp values
+    // Maps levels to epochs. Used to find redundant literals in lemmas.
+    std::vector<uint64_t> lstamp;
 
-    std::vector<clause_t> conflict;  // first conflict clause by level.
-    
+    // Maps levels to the first conflict clause discovered at that level. During
+    // a full run, we may discover many conflicts on many levels, but we always
+    // want to resolve the first conflict per level once we're backjumping.
+    std::vector<clause_t> conflict;
+
+    // Max heap storing variable activities. Used to select decision variables.
     Heap heap;
 
     std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump

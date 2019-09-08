@@ -1,3 +1,4 @@
+* compute LBD as p + alpha * q, alpha ~ 0.2 as Knuth suggests
 * rework counters.h so they're fast, similar to params
 * trace through restart (d=0) and clause purging -- am I losing forced literals from learned unit clauses?
 * why is pigeonhole_20_20 performance worse with trivial clauses?
