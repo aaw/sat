@@ -228,7 +228,6 @@ struct Cnf {
     std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
     // inverse map from literal to trail index. -1 if there's no index in trail.
     std::vector<lit_t> tloc;  // variables -> trail locations; -1 == nil
-    size_t f;  // trail length
     size_t g;  // index in trail
 
     std::vector<size_t> di; // maps d -> first trail position of level d. if
@@ -245,7 +244,7 @@ struct Cnf {
     // highest backjump level;
     std::vector<std::pair<lit_t, clause_t>> trail_lits;
     
-    lit_t nvars;
+    size_t nvars;
 
     // TODO: explain epoch values here, why they're bumped by 3 each time.
     unsigned long epoch;
@@ -269,7 +268,7 @@ struct Cnf {
 
     size_t npurges;
     
-    Cnf(lit_t nvars) :
+    Cnf(size_t nvars) :
         val(nvars + 1, UNSET),
         lev(nvars + 1, -1),
         oval(nvars + 1, FALSE),
@@ -277,9 +276,7 @@ struct Cnf {
         lstamp(nvars + 1, 0),
         conflict(nvars + 1, clause_nil),
         heap(nvars),
-        trail(nvars + 1, -1),
         tloc(nvars + 1, -1),
-        f(0),
         g(0),
         di(nvars + 1, 0),
         reason(nvars + 1, clause_nil),
@@ -310,6 +307,10 @@ struct Cnf {
         return (x > 0 && s == TRUE) || (x < 0 && s == FALSE);
     }    
 
+    inline bool trail_complete() const {
+        return trail.size() == nvars;
+    }
+    
     std::string print_clause(clause_t c) const {
         std::ostringstream oss;
         oss << "(";
@@ -363,8 +364,8 @@ struct Cnf {
 
     std::string print_trail() {
         std::ostringstream oss;
-        for (size_t i = 0; i < f; ++i) {
-            oss << "[" << trail[i] << ":" << lev[var(trail[i])] << "]";
+        for (lit_t l : trail) {
+            oss << "[" << l << ":" << lev[var(l)] << "]";
         }
         return oss.str();
     }
@@ -461,9 +462,8 @@ struct Cnf {
     // Adds l to the trail at level d with reason r.
     void add_to_trail(lit_t l, clause_t r) {
         lit_t k = var(l);
-        tloc[k] = f;
-        trail[f] = l;
-        ++f;
+        tloc[k] = trail.size();
+        trail.push_back(l);
         val[k] = l < 0 ? FALSE : TRUE;
         lev[k] = d;
         reason[k] = r;
@@ -471,16 +471,16 @@ struct Cnf {
     }
 
     void backjump(lit_t level) {
-        while (f > di[level+1]) {
-            f--;
-            lit_t k = var(trail[f]);
+        while (trail.size() > di[level+1]) {
+            lit_t k = var(trail.back());
+            trail.pop_back();
             oval[k] = val[k];
             val[k] = UNSET;
             reason[k] = clause_nil;
             conflict[lev[k]] = clause_nil;
             heap.insert(k);
         }
-        g = f;
+        g = trail.size();
         d = level;
     }
 
@@ -544,8 +544,8 @@ struct Cnf {
         
         // Pin learned clauses that are reasons. Note PIN(c) <= 1 means pin;
         // 1 will never be a watch pointer because 1 < kHeaderSize.
-        for (size_t i = 0; i < f; ++i) {
-            lit_t v = var(trail[i]);
+        for (lit_t l : trail) {
+            lit_t v = var(l);
             if (reason[v] == clause_nil) continue;
             if (reason[v] < lemma_start) continue;
             PIN(reason[v]) = -v;
@@ -657,19 +657,21 @@ Cnf parse(const char* filename) {
     CHECK(f) << "Failed to open file: " << filename;
 
     // Read comment lines until we see the problem line.
-    long long nvars = 0, nclauses = 0;
+    size_t nvars = 0, nclauses = 0;
     do {
-        nc = fscanf(f, " p cnf %lld %lld \n", &nvars, &nclauses);
+        nc = fscanf(f, " p cnf %lu %lu \n", &nvars, &nclauses);
         if (nc > 0 && nc != EOF) break;
         nc = fscanf(f, "%*s\n");
     } while (nc != 2 && nc != EOF);
+    LOG(0) << "nvars = " << nvars;
+    LOG(0) << "nclauses = " << nclauses;
     CHECK(nvars >= 0);
     CHECK(nclauses >= 0);
-    CHECK_NO_OVERFLOW(lit_t, nvars);
+    CHECK_NO_OVERFLOW(lit_t, static_cast<long long>(nvars));
     CHECK_NO_OVERFLOW(clause_t, nclauses);
     
     // Initialize data structures now that we know nvars.
-    Cnf c(static_cast<lit_t>(nvars));
+    Cnf c(nvars);
 
     // Read clauses until EOF.
     int lit;
@@ -706,8 +708,8 @@ Cnf parse(const char* filename) {
                 UNSAT_EXIT;
             }
             c.val[v] = s;
-            c.tloc[v] = c.f;
-            c.trail[c.f++] = x;
+            c.tloc[v] = c.trail.size();
+            c.trail.push_back(x);
             c.lev[v] = 0;
         } 
         if (!read_lit) break;
@@ -740,23 +742,21 @@ bool solve(Cnf* c) {
         // (C2)
         LOG(3) << "C2";
 
-        if (c->f == c->g) {
+        if (c->trail.size() == c->g) {
             LOG(3) << "C5";
             
             // C5
-            if (!c->seen_conflict && c->f == static_cast<size_t>(c->nvars)) {
+            if (!c->seen_conflict && c->trail_complete()) {
                 return true;
             }
 
             size_t max_lemmas =
                 PARAM_max_lemmas + c->npurges * PARAM_max_lemmas_delta;
-            if (c->nlemmas >= max_lemmas &&
-                c->f < static_cast<size_t>(c->nvars) &&
+            if (c->nlemmas >= max_lemmas && !c->trail_complete() &&
                 c->full_runs == 0) {
                 LOG(1) << "Clause database too big, scheduling a full run.";
                 c->full_runs = 1;
-            } else if (c->nlemmas >= max_lemmas &&
-                       c->f == static_cast<size_t>(c->nvars)) {
+            } else if (c->nlemmas >= max_lemmas && c->trail_complete()) {
                 LOG(1) << "Reducing clause database at epoch " << c->epoch
                        << ", starting size = " << c->nlemmas;
                 c->reduce_db();
@@ -785,9 +785,8 @@ bool solve(Cnf* c) {
                 }
 
                 if (flip(PARAM_oval_flip_on_restart_prob)) {
-                    for (int k = 1; k < c->nvars; ++k) {
-                        c->oval[var(k)] =
-                            (c->oval[var(k)] == FALSE) ? TRUE : FALSE;
+                    for (size_t k = 1; k <= c->nvars; ++k) {
+                        c->oval[k] = (c->oval[k] == FALSE) ? TRUE : FALSE;
                     }
                 }
 
@@ -803,7 +802,7 @@ bool solve(Cnf* c) {
                 }
             }
 
-            if (c->seen_conflict && c->f == static_cast<size_t>(c->nvars)) {
+            if (c->seen_conflict && c->trail_complete()) {
                 INC("full runs");
                 --c->full_runs;
                 LOG(1) << "Full run done. " << c->full_runs << " runs left.";
@@ -812,7 +811,7 @@ bool solve(Cnf* c) {
             }            
             
             ++c->d;
-            c->di[c->d] = c->f;
+            c->di[c->d] = c->trail.size();
             
             // C6
             INC("decisions");
@@ -992,7 +991,7 @@ bool solve(Cnf* c) {
             // that the rightmost literal on the trail contained in the clause is
             // the first literal in the clause here. We'll undo this after the
             // first resolution step below, otherwise watchlists get corrupted.
-            size_t rl = c->f - 1;
+            size_t rl = c->trail.size() - 1;
             size_t cs = c->clauses[w-1].size;
             size_t rl_pos = 0;
             for (bool done = false; !done; --rl) {
@@ -1172,7 +1171,7 @@ int main(int argc, char** argv) {
     // statement below.
     if (solve(&c)) {
         std::cout << "s SATISFIABLE" << std::endl;
-        for (int i = 1, j = 0; i <= c.nvars; ++i) {
+        for (size_t i = 1, j = 0; i <= c.nvars; ++i) {
             if (c.val[i] == UNSET) continue;
             if (j % 10 == 0) std::cout << "v";
             std::cout << ((c.val[i] & 1) ? " -" : " ") << i;
