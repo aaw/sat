@@ -354,22 +354,6 @@ struct Cnf {
         for_each_clause_helper(lemma_start, func);
     }    
     
-    std::string dump_clauses() {
-        std::ostringstream oss;
-        for_each_clause([&](clause_t c, clause_t cs) {
-            oss << print_clause(c) << " "; 
-        });
-        return oss.str();
-    }
-
-    std::string dump_lemmas() {
-        std::ostringstream oss;
-        for_each_lemma([&](clause_t c, clause_t cs) {
-            oss << print_clause(c) << " ";
-        });
-        return oss.str();
-    }    
-
     std::string print_trail() {
         std::ostringstream oss;
         for (lit_t l : trail) {
