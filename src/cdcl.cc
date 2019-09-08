@@ -223,16 +223,23 @@ struct Cnf {
     // Max heap storing variable activities. Used to select decision variables.
     Heap heap;
 
-    // The trail: an ordered list of literals that have been set during the
-    // current search path. TODO: use trail.size() instead of f
-    std::vector<lit_t> trail;  // TODO: make sure we're not dynamically resizing during backjump
-    // inverse map from literal to trail index. -1 if there's no index in trail.
-    std::vector<lit_t> tloc;  // variables -> trail locations; -1 == nil
-    size_t g;  // index in trail
+    // The trail: an ordered list of literals that have been set to true during
+    // the current search path. 
+    std::vector<lit_t> trail;
 
-    std::vector<size_t> di; // maps d -> first trail position of level d. if
-                            // di[0] == di[1], there are no level 0 lits.
-    
+    // Inverse map from variable to trail index. 
+    std::vector<size_t> tloc;
+
+    // Next index in the trail that we need to process. Since processing
+    // propagations during a search may force several literals, we need to add
+    // literals to the trail before they've been fully processed and keep track
+    // of our progress with this pointer into the trail. Knuth calls this "g".
+    size_t next_trail_index;
+
+    // Maps a level to the first trail position of that level. If 
+    // di[0] == di[1], there are no variables set at level 0.
+    std::vector<size_t> di;
+
     std::vector<clause_t> reason;  // Keys: variables, values: clause indices
 
     std::vector<clause_t> watch_storage;
@@ -277,7 +284,7 @@ struct Cnf {
         conflict(nvars + 1, clause_nil),
         heap(nvars),
         tloc(nvars + 1, -1),
-        g(0),
+        next_trail_index(0),
         di(nvars + 1, 0),
         reason(nvars + 1, clause_nil),
         watch_storage(2 * nvars + 1, clause_nil),
@@ -293,6 +300,7 @@ struct Cnf {
         seen_conflict(false),
         agility(PARAM_restart_sensitivity),
         npurges(0) {
+        trail.reserve(nvars + 1);
     }
 
     // Is the literal x false under the current assignment?
@@ -438,7 +446,7 @@ struct Cnf {
     }
 
     // t: if non-null, will be set to the max tloc of any var in the clause.
-    void blit(clause_t c, size_t* r, lit_t* dp, size_t* q, lit_t* t) {
+    void blit(clause_t c, size_t* r, lit_t* dp, size_t* q, size_t* t) {
         if (t != nullptr) *t = tloc[var(LIT0(c))];
         for(size_t j = 1; j < SIZE(c); ++j) {
             lit_t m = clauses[c+j].lit;
@@ -480,7 +488,7 @@ struct Cnf {
             conflict[lev[k]] = clause_nil;
             heap.insert(k);
         }
-        g = trail.size();
+        next_trail_index = trail.size();
         d = level;
     }
 
@@ -742,7 +750,7 @@ bool solve(Cnf* c) {
         // (C2)
         LOG(3) << "C2";
 
-        if (c->trail.size() == c->g) {
+        if (c->trail.size() == c->next_trail_index) {
             LOG(3) << "C5";
             
             // C5
@@ -837,9 +845,8 @@ bool solve(Cnf* c) {
         LOG(3) << "C3";
         LOG(3) << "Trail: " << c->print_trail();
 
-        lit_t l = c->trail[c->g];
+        lit_t l = c->trail[c->next_trail_index++];
         LOG(3) << "Examining " << -l << "'s watch list";
-        ++c->g;
         clause_t w = c->watch[-l];
         clause_t wll = clause_nil;
         bool found_conflict = false;
@@ -1014,7 +1021,7 @@ bool solve(Cnf* c) {
             c->stamp[var(c->clauses[w].lit)] = c->epoch;
             c->heap.bump(var(c->clauses[w].lit));
             
-            lit_t t;
+            size_t t;
             LOG(3) << "RESOLVING [A] " << c->print_clause(w);
             c->blit(w, &r, &dp, &q, &t);
             
