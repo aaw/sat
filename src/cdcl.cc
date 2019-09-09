@@ -194,7 +194,9 @@ static bool flip(float p) {
 struct Cnf {
     // Array of all clauses. Consists of both clauses in the original formula
     // and lemmas learned by CDCL. All learned lemmas appear after original
-    // clauses. The comment above clause_elem_t describes the layout.
+    // clauses. The comment above clause_elem_t describes the layout. Clauses
+    // end with zero or tombstoned literals which are all lit_nil. Unit clauses
+    // don't have WATCH0/WATCH1 set.
     std::vector<clause_elem_t> clauses;
 
     // The current value of a variable: either TRUE, FALSE, or UNSET.
@@ -240,39 +242,62 @@ struct Cnf {
     // di[0] == di[1], there are no variables set at level 0.
     std::vector<size_t> di;
 
-    std::vector<clause_t> reason;  // Keys: variables, values: clause indices
+    // Maps a variable to a clause that forced the variable, or clause_nil if
+    // no such clause exists because the variable was part of a decision step.
+    std::vector<clause_t> reason;
 
+    // Watchlists, maps a literal to the first clause in that literal's sequence
+    // of watched clauses. Each subsequent clause in the literal's watchlist can
+    // be found by following WATCH0/WATCH1 pointers, depending on whether the
+    // literal in question is in LIT0/LIT1, respectively.
     std::vector<clause_t> watch_storage;
-    clause_t* watch; // Keys: litarals, values: clause indices
+    clause_t* watch;
 
-    std::vector<lit_t> b;  // temp storage for learned clause
+    // Temp storage for the learned clause, re-used each epoch.
+    std::vector<lit_t> b;
 
-    // Used in full runs to keep track of all the lits + reasons at the
-    // highest backjump level;
+    // A list of (literal, reason) pairs we've learned through conflicts at the
+    // lowest backjump level. During a full run, there may be more than one
+    // pair on this list.
     std::vector<std::pair<lit_t, clause_t>> trail_lits;
-    
+
+    // Number of variables in the problem. [1, ..., nvars] are valid variables.
     size_t nvars;
 
-    // TODO: explain epoch values here, why they're bumped by 3 each time.
+    // The resolution epoch. Each time we learn a clause, we bump this value by
+    // 3. We use this epoch value to stamp literals as "visited" in the stamp
+    // and lstamp arrays while processing the learned clause. The subroutine
+    // used for redundant literal detection uses epoch values that are 1 and 2
+    // (mod 3), which is why we bump by 3 each time.
     unsigned long epoch;
 
+    // Current number of lemmas: the number of clauses we've learned through
+    // resolution and are keeping in the clause database.
     size_t nlemmas;
 
-    clause_t lemma_start;  // clause index of first learned clause.
+    // Clause index of the first lemma.
+    clause_t lemma_start;
 
-    lit_t d; // level
+    // Current decision level.
+    lit_t d;
 
+    // Number of full runs remaining. If this number is > 0, we're in the
+    // middle of a full run. Otherwise, the search behaves normally and will
+    // start backjumping at the first detected conflict.
     size_t full_runs;
 
-    lit_t confp; // ptr to most recent entry in conflict array.
+    // A pointer into the most recent entry in the conflict array.
+    lit_t confp;
 
-    bool seen_conflict; // have we seen a conflict in this search path?
+    // Have we seen a conflict in the current search path? Useful in full runs.
+    bool seen_conflict;
 
     // A black box that tells us when to restart. Every time a literal is
     // assigned a value, we tell this oracle about it. Every time we learn
     // a new lemma, we ask it if we should restart.
     restart_oracle agility;
 
+    // The number of database purges/reductions we've performed.
     size_t npurges;
     
     Cnf(size_t nvars) :
@@ -315,26 +340,18 @@ struct Cnf {
         return (x > 0 && s == TRUE) || (x < 0 && s == FALSE);
     }    
 
+    // Have we assigned values to all variables?
     inline bool trail_complete() const {
         return trail.size() == nvars;
     }
-    
-    std::string print_clause(clause_t c) const {
-        std::ostringstream oss;
-        oss << "(";
-        for (size_t i = 0; i < SIZE(c); ++i) {
-            oss << clauses[c+i].lit;
-            if (i != SIZE(c) - 1) oss << " ";
-        }
-        oss << ")";
-        return oss.str();
-    }
 
-    void for_each_clause_helper(clause_t start,
+    // Iterates over all clauses beginning at start_index, respecting header
+    // information as well as tombstoned literals.
+    void for_each_clause_helper(clause_t start_index,
                                 std::function<void(clause_t,clause_t)> func) {
         clause_t ts = 0;
         clause_t os = 0;
-        for(clause_t i = start - 1; i < clauses.size();
+        for(clause_t i = start_index - 1; i < clauses.size();
             i += os + ts + kHeaderSize) {
             os = clauses[i].size;
             clause_t ii = i + clauses[i].size + 1;
@@ -353,8 +370,19 @@ struct Cnf {
     void for_each_lemma(std::function<void(clause_t, clause_t)> func) {
         for_each_clause_helper(lemma_start, func);
     }    
+
+    std::string clause_debug_string(clause_t c) const {
+        std::ostringstream oss;
+        oss << "(";
+        for (size_t i = 0; i < SIZE(c); ++i) {
+            oss << clauses[c+i].lit;
+            if (i != SIZE(c) - 1) oss << " ";
+        }
+        oss << ")";
+        return oss.str();
+    }    
     
-    std::string print_trail() {
+    std::string trail_debug_string() {
         std::ostringstream oss;
         for (lit_t l : trail) {
             oss << "[" << l << ":" << lev[var(l)] << "]";
@@ -362,11 +390,11 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string print_watchlist(lit_t l) {
+    std::string watchlist_debug_string(lit_t l) {
         std::ostringstream oss;
         for (clause_t c = watch[l]; c != clause_nil;
              clauses[c].lit == l ? (c = WATCH0(c)) : (c = WATCH1(c))) {
-            oss << "[" << c << "] " << print_clause(c) << " ";
+            oss << "[" << c << "] " << clause_debug_string(c) << " ";
         }
         return oss.str();
     }
@@ -507,8 +535,8 @@ struct Cnf {
         CHECK_NO_OVERFLOW(clause_t, clauses.size());
 
         ++nlemmas;
-        LOG(2) << "Successfully added clause " << print_clause(lc);
-        LOG(2) << "trail: " << print_trail();
+        LOG(2) << "Successfully added clause " << clause_debug_string(lc);
+        LOG(2) << "trail: " << trail_debug_string();
         INC("learned clause literals", r+1);
         INC("learned clauses");
         return lc;
@@ -827,7 +855,7 @@ bool solve(Cnf* c) {
 
         // C3
         LOG(3) << "C3";
-        LOG(3) << "Trail: " << c->print_trail();
+        LOG(3) << "Trail: " << c->trail_debug_string();
 
         lit_t l = c->trail[c->next_trail_index++];
         LOG(3) << "Examining " << -l << "'s watch list";
@@ -837,14 +865,14 @@ bool solve(Cnf* c) {
         while (w != clause_nil) {
 
             // C4
-            LOG(3) << "C4: l = " << l << ", clause = " << c->print_clause(w);
+            LOG(3) << "C4: l = " << l << ", clause = " << c->clause_debug_string(w);
             if (c->clauses[w].lit != -l) {
                 // Make l0 first literal in the clause instead of the second.
                 std::swap(c->clauses[w].lit, c->clauses[w+1].lit);
                 std::swap(c->clauses[w-2].ptr, c->clauses[w-3].ptr);
             }
             clause_t nw = c->clauses[w-2].ptr;
-            LOG(3) << "Looking at watched clause " << c->print_clause(w)
+            LOG(3) << "Looking at watched clause " << c->clause_debug_string(w)
                    << " to see if it forces a unit";
             
             bool all_false = true;
@@ -864,15 +892,15 @@ bool solve(Cnf* c) {
                         all_false = false;
                         lit_t ln = c->clauses[w + i].lit;
                         LOG(3) << "Resetting " << ln
-                               << " as the watched literal in " << c->print_clause(w);
+                               << " as the watched literal in " << c->clause_debug_string(w);
                         // swap ln and l0
                         std::swap(c->clauses[w].lit, c->clauses[w + i].lit);
                         // move w onto watch list of ln
                         // TODO: clauses and watch are lit_t and clause_t, resp.
                         //       clean up so we can std::swap here.
-                        LOG(4) << "Before putting " << c->print_clause(w)
+                        LOG(4) << "Before putting " << c->clause_debug_string(w)
                                << " on " << ln << "'s watch list: "
-                               << c->print_watchlist(ln);
+                               << c->watchlist_debug_string(ln);
                         c->add_to_watchlist(w, ln);
                         break;
                     }
@@ -907,7 +935,7 @@ bool solve(Cnf* c) {
                     } else { // l1 is free
                         lit_t l1 = c->clauses[w+1].lit;
                         LOG(3) << "Adding " << l1 << " to the trail, "
-                               << "forced by " << c->print_clause(w);
+                               << "forced by " << c->clause_debug_string(w);
                         c->add_to_trail(l1, w);
                     }
                 }
@@ -917,12 +945,12 @@ bool solve(Cnf* c) {
             if (all_false) {
                 if (wll == clause_nil) {
                     LOG(4) << "Setting watch[" << -l << "] = "
-                           << c->print_clause(w);
+                           << c->clause_debug_string(w);
                     c->watch[-l] = w;
                 }
                 else {
                     LOG(4) << "Linking " << -l << "'s watchlist: "
-                           << c->print_clause(wll) << " -> " << c->print_clause(w);
+                           << c->clause_debug_string(wll) << " -> " << c->clause_debug_string(w);
                     c->clauses[wll-2].ptr = w;
                 }
                 wll = w;
@@ -932,19 +960,19 @@ bool solve(Cnf* c) {
             w = nw;  // advance watch list traversal.
             
             if (w == clause_nil) { LOG(3) << "Hit clause_nil in watch list"; }
-            else { LOG(3) << "Moving on to " << c->print_clause(w); }
+            else { LOG(3) << "Moving on to " << c->clause_debug_string(w); }
         }
 
         // Finish surgery on watchlist
         if (wll == clause_nil) {
             LOG(3) << "Final: Setting watch[" << -l << "] = "
-                   << ((w == clause_nil) ? "0" : c->print_clause(w));
+                   << ((w == clause_nil) ? "0" : c->clause_debug_string(w));
             c->watch[-l] = w;
         }
         else {
             LOG(3) << "Final: Linking " << -l << "'s watchlist: "
-                   << c->print_clause(wll)
-                   << " -> " << ((w == clause_nil) ? "0" : c->print_clause(w));
+                   << c->clause_debug_string(wll)
+                   << " -> " << ((w == clause_nil) ? "0" : c->clause_debug_string(w));
             c->clauses[wll-2].ptr = w;
         }
         
@@ -1000,18 +1028,18 @@ bool solve(Cnf* c) {
             size_t r = 0;
             c->epoch += 3;
             LOG(3) << "Bumping epoch to " << c->epoch << " at "
-                   << c->print_clause(w);
-            LOG(3) << "Trail is " << c->print_trail();
+                   << c->clause_debug_string(w);
+            LOG(3) << "Trail is " << c->trail_debug_string();
             c->stamp[var(c->clauses[w].lit)] = c->epoch;
             c->heap.bump(var(c->clauses[w].lit));
             
             size_t t;
-            LOG(3) << "RESOLVING [A] " << c->print_clause(w);
+            LOG(3) << "RESOLVING [A] " << c->clause_debug_string(w);
             c->blit(w, &r, &dp, &q, &t);
             
-            LOG(3) << "swapping back: " << c->print_clause(w);
+            LOG(3) << "swapping back: " << c->clause_debug_string(w);
             std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
-            LOG(3) << "now: " << c->print_clause(w);
+            LOG(3) << "now: " << c->clause_debug_string(w);
             
             while (q > 0) {
                 LOG(3) << "q=" << q << ",t=" << t;
@@ -1023,13 +1051,13 @@ bool solve(Cnf* c) {
                     q--;
                     clause_t rc = c->reason[var(l)];
                     if (rc != clause_nil) {
-                        LOG(3) << "RESOLVING [B] " << c->print_clause(rc);
+                        LOG(3) << "RESOLVING [B] " << c->clause_debug_string(rc);
                         if (c->clauses[rc].lit != l) {
                             // TODO: don't swap here (or similar swap above) 
                             std::swap(c->clauses[rc].lit, c->clauses[rc+1].lit);
                             std::swap(c->clauses[rc-2].ptr, c->clauses[rc-3].ptr);
                         }                        
-                        LOG(3) << "Reason for " << l << ": " << c->print_clause(rc);
+                        LOG(3) << "Reason for " << l << ": " << c->clause_debug_string(rc);
                         c->blit(rc, &r, &dp, &q, nullptr);                    
                         
                         if (PARAM_on_the_fly_subsumption == 1 &&
@@ -1132,10 +1160,10 @@ bool solve(Cnf* c) {
         }
             
         // C8: backjump
-        LOG(2) << "Before backjump, trail is " << c->print_trail();        
+        LOG(2) << "Before backjump, trail is " << c->trail_debug_string();        
         c->backjump(dpmin);
         c->seen_conflict = false;
-        LOG(2) << "After backjump, trail is " << c->print_trail();
+        LOG(2) << "After backjump, trail is " << c->trail_debug_string();
 
         // C9: learn
         // This is slightly different than Knuth's C9 becuase we've incorporated
@@ -1145,7 +1173,7 @@ bool solve(Cnf* c) {
             c->add_to_trail(tl.first, tl.second);
         }
         
-        LOG(3) << "After clause install, trail is " << c->print_trail();
+        LOG(3) << "After clause install, trail is " << c->trail_debug_string();
     }
 
     return true;
