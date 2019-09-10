@@ -115,6 +115,10 @@ DEFINE_PARAM(sorted_watchlists, 0,
 DEFINE_PARAM(remove_redundant_literals, 1,
              "If set to 1, redundant literals in learned clauses are removed.");
 
+DEFINE_PARAM(max_redundant_recursion, 100,
+             "During checks for redundant literals, bail out after this depth "
+             "of recursive exploration.");
+
 // Optimization described in Exercise 268 (Lazy level 0 false literal removal).
 DEFINE_PARAM(remove_level_0_false_lits, 1,
              "If set to 1, literals appearing on level 0 will be lazily "
@@ -249,7 +253,8 @@ struct Cnf {
     // Watchlists, maps a literal to the first clause in that literal's sequence
     // of watched clauses. Each subsequent clause in the literal's watchlist can
     // be found by following WATCH0/WATCH1 pointers, depending on whether the
-    // literal in question is in LIT0/LIT1, respectively.
+    // literal in question is in LIT0/LIT1, respectively. See the implementation
+    // of watchlist_debug_string for an example.
     std::vector<clause_t> watch_storage;
     clause_t* watch;
 
@@ -345,8 +350,8 @@ struct Cnf {
         return trail.size() == nvars;
     }
 
-    // Iterates over all clauses beginning at start_index, respecting header
-    // information as well as tombstoned literals.
+    // Iterates over all clauses beginning at start_index. Calls func on each
+    // clause, passing the clause index and clause size, respectively.
     void for_each_clause_helper(clause_t start_index,
                                 std::function<void(clause_t,clause_t)> func) {
         clause_t ts = 0;
@@ -399,27 +404,35 @@ struct Cnf {
         return oss.str();
     }
 
-    bool redundant(lit_t l) {
+    // A learned clause often contains literals that can be resolved out of the
+    // clause by tracing chains of reasons backward. We can discover these
+    // redundant literals by running a DFS through reasons to see if we can
+    // only ever derive a literals already in the current learned clause. This
+    // method, devised by Niklas Sörensson for MiniSat, was improved by Knuth
+    // and the full implementation is described in exercise 257.
+    // 
+    // This function returns true exactly when l is redundant in the current
+    // learned clause. This function modifies stamp values.
+    bool redundant(lit_t l, int max_recursion=PARAM_max_redundant_recursion) {
+        if (max_recursion == 0) return false;
         lit_t k = var(l);
         clause_t r = reason[k];
-        if (r == clause_nil) {
-            return false;
-        }
+        if (r == clause_nil) return false;
         for (size_t i = 0; i < SIZE(r); ++i) {
             lit_t a = clauses[r+i].lit;
             lit_t v = var(a);
             if (k == v) continue;
             if (lev[v] == 0) continue;
-            if (stamp[v] == epoch + 2) {
-                return false;
-            }
+            if (stamp[v] == epoch + 2) return false;
             if (stamp[v] < epoch &&
-                (lstamp[lev[v]] < epoch || !redundant(a))) {
+                (lstamp[lev[v]] < epoch || !redundant(a, max_recursion-1))) {
                 stamp[v] = epoch + 2;
                 return false;
             }
         }
         stamp[k] = epoch + 1;
+        INC("redundant recursion level", 
+            PARAM_max_redundant_recursion - max_recursion);
         return true;
     }
 
