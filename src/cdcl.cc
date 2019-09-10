@@ -409,7 +409,7 @@ struct Cnf {
     // redundant literals by running a DFS through reasons to see if we can
     // only ever derive a literals already in the current learned clause. This
     // method, devised by Niklas Sörensson for MiniSat, was improved by Knuth
-    // and the full implementation is described in exercise 257.
+    // and the full implementation is described in Exercise 257.
     // 
     // This function returns true exactly when l is redundant in the current
     // learned clause. This function modifies stamp values.
@@ -436,6 +436,7 @@ struct Cnf {
         return true;
     }
 
+    // Adds clause at cindex to lit's watchlist.
     void add_to_watchlist(clause_t cindex, lit_t lit) {
         if (PARAM_sorted_watchlists != 1) {
             (LIT0(cindex) == lit ? WATCH0(cindex) : WATCH1(cindex)) =
@@ -470,8 +471,16 @@ struct Cnf {
         *x = LIT0(*x) == clauses[l].lit ? WATCH0(*x) : WATCH1(*x);
     }
 
-    // t: if non-null, will be set to the max tloc of any var in the clause.
-    void blit(clause_t c, size_t* r, lit_t* dp, size_t* q, size_t* t) {
+    // Knuth's blit subroutine described in the answer to Exercise 263.
+    // Processes each literal involved in resolution to learn a new clause.
+    // * c is the index of the clause being processed.
+    // * r is the total number of literals in the learned clause and is
+    //   incremented every time we add a literal. 
+    // * dp is the running candidate for the level that we'll eventually
+    //   backjump to after learning a clause.
+    // * q is the number of level d literals we still need to resolve.
+    // * t, if non-null, will be set to the max tloc of any var in the clause.
+    void blit(clause_t c, clause_t* r, lit_t* dp, clause_t* q, size_t* t) {
         if (t != nullptr) *t = tloc[var(LIT0(c))];
         for(size_t j = 1; j < SIZE(c); ++j) {
             lit_t m = clauses[c+j].lit;
@@ -503,6 +512,7 @@ struct Cnf {
         agility.bump(oval[k] == val[k]);
     }
 
+    // Rewinds the search to the given level.
     void backjump(lit_t level) {
         while (trail.size() > di[level+1]) {
             lit_t k = var(trail.back());
@@ -517,29 +527,25 @@ struct Cnf {
         d = level;
     }
 
-    clause_t learn_clause(lit_t lp, size_t r, lit_t dp) {
-        clause_elem_t nil_ptr;  // TODO: make constant
-        nil_ptr.ptr = clause_nil;
-        clauses.push_back(nil_ptr); // watch list for l1
-        clause_elem_t wlp;
-        wlp.ptr = watch[-lp];
-        clauses.push_back(wlp); // watch list for l0
-        clause_elem_t s;
-        s.size = r+1;
-        clauses.push_back(s); // size
-        LOG(3) << "adding a clause of size " << r+1;
+    // Install the new clause of length r, currently in temp storage at b,
+    // as the reason for literal lp at level dp. Returns the new clause index.
+    clause_t learn_clause(lit_t lp, clause_t r, lit_t dp) {
+        // Initialize the new clause. All of the nils we set here will be set
+        // to real values below.
+        clauses.push_back({.ptr = clause_nil});
+        clauses.push_back({.ptr = clause_nil});
+        clauses.push_back({.size = r+1});
         clause_t lc = clauses.size();
-        clauses.push_back({-lp});
-        add_to_watchlist(lc, -lp); // watch[-lp] = lc;
-        clauses.push_back({lit_nil}); // clauses[lc+1], to be set in else below
+        clauses.push_back({.lit = -lp});
+        add_to_watchlist(lc, -lp);
+        clauses.push_back({.lit = lit_nil});  // Set in the "else" branch below.
+        // Need to watch a literal at some level < dp.
         bool found_watch = false;
         for (size_t j = 0; j < r; ++j) {
             if (found_watch || lev[var(b[j])] < dp) {
                 clauses.push_back({-b[j]});
             } else {
                 clauses[lc+1].lit = -b[j];
-                //clauses[lc-3].ptr = watch[-b[j]];
-                // watch[-b[j]] = lc;
                 add_to_watchlist(lc, -b[j]); 
                 found_watch = true;
             }
@@ -548,8 +554,7 @@ struct Cnf {
         CHECK_NO_OVERFLOW(clause_t, clauses.size());
 
         ++nlemmas;
-        LOG(2) << "Successfully added clause " << clause_debug_string(lc);
-        LOG(2) << "trail: " << trail_debug_string();
+        LOG(2) << "Learned clause: " << clause_debug_string(lc);
         INC("learned clause literals", r+1);
         INC("learned clauses");
         return lc;
@@ -1037,8 +1042,8 @@ bool solve(Cnf* c) {
             }
             
             lit_t dp = 0;
-            size_t q = 0;
-            size_t r = 0;
+            clause_t q = 0;
+            clause_t r = 0;
             c->epoch += 3;
             LOG(3) << "Bumping epoch to " << c->epoch << " at "
                    << c->clause_debug_string(w);
