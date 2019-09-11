@@ -573,14 +573,13 @@ struct Cnf {
         size_t target_lemmas = nlemmas * PARAM_reduce_db_fraction;
 
         // We make a few passes over the clauses and keep track of anything we
-        // want to keep with PIN(c). If PIN(c) >= 2, we don't want to keep the
-        // clause. If PIN(c) == 1, we want to keep the clause because of its
+        // want to keep with PIN(c). If PIN(c) > 0, we don't want to keep the
+        // clause. If PIN(c) == 0, we want to keep the clause because of its
         // size or LBD. If PIN(c) < 0, we want to keep the clause because its
-        // the current reason for variable -PIN(c). First, initialize PINs to 2.
-        for_each_lemma([&](clause_t c, clause_t cs) { PIN(c) = 2; });
+        // the current reason for variable -PIN(c).
+        for_each_lemma([&](clause_t c, clause_t cs) { PIN(c) = 1; });
         
-        // Pin learned clauses that are reasons. Note PIN(c) <= 1 means pin;
-        // 1 will never be a watch pointer because 1 < kHeaderSize.
+        // Pin learned clauses that are reasons.
         for (lit_t l : trail) {
             lit_t v = var(l);
             if (reason[v] == clause_nil) continue;
@@ -589,17 +588,16 @@ struct Cnf {
             if (target_lemmas > 0) --target_lemmas;
         }
 
-        // Pin any small clauses. For anything else,
-        // Compute LBD, store in W1(c). Store lemma indexes of LBD candidates so
-        // we can iterate in reverse over clauses next.        
+        // Pin any small clauses. For anything else, compute LBD. Store lemma
+        // indexes of LBD candidates so we can iterate in reverse over clauses.
         std::vector<clause_t> lbds(d+2, 0);
         std::vector<clause_t> hist(d+2, 0);  // lbd histogram.
         std::vector<lit_t> lemma_indexes;
         for_each_lemma([&](clause_t c, clause_t cs) {
             if (target_lemmas == 0) return; // continue
-            if (PIN(c) < 0) return; // continue, already pinned
-            if (cs < PARAM_min_purged_clause_size && PIN(c) > 1) {
-                PIN(c) = 1;
+            if (PIN(c) < 1) return; // continue, already pinned
+            if (cs < PARAM_min_purged_clause_size && PIN(c) > 0) {
+                PIN(c) = 0;
                 --target_lemmas;
                 return; // continue
             }
@@ -629,12 +627,12 @@ struct Cnf {
         // Mark clauses we want to keep because of LBD.
         for(size_t i = 0; i < lemma_indexes.size(); ++i) {
             lit_t lc = lemma_indexes[lemma_indexes.size() - i - 1];
-            if (PIN(lc) < 2) continue; // already pinned
+            if (PIN(lc) < 1) continue; // already pinned
             if (LBD(lc) == max_lbd && max_lbd_budget > 0) {
-                PIN(lc) = 1;
+                PIN(lc) = 0;
                 --max_lbd_budget;
             } else if (LBD(lc) < max_lbd) {
-                PIN(lc) = 1;
+                PIN(lc) = 0;
             }
         }
         
@@ -647,12 +645,12 @@ struct Cnf {
         lit_t tail = lemma_start;
         nlemmas = 0;
         for_each_lemma([&](clause_t c, clause_t cs) {        
-            if (PIN(c) > 1) return;  // continue
+            if (PIN(c) > 0) return;  // continue
             if (PIN(c) < 0) {
                 reason[var(PIN(c))] = tail;
             }
-            WATCH1(tail) = 1;  // placeholder, anything != 0
-            PIN(tail) = 1;  // placeholder, anything != 0
+            WATCH0(tail) = clause_nil;
+            WATCH1(tail) = clause_nil;
             SIZE(tail) = cs;
             for(size_t j = 0; j < cs; ++j) {
                 clauses[tail+j].lit = clauses[c+j].lit;
