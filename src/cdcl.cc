@@ -573,13 +573,13 @@ struct Cnf {
         size_t target_lemmas = nlemmas * PARAM_reduce_db_fraction;
 
         // We make a few passes over the clauses and keep track of anything we
-        // want to keep with PIN(c). If PIN(c) > 0, we don't want to keep the
+        // want to keep with PIN(c). If PIN(c) > 0, we don't care to keep the
         // clause. If PIN(c) == 0, we want to keep the clause because of its
-        // size or LBD. If PIN(c) < 0, we want to keep the clause because its
+        // size or LBD. If PIN(c) < 0, we want to keep the clause because it's
         // the current reason for variable -PIN(c).
         for_each_lemma([&](clause_t c, clause_t cs) { PIN(c) = 1; });
         
-        // Pin learned clauses that are reasons.
+        // Pin lemmas that are reasons.
         for (lit_t l : trail) {
             lit_t v = var(l);
             if (reason[v] == clause_nil) continue;
@@ -594,8 +594,8 @@ struct Cnf {
         std::vector<clause_t> hist(d+2, 0);  // lbd histogram.
         std::vector<lit_t> lemma_indexes;
         for_each_lemma([&](clause_t c, clause_t cs) {
-            if (target_lemmas == 0) return; // continue
-            if (PIN(c) < 1) return; // continue, already pinned
+            if (target_lemmas == 0) return;  // continue
+            if (PIN(c) < 1) return;  // continue, already pinned
             if (cs < PARAM_min_purged_clause_size && PIN(c) > 0) {
                 PIN(c) = 0;
                 --target_lemmas;
@@ -615,19 +615,24 @@ struct Cnf {
             hist[lbd]++;
         });
 
-        INC("LBD purge budget", target_lemmas);
+        // Figure out the max LBD we can afford to keep while staying within our
+        // target eviction budget.
         int max_lbd = 1;
-        size_t total_lemmas = 0;
-        while (max_lbd <= d && total_lemmas + hist[max_lbd] <= target_lemmas) {
-            total_lemmas += hist[max_lbd];
+        size_t lbd_evictions = 0;
+        while (max_lbd <= d && lbd_evictions + hist[max_lbd] <= target_lemmas) {
+            lbd_evictions += hist[max_lbd];
             ++max_lbd;
         }
-        int max_lbd_budget = target_lemmas - total_lemmas;
+        
+        // We'll keep this many of the most recently learned clauses at the
+        // highest LBD value we can afford (max_lbd) as well as keep all
+        // clauses with LBD < max_lbd.
+        int max_lbd_budget = target_lemmas - lbd_evictions;
         
         // Mark clauses we want to keep because of LBD.
         for(size_t i = 0; i < lemma_indexes.size(); ++i) {
             lit_t lc = lemma_indexes[lemma_indexes.size() - i - 1];
-            if (PIN(lc) < 1) continue; // already pinned
+            if (PIN(lc) < 1) continue;  // already pinned
             if (LBD(lc) == max_lbd && max_lbd_budget > 0) {
                 PIN(lc) = 0;
                 --max_lbd_budget;
@@ -649,7 +654,10 @@ struct Cnf {
             if (PIN(c) < 0) {
                 reason[var(PIN(c))] = tail;
             }
-            WATCH0(tail) = clause_nil;
+            // If WATCH1 isn't set to something, it might be lit_nil. If it's
+            // lit_nil, it could look like a tombstoned literal instead of a
+            // watch pointer. So we set it explictly here, even though we'll
+            // overwrite it when we recompute watchlists in the next for loop.
             WATCH1(tail) = clause_nil;
             SIZE(tail) = cs;
             for(size_t j = 0; j < cs; ++j) {
@@ -714,13 +722,9 @@ Cnf parse(const char* filename) {
     int lit;
     do {
         bool read_lit = false;
-        clause_elem_t nil_ptr;  // TODO: make these constants
-        nil_ptr.ptr = clause_nil;
-        clause_elem_t zero_size;
-        zero_size.size = 0;
-        c.clauses.push_back(nil_ptr);  // watch ptr for clause's second lit
-        c.clauses.push_back(nil_ptr);  // watch ptr for clause's first lit
-        c.clauses.push_back(zero_size);  // size of clause. filled in below.
+        c.clauses.push_back({.ptr = clause_nil});  // watch ptr for second lit.
+        c.clauses.push_back({.ptr = clause_nil});  // watch ptr for first lit.
+        c.clauses.push_back({.size = 0});          // size of clause. set below.
         std::size_t start = c.clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
