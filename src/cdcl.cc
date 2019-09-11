@@ -560,25 +560,24 @@ struct Cnf {
         return lc;
     }
 
-    // Use W1(c) as LBD, use W0(c) as pin.
-    // First, pin everything used as a reason.
-    // Next, iterate through all clauses, computing LBD and storing in W1
-    //    and computing LBD histogram.
-    //    - Figure out max LBD we can keep and # clauses from max level
-    // Next, iterate in reverse, pinning clauses
-    // Next, clear watch_storage array
-    // Next, iterate forward, compacting all pinned clauses and computing
-    // watchlist
+    // Removes a large fraction of the lemmas in the clause database that we
+    // don't think will be useful in the future. Literal block distance (LBD)
+    // and clause length are used as indicators of future clause usefulness.
+    // This function must only be called after a full run so that LBD can be
+    // calculated on each clause (each variable needs a level assigned for LBD).
+    // We pin all clauses that are active reasons for literals on the trail so
+    // restarting is not necessary after running this function. The target
+    // fraction of lemmas to keep is controlled by PARAMS_reduce_db_fraction.
     void reduce_db() {
         Timer t("clause database purges");
-        std::vector<clause_t> lbds(d+2, 0);
-        std::vector<clause_t> hist(d+2, 0);  // lbd histogram.
         size_t target_lemmas = nlemmas * PARAM_reduce_db_fraction;
-        
-        for_each_lemma([&](clause_t c, clause_t cs) {
-          PIN(c) = 2; // >= 2 == not pinned
-          LBD(c) = 2;
-        });
+
+        // We make a few passes over the clauses and keep track of anything we
+        // want to keep with PIN(c). If PIN(c) >= 2, we don't want to keep the
+        // clause. If PIN(c) == 1, we want to keep the clause because of its
+        // size or LBD. If PIN(c) < 0, we want to keep the clause because its
+        // the current reason for variable -PIN(c). First, initialize PINs to 2.
+        for_each_lemma([&](clause_t c, clause_t cs) { PIN(c) = 2; });
         
         // Pin learned clauses that are reasons. Note PIN(c) <= 1 means pin;
         // 1 will never be a watch pointer because 1 < kHeaderSize.
@@ -593,6 +592,8 @@ struct Cnf {
         // Pin any small clauses. For anything else,
         // Compute LBD, store in W1(c). Store lemma indexes of LBD candidates so
         // we can iterate in reverse over clauses next.        
+        std::vector<clause_t> lbds(d+2, 0);
+        std::vector<clause_t> hist(d+2, 0);  // lbd histogram.
         std::vector<lit_t> lemma_indexes;
         for_each_lemma([&](clause_t c, clause_t cs) {
             if (target_lemmas == 0) return; // continue
