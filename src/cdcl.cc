@@ -90,10 +90,6 @@ DEFINE_PARAM(phase_flip_prob, 0.02,
              "Probability that we'll flip the phase of a decision variable "
              "to the opposite of what the saved phase suggests.");
 
-DEFINE_PARAM(oval_flip_on_restart_prob, 0.0,
-             "Probability that we'll flip all phases of all literals when "
-             "a restart happens.");
-
 // Optimization described in Exercise 269 (Learning the trivial clause). To
 // disable this optimization, set this param to something large like 1000.
 DEFINE_PARAM(trivial_clause_multiplier, 1.6,
@@ -532,20 +528,20 @@ struct Cnf {
     clause_t learn_clause(lit_t lp, clause_t r, lit_t dp) {
         // Initialize the new clause. All of the nils we set here will be set
         // to real values below.
-        clauses.push_back({.ptr = clause_nil});
-        clauses.push_back({.ptr = clause_nil});
-        clauses.push_back({.size = r+1});
+        clauses.push_back({.ptr = clause_nil});  // WATCH1
+        clauses.push_back({.ptr = clause_nil});  // WATCH0
+        clauses.push_back({.size = r+1});  // SIZE
         clause_t lc = clauses.size();
-        clauses.push_back({.lit = -lp});
+        clauses.push_back({.lit = -lp});  // LIT0
         add_to_watchlist(lc, -lp);
-        clauses.push_back({.lit = lit_nil});  // Set in the "else" branch below.
+        clauses.push_back({.lit = lit_nil});  // LIT1, set below.
         // Need to watch a literal at some level < dp.
         bool found_watch = false;
         for (size_t j = 0; j < r; ++j) {
             if (found_watch || lev[var(b[j])] < dp) {
                 clauses.push_back({-b[j]});
             } else {
-                clauses[lc+1].lit = -b[j];
+                LIT1(lc) = -b[j];
                 add_to_watchlist(lc, -b[j]); 
                 found_watch = true;
             }
@@ -561,14 +557,15 @@ struct Cnf {
     }
 
     // Removes a large fraction of the lemmas in the clause database that we
-    // don't think will be useful in the future. Literal block distance (LBD)
-    // and clause length are used as indicators of future clause usefulness.
-    // This function must only be called after a full run so that LBD can be
-    // calculated on each clause (each variable needs a level assigned for LBD).
-    // We pin all clauses that are active reasons for literals on the trail so
-    // restarting is not necessary after running this function. The target
-    // fraction of lemmas to keep is controlled by PARAMS_reduce_db_fraction.
-    void reduce_db() {
+    // don't think will be useful in the future. Returns the final clause in the
+    // reduced clause database. Literal block distance (LBD) and clause length
+    // are used as indicators of future clause usefulness. This function must
+    // only be called after a full run so that LBD can be calculated on each
+    // clause (each variable needs a level assigned for LBD). We pin all clauses
+    // that are active reasons for literals on the trail so restarting is not
+    // necessary after running this function. The target fraction of lemmas to
+    // keep is controlled by PARAMS_reduce_db_fraction.
+    clause_t reduce_db() {
         Timer t("clause database purges");
         size_t target_lemmas = nlemmas * PARAM_reduce_db_fraction;
 
@@ -669,12 +666,15 @@ struct Cnf {
         clauses.resize(tail - kHeaderSize);
 
         // Recompute all watch lists
+        clause_t last_clause = clause_nil;
         for_each_clause([&](clause_t c, clause_t cs) {
             if (cs > 1) {
                 add_to_watchlist(c, LIT0(c));
                 add_to_watchlist(c, LIT1(c));
             }
+            last_clause = c;
         });
+        return last_clause;
     }
 };
 
@@ -708,14 +708,11 @@ Cnf parse(const char* filename) {
         if (nc > 0 && nc != EOF) break;
         nc = fscanf(f, "%*s\n");
     } while (nc != 2 && nc != EOF);
-    LOG(0) << "nvars = " << nvars;
-    LOG(0) << "nclauses = " << nclauses;
+    LOG(3) << "nvars = " << nvars << ", nclauses = " << nclauses;
     CHECK(nvars >= 0);
     CHECK(nclauses >= 0);
     CHECK_NO_OVERFLOW(lit_t, static_cast<long long>(nvars));
     CHECK_NO_OVERFLOW(clause_t, nclauses);
-    
-    // Initialize data structures now that we know nvars.
     Cnf c(nvars);
 
     // Read clauses until EOF.
@@ -777,20 +774,19 @@ Cnf parse(const char* filename) {
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer t("solve");
-    clause_t lc = clause_nil;  // The most recent learned clause
+    clause_t lc = clause_nil;  // The most recent learned clause.
 
     while (true) {
         // (C2)
-        LOG(3) << "C2";
-
         if (c->trail.size() == c->next_trail_index) {
-            LOG(3) << "C5";
-            
             // C5
             if (!c->seen_conflict && c->trail_complete()) {
                 return true;
             }
 
+            // Is the clause database too big? If so, we'll schedule a full run
+            // and actually reduce the clause database the next time we hit this
+            // code after the full run.
             size_t max_lemmas =
                 PARAM_max_lemmas + c->npurges * PARAM_max_lemmas_delta;
             if (c->nlemmas >= max_lemmas && !c->trail_complete() &&
@@ -800,16 +796,13 @@ bool solve(Cnf* c) {
             } else if (c->nlemmas >= max_lemmas && c->trail_complete()) {
                 LOG(1) << "Reducing clause database at epoch " << c->epoch
                        << ", starting size = " << c->nlemmas;
-                c->reduce_db();
+                lc = c->reduce_db();
                 c->npurges++;
                 LOG(1) << "Clause database reduced to size = " << c->nlemmas;
-                lc = clause_nil;  // disable subsume prev clause for next iter
                 INC("clause database purges");
             }
 
-            if (c->agility.should_restart() &&
-                !c->seen_conflict &&  // TODO: !seen_conflict && full_runs == 0 redundant?
-                c->full_runs == 0) {
+            if (c->agility.should_restart() && c->full_runs == 0) {
                 // Find lowest level where choices will substantially differ.
                 lit_t dp = 0;
                 if (flip(PARAM_partial_restart_prob)) {
@@ -823,12 +816,6 @@ bool solve(Cnf* c) {
 
                     while(dp < c->d &&
                           c->heap.act(c->trail[c->di[dp+1]]) >= amax) ++dp;
-                }
-
-                if (flip(PARAM_oval_flip_on_restart_prob)) {
-                    for (size_t k = 1; k <= c->nvars; ++k) {
-                        c->oval[k] = (c->oval[k] == FALSE) ? TRUE : FALSE;
-                    }
                 }
 
                 if (dp < c->d) {
