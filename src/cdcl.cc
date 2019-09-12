@@ -777,16 +777,21 @@ bool solve(Cnf* c) {
     clause_t lc = clause_nil;  // The most recent learned clause.
 
     while (true) {
-        // (C2)
+        // C2
         if (c->trail.size() == c->next_trail_index) {
             // C5
+
+            // If we've completed the trail without a conflict, we've found a
+            // satisfying assignment.
             if (!c->seen_conflict && c->trail_complete()) {
                 return true;
             }
 
-            // Is the clause database too big? If so, we'll schedule a full run
-            // and actually reduce the clause database the next time we hit this
-            // code after the full run.
+            // Is the clause database too big? If so, we need to evict some
+            // lemmas. Since our eviction heuristic is based on LBD, we'd like
+            // to schedule a full run before the eviction to compute levels for
+            // all variables. As soon as the full run is finished, we'll hit
+            // this code path again and actually reduce the database.
             size_t max_lemmas =
                 PARAM_max_lemmas + c->npurges * PARAM_max_lemmas_delta;
             if (c->nlemmas >= max_lemmas && !c->trail_complete() &&
@@ -802,8 +807,13 @@ bool solve(Cnf* c) {
                 INC("clause database purges");
             }
 
+            // Does our agility measure tell us that we're no longer making real
+            // progress in the search? If so, restart by jumping back to the
+            // lowest level that we think will allow us to explore a different
+            // search path. It wouldn't make much sense to restart in the middle
+            // of a full run, since full runs are used for either computing
+            // levels for all variables or warming up the heap activity stats.
             if (c->agility.should_restart() && c->full_runs == 0) {
-                // Find lowest level where choices will substantially differ.
                 lit_t dp = 0;
                 if (flip(PARAM_partial_restart_prob)) {
                     // Find unset var of max activity.
@@ -814,6 +824,7 @@ bool solve(Cnf* c) {
                     }
                     double amax = c->heap.act(vmax);
 
+                    // Find lowest level where decision literals will differ.
                     while(dp < c->d &&
                           c->heap.act(c->trail[c->di[dp+1]]) >= amax) ++dp;
                 }
@@ -830,12 +841,15 @@ bool solve(Cnf* c) {
                 }
             }
 
+            // If we're at the end of a full run that found at least one
+            // conflict, clean up and reset for either another full run or
+            // business as usual.
             if (c->seen_conflict && c->trail_complete()) {
-                INC("full runs");
                 --c->full_runs;
-                LOG(1) << "Full run done. " << c->full_runs << " runs left.";
                 c->backjump(0);
                 c->seen_conflict = false;
+                LOG(1) << "Full run done. " << c->full_runs << " runs left.";
+                INC("full runs");
             }            
             
             ++c->d;
@@ -850,7 +864,7 @@ bool solve(Cnf* c) {
                 k = flip(PARAM_peek_prob) ?
                     c->heap.rpeek() : c->heap.delete_max();
             }
-            CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6!";
+            CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6.";
             LOG(3) << "Decided on variable " << k;
             lit_t l = c->oval[k] == FALSE ? -k : k;
             if (flip(PARAM_phase_flip_prob)) {
