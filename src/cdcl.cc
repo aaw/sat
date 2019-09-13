@@ -881,14 +881,16 @@ bool solve(Cnf* c) {
         clause_t w = c->watch[-l];
         clause_t wll = clause_nil;
         bool found_conflict = false;
+
+        // Iterate through the clauses on -l's watchlist to see if there's a
+        // conflict.
         while (w != clause_nil) {
             // C4: [Does w force a unit?]
             if (c->clauses[w].lit != -l) {
-                // Make l0 first literal in the clause instead of the second.
-                std::swap(c->clauses[w].lit, c->clauses[w+1].lit);
-                std::swap(c->clauses[w-2].ptr, c->clauses[w-3].ptr);
+                std::swap(c->LIT0(w), c->LIT1(w));
+                std::swap(c->WATCH0(w), c->WATCH1(w));
             }
-            clause_t nw = c->clauses[w-2].ptr;
+            clause_t nw = c->WATCH0(w);
             LOG(3) << "Looking at watched clause " << c->clause_debug_string(w)
                    << " to see if it forces a unit";
             
@@ -899,15 +901,14 @@ bool solve(Cnf* c) {
                     // If we see a false literal from level zero, go ahead and
                     // and remove it from the clause now by replacing it with a
                     // tombstone (Ex. 268)
+                    lit_t ln = c->clauses[w + i].lit;
                     if (PARAM_remove_level_0_false_lits == 1 &&
-                        c->is_false(c->clauses[w + i].lit) &&
-                        c->lev[var(c->clauses[w + i].lit)] == 0) {
+                        c->is_false(ln) && c->lev[var(ln)] == 0) {
                         c->clauses[w + i].lit = lit_nil;
                         tombstones = true;
                         continue;
-                    } else if (!c->is_false(c->clauses[w + i].lit)) {
+                    } else if (!c->is_false(ln)) {
                         all_false = false;
-                        lit_t ln = c->clauses[w + i].lit;
                         LOG(3) << "Setting " << ln << " as the watched literal "
                                << "in " << c->clause_debug_string(w);
                         std::swap(c->LIT0(w), c->clauses[w + i].lit);
@@ -930,23 +931,27 @@ bool solve(Cnf* c) {
                     INC("tombstoned-level-0-lits", c->SIZE(w) - j);
                     c->clauses[w-1].size = j;
                 }
-                
+
+                // If we only saw false literals, then it's up to LIT1: if it's
+                // free, it's now forced to be true so we can add it to the
+                // trail. If it's false, we've got a conflict. And if it's true,
+                // we can just move on.
                 if (all_false) {
-                    if (c->is_false(c->clauses[w+1].lit)) {
-                        LOG(3) << c->clauses[w+1].lit
-                               << " false => all lits in the clause false.";
+                    if (c->is_false(c->LIT1(w))) {
+                        LOG(3) << c->LIT1(w) << " false, entire clause false.";
                         found_conflict = true;
                         break;
                     } else { // l1 is free
-                        lit_t l1 = c->clauses[w+1].lit;
-                        LOG(3) << "Adding " << l1 << " to the trail, "
+                        LOG(3) << "Adding " << c->LIT1(w) << " to the trail, "
                                << "forced by " << c->clause_debug_string(w);
-                        c->add_to_trail(l1, w);
+                        c->add_to_trail(c->LIT1(w), w);
                     }
                 }
 
             }
 
+            // TODO: use a ptr-to-ptr here and avoid the == clause_nil special case
+            // here as well as "finish surgery on watchlist step below.
             if (all_false) {
                 if (wll == clause_nil) {
                     LOG(4) << "Setting watch[" << -l << "] = "
