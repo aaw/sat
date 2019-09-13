@@ -47,17 +47,17 @@ union clause_elem_t {
 
 // Helper macros for accessing clause components. Each clause is addressed by
 // the index of its first literal.
-#define LIT1(c) (clauses[c+1].lit)
-#define LIT0(c) (clauses[c].lit)
-#define SIZE(c) (clauses[c-1].size)
-#define WATCH0(c) (clauses[c-2].ptr)
-#define WATCH1(c) (clauses[c-3].ptr)
+#define LIT1(c) clauses[c+1].lit
+#define LIT0(c) clauses[c].lit
+#define SIZE(c) clauses[c-1].size
+#define WATCH0(c) clauses[c-2].ptr
+#define WATCH1(c) clauses[c-3].ptr
 
 // During a lemma database reduction, we'll temporarily re-purpose some of the
 // watchlist pointer storage to tag clauses that we want to keep and to store
 // the literal block distance of the clause.
-#define PIN(c) (clauses[c-2].lit)
-#define LBD(c) (clauses[c-3].lit)
+#define PIN(c) clauses[c-2].lit
+#define LBD(c) clauses[c-3].lit
 
 // Size of the header for each clause in the clause array, consisting of two
 // watchlist pointers plus size info.
@@ -910,30 +910,25 @@ bool solve(Cnf* c) {
                         lit_t ln = c->clauses[w + i].lit;
                         LOG(3) << "Setting " << ln << " as the watched literal "
                                << "in " << c->clause_debug_string(w);
-                        std::swap(c->clauses[w].lit, c->clauses[w + i].lit);
+                        std::swap(c->LIT0(w), c->clauses[w + i].lit);
                         c->add_to_watchlist(w, ln);
                         break;
                     }
                 }
-                // Compact any tombstones we just added to the clause
-                // TODO: rewrite this compaction
+                // Compact any tombstones we just added to the clause.
                 if (tombstones) {
                     size_t j = 2;
-                    for(size_t i = 2; i < c->clauses[w-1].size; ++i) {
+                    for(size_t i = 2; i < c->SIZE(w); ++i) {
                         if (c->clauses[w+i].lit != lit_nil) {
-                            if (i != j) {
-                                c->clauses[w+j].lit = c->clauses[w+i].lit;
-                            }
+                            c->clauses[w+j].lit = c->clauses[w+i].lit;
                             ++j;
                         }
                     }
-                    for(size_t i = j; i < c->clauses[w-1].size; ++i) {
+                    for(size_t i = j; i < c->SIZE(w); ++i) {
                         c->clauses[w+i].lit = lit_nil;
                     }
-                    if (j < c->clauses[w-1].size) {
-                        INC("tombstoned-level-0-lits", c->clauses[w-1].size-j);
-                        c->clauses[w-1].size = j;
-                    }
+                    INC("tombstoned-level-0-lits", c->SIZE(w) - j);
+                    c->clauses[w-1].size = j;
                 }
                 
                 if (all_false) {
