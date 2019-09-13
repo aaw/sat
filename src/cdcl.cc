@@ -82,7 +82,7 @@ DEFINE_PARAM(partial_restart_prob, 1.0,
 
 // Setting this to a non-zero value enables the optimization described in
 // Exercise 266 (Random selection of decisions).
-DEFINE_PARAM(peek_prob, 0.02,
+DEFINE_PARAM(peek_prob, 0.005,
              "Probability that we'll randomly select a decision literal "
              "instead of using the one with maximum activity.");
 
@@ -777,9 +777,9 @@ bool solve(Cnf* c) {
     clause_t lc = clause_nil;  // The most recent learned clause.
 
     while (true) {
-        // C2
+        // C2: [Level complete?]
         if (c->trail.size() == c->next_trail_index) {
-            // C5
+            // C5: [New level?]
 
             // If we've completed the trail without a conflict, we've found a
             // satisfying assignment.
@@ -855,14 +855,12 @@ bool solve(Cnf* c) {
             ++c->d;
             c->di[c->d] = c->trail.size();
             
-            // C6
+            // C6: [Make a decision]
             INC("decisions");
-            lit_t k = flip(PARAM_peek_prob) ?
-                c->heap.rpeek() : c->heap.delete_max();
+            bool peek = flip(PARAM_peek_prob);
+            lit_t k = peek ? c->heap.rpeek() : c->heap.delete_max();
             while (c->val[k] != UNSET) {
-                LOG(3) << k << " set, rolling again";
-                k = flip(PARAM_peek_prob) ?
-                    c->heap.rpeek() : c->heap.delete_max();
+                k = peek ? c->heap.rpeek() : c->heap.delete_max();
             }
             CHECK(k != lit_nil) << "Got nil from heap::delete_max in step C6.";
             LOG(3) << "Decided on variable " << k;
@@ -875,19 +873,16 @@ bool solve(Cnf* c) {
             c->add_to_trail(l, clause_nil);
         }
 
-        // C3
-        LOG(3) << "C3";
-        LOG(3) << "Trail: " << c->trail_debug_string();
-
+        // C3: [Advance G]
+        // We still have some literals on the trail at the current level whose
+        // consequences haven't been explored. Explore them now.
         lit_t l = c->trail[c->next_trail_index++];
         LOG(3) << "Examining " << -l << "'s watch list";
         clause_t w = c->watch[-l];
         clause_t wll = clause_nil;
         bool found_conflict = false;
         while (w != clause_nil) {
-
-            // C4
-            LOG(3) << "C4: l = " << l << ", clause = " << c->clause_debug_string(w);
+            // C4: [Does w force a unit?]
             if (c->clauses[w].lit != -l) {
                 // Make l0 first literal in the clause instead of the second.
                 std::swap(c->clauses[w].lit, c->clauses[w+1].lit);
@@ -913,16 +908,9 @@ bool solve(Cnf* c) {
                     } else if (!c->is_false(c->clauses[w + i].lit)) {
                         all_false = false;
                         lit_t ln = c->clauses[w + i].lit;
-                        LOG(3) << "Resetting " << ln
-                               << " as the watched literal in " << c->clause_debug_string(w);
-                        // swap ln and l0
+                        LOG(3) << "Setting " << ln << " as the watched literal "
+                               << "in " << c->clause_debug_string(w);
                         std::swap(c->clauses[w].lit, c->clauses[w + i].lit);
-                        // move w onto watch list of ln
-                        // TODO: clauses and watch are lit_t and clause_t, resp.
-                        //       clean up so we can std::swap here.
-                        LOG(4) << "Before putting " << c->clause_debug_string(w)
-                               << " on " << ln << "'s watch list: "
-                               << c->watchlist_debug_string(ln);
                         c->add_to_watchlist(w, ln);
                         break;
                     }
@@ -951,7 +939,7 @@ bool solve(Cnf* c) {
                 if (all_false) {
                     if (c->is_false(c->clauses[w+1].lit)) {
                         LOG(3) << c->clauses[w+1].lit
-                               << " false, everything false! (-> C7)";
+                               << " false => all lits in the clause false.";
                         found_conflict = true;
                         break;
                     } else { // l1 is free
@@ -1003,7 +991,7 @@ bool solve(Cnf* c) {
             continue;
         }
 
-        // C7
+        // C7: [Resolve a conflict]
         LOG(3) << "Found a conflict with d = " << c->d;
         c->seen_conflict = true;
         if (c->d == 0) return false;
@@ -1181,13 +1169,13 @@ bool solve(Cnf* c) {
             dpmin = std::min(dpmin, dp);
         }
             
-        // C8: backjump
+        // C8: [Backjump]
         LOG(2) << "Before backjump, trail is " << c->trail_debug_string();        
         c->backjump(dpmin);
         c->seen_conflict = false;
         LOG(2) << "After backjump, trail is " << c->trail_debug_string();
 
-        // C9: learn
+        // C9: [Learn]
         // This is slightly different than Knuth's C9 becuase we've incorporated
         // "full runs". Clause learning and delta rescaling would normally
         // happen here. Look for them right before step C8 instead.
