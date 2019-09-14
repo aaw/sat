@@ -400,6 +400,17 @@ struct Cnf {
         return oss.str();
     }
 
+    // Assuming l is either LIT0 or LIT1 in clause c, swap lits and watchlist
+    // pointers so that l is LIT0.
+    void force_lit0(lit_t l, clause_t c) {
+        if (LIT0(c) != l) {
+            std::swap(LIT0(c), LIT1(c));
+            std::swap(WATCH0(c), WATCH1(c));
+        }                        
+        CHECK(LIT0(c) == l) << "Expected " << l << " to be LIT0 or LIT1 in "
+                            << clause_debug_string(c);
+    }
+    
     // A learned clause often contains literals that can be resolved out of the
     // clause by tracing chains of reasons backward. We can discover these
     // redundant literals by running a DFS through reasons to see if we can
@@ -475,13 +486,10 @@ struct Cnf {
     // * dp is the running candidate for the level that we'll eventually
     //   backjump to after learning a clause.
     // * q is the number of level d literals we still need to resolve.
-    // * t, if non-null, will be set to the max tloc of any var in the clause.
-    void blit(clause_t c, clause_t* r, lit_t* dp, clause_t* q, size_t* t) {
-        if (t != nullptr) *t = tloc[var(LIT0(c))];
+    void blit(clause_t c, clause_t* r, lit_t* dp, clause_t* q) {
         for(size_t j = 1; j < SIZE(c); ++j) {
             lit_t m = clauses[c+j].lit;
             lit_t v = var(m);
-            if (t != nullptr && tloc[v] >= *t) *t = tloc[v];
             if (stamp[v] == epoch) continue;
             stamp[v] = epoch;
             lit_t p = lev[v];
@@ -893,10 +901,7 @@ bool solve(Cnf* c) {
         bool watchlist_conflict = false;
         while (w != clause_nil) {
             // C4: [Does w force a unit?]
-            if (c->LIT0(w) != -l) {
-                std::swap(c->LIT0(w), c->LIT1(w));
-                std::swap(c->WATCH0(w), c->WATCH1(w));
-            }
+            c->force_lit0(-l, w);
             clause_t nw = c->WATCH0(w);
             LOG(3) << "Looking at watched clause " << c->clause_debug_string(w)
                    << " to see if it forces a unit";
@@ -995,27 +1000,21 @@ bool solve(Cnf* c) {
         lit_t dpmin = c->d;
         c->trail_lits.clear();
         while (c->confp > 0) {
-            LOG(2) << "starting loop with confp = " << c->confp;
             w = c->conflict[c->confp];
             c->d = c->confp;
-            // decrement c->confp for the next round.
+            // Decrement c->confp for the next round.
             while (c->confp > 0 && c->conflict[--c->confp] == clause_nil);
-            LOG(2) << "decremented confp to " << c->confp << " for next round";
         
-            // (*) Not mentioned in Knuth's description, but we need to make sure
-            // that the rightmost literal on the trail contained in the clause is
-            // the first literal in the clause here. We'll undo this after the
-            // first resolution step below, otherwise watchlists get corrupted.
-            size_t rl = c->trail.size() - 1;
-            size_t cs = c->clauses[w-1].size;
-            size_t rl_pos = 0;
-            for (bool done = false; !done; --rl) {
-                for (rl_pos = 0; rl_pos < cs; ++rl_pos) {
-                    if (var(c->trail[rl]) == var(c->clauses[w+rl_pos].lit)) {
-                        done = true;
-                        std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
-                        break;
-                    }
+            // Find the literal in the clause with the highest trail position.
+            // This is the literal where the conflict happened, so we'll want
+            // to temporarily move it to the front of the clause before we blit
+            // and then move it right back (since we may be temporarily
+            // corrupting the watchlists by moving it to LIT0).
+            size_t ti = 0, t = c->tloc[var(c->LIT0(w))];
+            for (size_t i = 1; i < c->SIZE(w); ++i) {
+                if (c->tloc[var(c->clauses[w+i].lit)] > t) {
+                    ti = i;
+                    t = c->tloc[var(c->clauses[w+i].lit)];
                 }
             }
             
@@ -1023,38 +1022,27 @@ bool solve(Cnf* c) {
             clause_t q = 0;
             clause_t r = 0;
             c->epoch += 3;
-            LOG(3) << "Bumping epoch to " << c->epoch << " at "
-                   << c->clause_debug_string(w);
-            LOG(3) << "Trail is " << c->trail_debug_string();
+
+            // Move the lit with the highest trail position to LIT0, blit, then
+            // move the lit back in place.
+            std::swap(c->LIT0(w), c->clauses[w+ti].lit);
             c->stamp[var(c->clauses[w].lit)] = c->epoch;
             c->heap.bump(var(c->clauses[w].lit));
-            
-            size_t t;
-            LOG(3) << "RESOLVING [A] " << c->clause_debug_string(w);
-            c->blit(w, &r, &dp, &q, &t);
-            
-            LOG(3) << "swapping back: " << c->clause_debug_string(w);
-            std::swap(c->clauses[w].lit, c->clauses[w+rl_pos].lit);
-            LOG(3) << "now: " << c->clause_debug_string(w);
-            
+            LOG(3) << "Resolving: " << c->clause_debug_string(w);
+            c->blit(w, &r, &dp, &q);
+            std::swap(c->LIT0(w), c->clauses[w+ti].lit);
+
             while (q > 0) {
                 LOG(3) << "q=" << q << ",t=" << t;
                 lit_t l = c->trail[t];
                 t--;
-                //LOG(3) << "New L_t = " << c->trail[t];
                 if (c->stamp[var(l)] == c->epoch) {
-                    LOG(3) << "Stamped this epoch: " << l;
                     q--;
                     clause_t rc = c->reason[var(l)];
                     if (rc != clause_nil) {
-                        LOG(3) << "RESOLVING [B] " << c->clause_debug_string(rc);
-                        if (c->clauses[rc].lit != l) {
-                            // TODO: don't swap here (or similar swap above) 
-                            std::swap(c->clauses[rc].lit, c->clauses[rc+1].lit);
-                            std::swap(c->clauses[rc-2].ptr, c->clauses[rc-3].ptr);
-                        }                        
-                        LOG(3) << "Reason for " << l << ": " << c->clause_debug_string(rc);
-                        c->blit(rc, &r, &dp, &q, nullptr);                    
+                        LOG(3) << "Resolving: " << c->clause_debug_string(rc);
+                        c->force_lit0(l, rc);
+                        c->blit(rc, &r, &dp, &q);         
                         
                         if (PARAM_on_the_fly_subsumption == 1 &&
                             q + r + 1 < c->clauses[rc-1].size && q > 0) {

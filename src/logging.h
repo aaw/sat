@@ -16,11 +16,10 @@ extern int FLAGS_verbosity;
 #define LOG_EVERY_N(i, n) \
     static int __c___LINE__ = 0; ++__c___LINE__; \
     if (LOG_ENABLED(i) && (__c___LINE__ % n == 0)) Logger(__FILE__,__LINE__)
-#define CHECK(expr) AbortLogger(__FILE__,__LINE__,expr)
+#define CHECK(expr) if (!(expr)) AbortLogger(__FILE__,__LINE__)
 #define CHECK_NO_OVERFLOW(x, y) \
-    AbortLogger(__FILE__,__LINE__,\
-                std::numeric_limits<x>::min() <= (y) &&  \
-                std::numeric_limits<x>::max() >= (y)) << \
+    CHECK(std::numeric_limits<x>::min() <= (y) &&  \
+          std::numeric_limits<x>::max() >= (y)) << \
     "Overflow/underflow detected setting variable of type " << #x \
     << ": " << #y << " = " << y << ". "
 #define UNSAT_EXIT UnsatExit()
@@ -41,22 +40,19 @@ struct Logger {
 };
 
 struct AbortLogger {
-    AbortLogger(const std::string& filename, int line, bool check_passed) :
-      enabled_(!check_passed) {
-        if (!enabled_) return;
+    AbortLogger(const std::string& filename, int line) {
         PRINT << "s UNKNOWN" << std::endl;
         PRINT << "c [FATAL " << filename << ":" << line << "] ";
     }
 
     ~AbortLogger() {
-        if (!enabled_) return;
         PRINT << std::endl;
         exit(EXIT_FAILURE);
     }
 
     template<class T>
     AbortLogger& operator<<(const T& msg) {
-        if (enabled_) PRINT << msg;
+        PRINT << msg;
         return *this;
     }
 
