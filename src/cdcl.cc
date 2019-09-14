@@ -1032,6 +1032,8 @@ bool solve(Cnf* c) {
             c->blit(w, &r, &dp, &q);
             std::swap(c->LIT0(w), c->clauses[w+ti].lit);
 
+            // Move up the trail while there are still literals to process,
+            // resolving reasons to create the learned clause.
             while (q > 0) {
                 LOG(3) << "q=" << q << ",t=" << t;
                 lit_t l = c->trail[t];
@@ -1077,8 +1079,6 @@ bool solve(Cnf* c) {
             while (c->stamp[var(lp)] != c->epoch) { t--; lp = c->trail[t]; }
             
             // Remove redundant literals from clause
-            // TODO: move this down so that we only process learned clause once? But
-            // would also have to do subsumption check in single loop...
             if (PARAM_remove_redundant_literals == 1) {
                 lit_t rr = 0;
                 for(size_t i = 0; i < r; ++i) {
@@ -1095,9 +1095,9 @@ bool solve(Cnf* c) {
             
             bool subsumed = false;
             if (PARAM_predecessor_subsumption == 1 && lc != clause_nil) {
-                // Ex. 271: Does this clause subsume the previous learned clause? If
-                // so, we can "just" overwrite it. lc is the most recent learned
-                // clause from a previous iteration.
+                // Ex. 271: Does this clause subsume the previous learned
+                // clause? If so, we can "just" overwrite it. lc is the most
+                // recent learned clause from a previous iteration.
                 lit_t q = r+1;
                 for (int j = c->clauses[lc-1].size - 1; q > 0 && j >= q; --j) {
                     lit_t v = var(c->clauses[lc+j].lit);
@@ -1144,10 +1144,8 @@ bool solve(Cnf* c) {
         }
             
         // C8: [Backjump]
-        LOG(2) << "Before backjump, trail is " << c->trail_debug_string();        
         c->backjump(dpmin);
         c->seen_conflict = false;
-        LOG(2) << "After backjump, trail is " << c->trail_debug_string();
 
         // C9: [Learn]
         // This is slightly different than Knuth's C9 becuase we've incorporated
