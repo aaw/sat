@@ -878,15 +878,20 @@ bool solve(Cnf* c) {
         // consequences haven't been explored. Explore them now.
         lit_t l = c->trail[c->next_trail_index++];
         LOG(3) << "Examining " << -l << "'s watch list";
-        clause_t w = c->watch[-l];
-        clause_t wll = clause_nil;
-        bool found_conflict = false;
 
         // Iterate through the clauses on -l's watchlist to see if there's a
-        // conflict.
+        // conflict. -l is now false, so we need to revisit its watchlist in the
+        // process: any clause on -l's watchlist that has some other non-false
+        // literal needs to be moved to that non-false literal's watchlist. Any
+        // clause that has no other non-false literal can stay on -l's
+        // watchlist. wlp tracks w's recomputed watchlist below.
+        CHECK(c->is_false(-l)) << "Expected " << -l << " to be false.";
+        clause_t w = c->watch[-l];
+        clause_t* wlp = &c->watch[-l];
+        bool watchlist_conflict = false;
         while (w != clause_nil) {
             // C4: [Does w force a unit?]
-            if (c->clauses[w].lit != -l) {
+            if (c->LIT0(w) != -l) {
                 std::swap(c->LIT0(w), c->LIT1(w));
                 std::swap(c->WATCH0(w), c->WATCH1(w));
             }
@@ -896,8 +901,8 @@ bool solve(Cnf* c) {
             
             bool all_false = true;
             bool tombstones = false;
-            if (!c->is_true(c->clauses[w+1].lit)) {
-                for(size_t i = 2; i < c->clauses[w-1].size; ++i) {
+            if (!c->is_true(c->LIT1(w))) {
+                for(size_t i = 2; i < c->SIZE(w); ++i) {
                     // If we see a false literal from level zero, go ahead and
                     // and remove it from the clause now by replacing it with a
                     // tombstone (Ex. 268)
@@ -939,7 +944,7 @@ bool solve(Cnf* c) {
                 if (all_false) {
                     if (c->is_false(c->LIT1(w))) {
                         LOG(3) << c->LIT1(w) << " false, entire clause false.";
-                        found_conflict = true;
+                        watchlist_conflict = true;
                         break;
                     } else { // l1 is free
                         LOG(3) << "Adding " << c->LIT1(w) << " to the trail, "
@@ -950,44 +955,23 @@ bool solve(Cnf* c) {
 
             }
 
-            // TODO: use a ptr-to-ptr here and avoid the == clause_nil special case
-            // here as well as "finish surgery on watchlist step below.
             if (all_false) {
-                if (wll == clause_nil) {
-                    LOG(4) << "Setting watch[" << -l << "] = "
-                           << c->clause_debug_string(w);
-                    c->watch[-l] = w;
-                }
-                else {
-                    LOG(4) << "Linking " << -l << "'s watchlist: "
-                           << c->clause_debug_string(wll) << " -> " << c->clause_debug_string(w);
-                    c->clauses[wll-2].ptr = w;
-                }
-                wll = w;
+                // All literals in w except LIT1 are false. In this case, it's
+                // okay to keep w on -l's watchlist, since we need to track the
+                // clause and there's nowhere else to put it.
+                *wlp = w;
+                wlp = &(c->LIT0(w) == -l ? c->WATCH0(w) : c->WATCH1(w));
             }
                 
-            LOG(3) << "advancing " << w << " -> " << nw << " with wll=" << wll;
-            w = nw;  // advance watch list traversal.
-            
-            if (w == clause_nil) { LOG(3) << "Hit clause_nil in watch list"; }
-            else { LOG(3) << "Moving on to " << c->clause_debug_string(w); }
+            LOG(3) << "Advancing " << w << " -> " << nw << " with wlp=" << *wlp;
+            w = nw;
         }
 
-        // Finish surgery on watchlist
-        if (wll == clause_nil) {
-            LOG(3) << "Final: Setting watch[" << -l << "] = "
-                   << ((w == clause_nil) ? "0" : c->clause_debug_string(w));
-            c->watch[-l] = w;
-        }
-        else {
-            LOG(3) << "Final: Linking " << -l << "'s watchlist: "
-                   << c->clause_debug_string(wll)
-                   << " -> " << ((w == clause_nil) ? "0" : c->clause_debug_string(w));
-            c->clauses[wll-2].ptr = w;
-        }
+        // Finish surgery on -l's watchlist.
+        *wlp = w;
         
-        if (!found_conflict) {
-            LOG(3) << "Didn't find conflict, moving on.";
+        if (!watchlist_conflict) {
+            LOG(3) << "Didn't find conflict in " << -l << "'s watchlist.";
             continue;
         }
 
@@ -996,13 +980,13 @@ bool solve(Cnf* c) {
         c->seen_conflict = true;
         if (c->d == 0) return false;
 
-        // Store the first conflict clause on each level.
+        // Store the first conflict clause on each level. This is overkill if
+        // we're not doing a full run, since there will only be one conflict.
         if (c->conflict[c->d] == clause_nil) c->conflict[c->d] = w;
         c->confp = c->d;
         
         if (c->full_runs > 0) {
-            // Doing a full run so keep propagating.
-            LOG(2) << "doing a full run, continuing from conflict";
+            LOG(2) << "Doing a full run, continuing from conflict.";
             continue;
         }
 
