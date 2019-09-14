@@ -20,7 +20,9 @@ tbin/heap_test: src/heap_test.cc src/heap.h
 	g++ $(CPPFLAGS) -o tbin/heap_test src/heap_test.cc $(LDLIBS)
 
 clean:
-	$(RM) bin/*
+	$(RM) bin/btwl
+	$(RM) bin/cdcl
+	$(RM) bin/dpll
 	$(RM) tbin/*
 	$(RM) *~
 	$(RM) */*~

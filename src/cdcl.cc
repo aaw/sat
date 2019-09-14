@@ -76,7 +76,7 @@ DEFINE_PARAM(reduce_db_fraction, 0.55,
              "A number between 0 and 1, the fraction of lemmas we attempt to "
              "retain during a lemma database reduction.");
 
-DEFINE_PARAM(partial_restart_prob, 1.0,
+DEFINE_PARAM(partial_restart_prob, 0.0,
              "When restarting, probability that we attempt to find a higher "
              "non-zero level to backjump to.");
 
@@ -815,6 +815,8 @@ bool solve(Cnf* c) {
             // levels for all variables or warming up the heap activity stats.
             if (c->agility.should_restart() && c->full_runs == 0) {
                 lit_t dp = 0;
+                // TODO: there must be a bug here since this param doesn't
+                // have much effect.
                 if (flip(PARAM_partial_restart_prob)) {
                     // Find unset var of max activity.
                     lit_t vmax = c->heap.peek();
@@ -826,7 +828,7 @@ bool solve(Cnf* c) {
 
                     // Find lowest level where decision literals will differ.
                     while(dp < c->d &&
-                          c->heap.act(c->trail[c->di[dp+1]]) >= amax) ++dp;
+                          c->heap.act(var(c->trail[c->di[dp+1]])) >= amax) ++dp;
                 }
 
                 if (dp < c->d) {
