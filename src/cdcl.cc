@@ -185,7 +185,7 @@ struct restart_oracle {
 
 // Flips a coin that lands on heads with probability p. Return true iff heads.
 static bool flip(float p) {
-    return static_cast<float>(rand())/RAND_MAX <= p;
+    return rand()/RAND_MAX <= p;
 }
 
 // Storage for the search and the final assignment, if one exists. Variables can
@@ -466,9 +466,9 @@ struct Cnf {
     // watchlist. No-op if k == 0.
     void remove_from_watchlist(clause_t cindex, lit_t offset) {
         if (offset == 1 && SIZE(cindex) == 1) return;
-        lit_t l = cindex + offset;
+        clause_t l = cindex + offset;
         clause_t* x = &watch[clauses[l].lit];
-        while (*x != static_cast<clause_t>(cindex)) {
+        while (*x != cindex) {
             if (LIT0(*x) == clauses[l].lit) {
                 x = (clause_t*)(&WATCH0(*x));
             } else /* LIT1(*x) == clauses[l].lit */ {
@@ -1119,14 +1119,14 @@ bool solve(Cnf* c) {
             
             if (c->confp == 0 &&
                 !subsumed &&
-                r > PARAM_trivial_clause_multiplier * static_cast<size_t>(dp)) {
+                r > PARAM_trivial_clause_multiplier * dp) {
                 // Ex. 269: If dp is significantly smaller than the length of
                 // the learned clause, we can learn the trivial clause that
                 // asserts that all dp + 1 of the decisions we made lead to a
                 // conflict, i.e., ~(d1 AND d2 AND ... AND dp AND lp).
                 // If we're unwinding conflicts during a full run, we should
                 // only apply this optimization to the final conflict.
-                r = static_cast<size_t>(dp);
+                r = dp;
                 for (size_t j = 0; j < r; ++j) {
                     c->b[j] = c->trail[c->di[j+1]];
                 }
