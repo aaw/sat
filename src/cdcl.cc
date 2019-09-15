@@ -970,7 +970,6 @@ bool solve(Cnf* c) {
                 wlp = &(c->LIT0(w) == -l ? c->WATCH0(w) : c->WATCH1(w));
             }
                 
-            LOG(3) << "Advancing " << w << " -> " << nw << " with wlp=" << *wlp;
             w = nw;
         }
 
@@ -1025,25 +1024,25 @@ bool solve(Cnf* c) {
 
             // Move the lit with the highest trail position to LIT0, blit, then
             // move the lit back in place.
+            LOG(2) << "Starting resolution, trail: " << c->trail_debug_string();
             std::swap(c->LIT0(w), c->clauses[w+ti].lit);
-            c->stamp[var(c->clauses[w].lit)] = c->epoch;
-            c->heap.bump(var(c->clauses[w].lit));
-            LOG(3) << "Resolving: " << c->clause_debug_string(w);
+            c->stamp[var(c->LIT0(w))] = c->epoch;
+            c->heap.bump(var(c->LIT0(w)));
+            LOG(2) << "Resolving, conflict: " << c->clause_debug_string(w);
             c->blit(w, &r, &dp, &q);
             std::swap(c->LIT0(w), c->clauses[w+ti].lit);
 
             // Move up the trail while there are still literals to process,
             // resolving reasons to create the learned clause.
             while (q > 0) {
-                LOG(3) << "q=" << q << ",t=" << t;
                 lit_t l = c->trail[t];
                 t--;
                 if (c->stamp[var(l)] == c->epoch) {
                     q--;
                     clause_t rc = c->reason[var(l)];
                     if (rc != clause_nil) {
-                        LOG(3) << "Resolving: " << c->clause_debug_string(rc);
                         c->force_lit0(l, rc);
+                        LOG(2) << "Resolving: " << c->clause_debug_string(rc);
                         c->blit(rc, &r, &dp, &q);         
                         
                         if (PARAM_on_the_fly_subsumption == 1 &&
