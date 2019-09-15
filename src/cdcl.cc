@@ -185,7 +185,7 @@ struct restart_oracle {
 
 // Flips a coin that lands on heads with probability p. Return true iff heads.
 static bool flip(float p) {
-    return rand()/RAND_MAX <= p;
+    return static_cast<float>(rand())/RAND_MAX <= p;
 }
 
 // Storage for the search and the final assignment, if one exists. Variables can
