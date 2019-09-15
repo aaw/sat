@@ -38,8 +38,12 @@ typedef uint32_t clause_t;
 typedef uint64_t clause_t;
 #endif
 
+// Common #defines
 #define var(x) (abs(x))
+#define STRING_TOKEN(x) #x
+#define STRING(x) STRING_TOKEN(x)
 
+// nil values
 constexpr lit_t lit_nil = lit_t(0);
 constexpr clause_t clause_nil = std::numeric_limits<clause_t>::max();
 

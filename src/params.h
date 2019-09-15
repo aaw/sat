@@ -8,8 +8,6 @@
 
 #include "types.h"
 
-#define STRING_TOKEN(x) #x
-#define STRING(x) STRING_TOKEN(x)
 #define DEFINE_PARAM(param, default_val, help_text)   \
     double PARAM_##param = default_val; \
     ParamRegisterer REG_##param(STRING(param), &PARAM_##param);
