@@ -4,7 +4,6 @@
 * improve performance on waerden_5_5_177: -s1 and kPeekProb=0 solves it in < 1 s
 * with kPeekProb=1, ./bin/cdcl -s1 -t -c test/bf0432-007.cnf crashes. why?
 * compile out counters, timers, logging in OPT mode
-* clean up signed/unsigned types, check-fail when adding new clauses that overflow in cdcl
 * Make a script to test consistency (clause count, var count) and formatting of all test files
 * ignore comments correctly in input. right now, "c p cnf 1 2" will fool us in preamble.
 * use clang instead of gcc? seems to be a little faster on most examples.
