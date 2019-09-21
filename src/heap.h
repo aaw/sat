@@ -76,7 +76,7 @@ struct Heap {
     lit_t peek() {
         return heap[0];
     }
-    
+
     // Get a random element from the heap.
     lit_t rpeek() {
         return heap[rand() % heap.size()];
@@ -85,7 +85,7 @@ struct Heap {
     double act(lit_t l) {
         return key[l];
     }
-    
+
     void bump(lit_t l) {
         key[l] += delta;
         if (key[l] > max_key) {
@@ -106,7 +106,7 @@ struct Heap {
             max_key /= kMaxScore;
         }
     }
-    
+
     void siftup(size_t i) {
         if (i == 0 || i == std::numeric_limits<size_t>::max()) return;
         lit_t v = heap[i];
