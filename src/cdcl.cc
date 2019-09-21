@@ -1,6 +1,6 @@
 // Algorithm C from Knuth's The Art of Computer Programming 7.2.2.2: CDCL
 //
-// This implementation also includes improvements discussed in various 
+// This implementation also includes improvements discussed in various
 // exercises, including:
 //   - Ex. 257: Redundant literal detection within learned clauses
 //   - Ex. 266: Infrequently forego var of max activity for random selection
@@ -32,7 +32,7 @@
 
 // All clauses are stored linearly in one big array using elements of this union
 // type. The layout for each clause is:
-// 
+//
 //     [ptr_1][ptr_0][size][lit_0][lit_1]...[lit_n]
 //
 // The first two ptr elements are watchlist pointers for the second and first
@@ -226,10 +226,10 @@ struct Cnf {
     Heap heap;
 
     // The trail: an ordered list of literals that have been set to true during
-    // the current search path. 
+    // the current search path.
     std::vector<lit_t> trail;
 
-    // Inverse map from variable to trail index. 
+    // Inverse map from variable to trail index.
     std::vector<size_t> tloc;
 
     // Next index in the trail that we need to process. Since processing
@@ -238,7 +238,7 @@ struct Cnf {
     // of our progress with this pointer into the trail. Knuth calls this "g".
     size_t next_trail_index;
 
-    // Maps a level to the first trail position of that level. If 
+    // Maps a level to the first trail position of that level. If
     // di[0] == di[1], there are no variables set at level 0.
     std::vector<size_t> di;
 
@@ -300,7 +300,7 @@ struct Cnf {
 
     // The number of database purges/reductions we've performed.
     size_t npurges;
-    
+
     Cnf(size_t nvars) :
         val(nvars + 1, UNSET),
         lev(nvars + 1, -1),
@@ -339,7 +339,7 @@ struct Cnf {
     inline bool is_true(lit_t x) const {
         State s = val[var(x)];
         return (x > 0 && s == TRUE) || (x < 0 && s == FALSE);
-    }    
+    }
 
     // Have we assigned values to all variables?
     inline bool trail_complete() const {
@@ -370,7 +370,7 @@ struct Cnf {
 
     void for_each_lemma(std::function<void(clause_t, clause_t)> func) {
         for_each_clause_helper(lemma_start, func);
-    }    
+    }
 
     std::string clause_debug_string(clause_t c) const {
         std::ostringstream oss;
@@ -381,8 +381,8 @@ struct Cnf {
         }
         oss << ")";
         return oss.str();
-    }    
-    
+    }
+
     std::string trail_debug_string() {
         std::ostringstream oss;
         for (lit_t l : trail) {
@@ -406,18 +406,18 @@ struct Cnf {
         if (LIT0(c) != l) {
             std::swap(LIT0(c), LIT1(c));
             std::swap(WATCH0(c), WATCH1(c));
-        }                        
+        }
         CHECK(LIT0(c) == l) << "Expected " << l << " to be LIT0 or LIT1 in "
                             << clause_debug_string(c);
     }
-    
+
     // A learned clause often contains literals that can be resolved out of the
     // clause by tracing chains of reasons backward. We can discover these
     // redundant literals by running a DFS through reasons to see if we can
     // only ever derive a literals already in the current learned clause. This
     // method, devised by Niklas Sörensson for MiniSat, was improved by Knuth
     // and the full implementation is described in Exercise 257.
-    // 
+    //
     // This function returns true exactly when l is redundant in the current
     // learned clause. This function modifies stamp values.
     bool redundant(lit_t l, int max_recursion=PARAM_max_redundant_recursion) {
@@ -438,7 +438,7 @@ struct Cnf {
             }
         }
         stamp[k] = epoch + 1;
-        INC("redundant recursion level", 
+        INC("redundant recursion level",
             PARAM_max_redundant_recursion - max_recursion);
         return true;
     }
@@ -460,7 +460,7 @@ struct Cnf {
             *x = cindex;
         }
     }
-    
+
     // For a clause c = l_0 l_1 ... l_k at index cindex in the clauses array,
     // removes either l_0 (if offset is 0) or l_1 (if offset is 1) from its
     // watchlist. No-op if k == 0.
@@ -482,7 +482,7 @@ struct Cnf {
     // Processes each literal involved in resolution to learn a new clause.
     // * c is the index of the clause being processed.
     // * r is the total number of literals in the learned clause and is
-    //   incremented every time we add a literal. 
+    //   incremented every time we add a literal.
     // * dp is the running candidate for the level that we'll eventually
     //   backjump to after learning a clause.
     // * q is the number of level d literals we still need to resolve.
@@ -504,7 +504,7 @@ struct Cnf {
             }
         }
     }
-    
+
     // Adds l to the trail at level d with reason r.
     void add_to_trail(lit_t l, clause_t r) {
         lit_t k = var(l);
@@ -550,7 +550,7 @@ struct Cnf {
                 clauses.push_back({-b[j]});
             } else {
                 LIT1(lc) = -b[j];
-                add_to_watchlist(lc, -b[j]); 
+                add_to_watchlist(lc, -b[j]);
                 found_watch = true;
             }
         }
@@ -583,7 +583,7 @@ struct Cnf {
         // size or LBD. If PIN(c) < 0, we want to keep the clause because it's
         // the current reason for variable -PIN(c).
         for_each_lemma([&](clause_t c, clause_t cs) { PIN(c) = 1; });
-        
+
         // Pin lemmas that are reasons.
         for (lit_t l : trail) {
             lit_t v = var(l);
@@ -615,7 +615,7 @@ struct Cnf {
             }
             for(lit_t j = 0; j <= d; ++j) { if (lbds[j] == c) ++lbd; }
             LBD(c) = lbd;
-            CHECK(lbd > 0 && lbd <= d+1) 
+            CHECK(lbd > 0 && lbd <= d+1)
                 << "Computed impossible LBD: " << lbd << " (d = " << d << ")";
             hist[lbd]++;
         });
@@ -628,12 +628,12 @@ struct Cnf {
             lbd_evictions += hist[max_lbd];
             ++max_lbd;
         }
-        
+
         // We'll keep this many of the most recently learned clauses at the
         // highest LBD value we can afford (max_lbd) as well as keep all
         // clauses with LBD < max_lbd.
         int max_lbd_budget = target_lemmas - lbd_evictions;
-        
+
         // Mark clauses we want to keep because of LBD.
         for(size_t i = 0; i < lemma_indexes.size(); ++i) {
             lit_t lc = lemma_indexes[lemma_indexes.size() - i - 1];
@@ -645,7 +645,7 @@ struct Cnf {
                 PIN(lc) = 0;
             }
         }
-        
+
         // Clear top-level watch pointers.
         for(size_t i = 0; i < watch_storage.size(); ++i) {
             watch_storage[i] = clause_nil;
@@ -654,7 +654,7 @@ struct Cnf {
         // Compact clauses.
         lit_t tail = lemma_start;
         nlemmas = 0;
-        for_each_lemma([&](clause_t c, clause_t cs) {        
+        for_each_lemma([&](clause_t c, clause_t cs) {
             if (PIN(c) > 0) return;  // continue
             if (PIN(c) < 0) {
                 reason[var(PIN(c))] = tail;
@@ -757,7 +757,7 @@ Cnf parse(const char* filename) {
             c.tloc[v] = c.trail.size();
             c.trail.push_back(x);
             c.lev[v] = 0;
-        } 
+        }
         if (!read_lit) break;
         CHECK(cs > 0);
         // Record the size of the clause in offset -1.
@@ -769,10 +769,6 @@ Cnf parse(const char* filename) {
         }
     } while (nc != EOF);
 
-    if (c.clauses.empty()) {
-        LOG(2) << "No clauses, unsatisfiable.";
-        UNSAT_EXIT;
-    }
     fclose(f);
     c.lemma_start = c.clauses.size() + kHeaderSize;
     return c;
@@ -858,11 +854,11 @@ bool solve(Cnf* c) {
                 c->seen_conflict = false;
                 LOG(1) << "Full run done. " << c->full_runs << " runs left.";
                 INC("full runs");
-            }            
-            
+            }
+
             ++c->d;
             c->di[c->d] = c->trail.size();
-            
+
             // C6: [Make a decision]
             INC("decisions");
             bool peek = flip(PARAM_peek_prob);
@@ -903,7 +899,7 @@ bool solve(Cnf* c) {
             clause_t nw = c->WATCH0(w);
             LOG(3) << "Looking at watched clause " << c->clause_debug_string(w)
                    << " to see if it forces a unit";
-            
+
             bool all_false = true;
             bool tombstones = false;
             if (!c->is_true(c->LIT1(w))) {
@@ -967,13 +963,13 @@ bool solve(Cnf* c) {
                 *wlp = w;
                 wlp = &(c->LIT0(w) == -l ? c->WATCH0(w) : c->WATCH1(w));
             }
-                
+
             w = nw;
         }
 
         // Finish surgery on -l's watchlist.
         *wlp = w;
-        
+
         if (!watchlist_conflict) {
             LOG(3) << "Didn't find conflict in " << -l << "'s watchlist.";
             continue;
@@ -988,7 +984,7 @@ bool solve(Cnf* c) {
         // we're not doing a full run, since there will only be one conflict.
         if (c->conflict[c->d] == clause_nil) c->conflict[c->d] = w;
         c->confp = c->d;
-        
+
         if (c->full_runs > 0) {
             LOG(2) << "Doing a full run, continuing from conflict.";
             continue;
@@ -1001,7 +997,7 @@ bool solve(Cnf* c) {
             c->d = c->confp;
             // Decrement c->confp for the next round.
             while (c->confp > 0 && c->conflict[--c->confp] == clause_nil);
-        
+
             // Find the literal in the clause with the highest trail position.
             // This is the literal where the conflict happened, so we'll want
             // to temporarily move it to the front of the clause before we blit
@@ -1014,7 +1010,7 @@ bool solve(Cnf* c) {
                     t = c->tloc[var(c->clauses[w+i].lit)];
                 }
             }
-            
+
             lit_t dp = 0;
             clause_t q = 0;
             clause_t r = 0;
@@ -1041,8 +1037,8 @@ bool solve(Cnf* c) {
                     if (rc != clause_nil) {
                         c->force_lit0(l, rc);
                         LOG(2) << "Resolving: " << c->clause_debug_string(rc);
-                        c->blit(rc, &r, &dp, &q);         
-                        
+                        c->blit(rc, &r, &dp, &q);
+
                         if (PARAM_on_the_fly_subsumption == 1 &&
                             q + r + 1 < c->clauses[rc-1].size && q > 0) {
                             // On-the-fly subsumption.
@@ -1071,10 +1067,10 @@ bool solve(Cnf* c) {
                     }
                 }
             }
-            
+
             lit_t lp = c->trail[t];
             while (c->stamp[var(lp)] != c->epoch) { t--; lp = c->trail[t]; }
-            
+
             // Remove redundant literals from clause
             if (PARAM_remove_redundant_literals == 1) {
                 lit_t rr = 0;
@@ -1089,7 +1085,7 @@ bool solve(Cnf* c) {
                 INC("redundant literals", r - rr);
                 r = rr;
             }
-            
+
             bool subsumed = false;
             if (PARAM_predecessor_subsumption == 1 && lc != clause_nil) {
                 // Ex. 271: Does this clause subsume the previous learned
@@ -1104,7 +1100,7 @@ bool solve(Cnf* c) {
                         --q;
                     }
                 }
-                
+
                 if (q == 0 && c->val[var(c->clauses[lc].lit)] == UNSET) {
                     subsumed = true;
                     c->remove_from_watchlist(lc, 0);
@@ -1113,7 +1109,7 @@ bool solve(Cnf* c) {
                     INC("subsumed clauses");
                 }
             }
-            
+
             if (c->confp == 0 &&
                 !subsumed &&
                 r > PARAM_trivial_clause_multiplier * dp) {
@@ -1132,14 +1128,14 @@ bool solve(Cnf* c) {
 
             lc = c->learn_clause(lp, r, dp);
             c->heap.rescale_delta();
-            
+
             if (dp < dpmin) { c->trail_lits.clear(); }
             if (dp <= dpmin) {
                 c->trail_lits.push_back(std::make_pair(-lp, lc));
             }
             dpmin = std::min(dpmin, dp);
         }
-            
+
         // C8: [Backjump]
         c->backjump(dpmin);
         c->seen_conflict = false;
@@ -1151,7 +1147,7 @@ bool solve(Cnf* c) {
         for (const auto& tl : c->trail_lits) {
             c->add_to_trail(tl.first, tl.second);
         }
-        
+
         LOG(3) << "After clause install, trail is " << c->trail_debug_string();
     }
 
@@ -1165,12 +1161,13 @@ int main(int argc, char** argv) {
     init_counters();
     init_timers();
     Cnf c = parse(argv[oidx]);
-    // TODO: also check for no clauses (unsatisfiable) in the if
-    // statement below.
-    if (solve(&c)) {
+    if (c.clauses.empty() || solve(&c)) {
         std::cout << "s SATISFIABLE" << std::endl;
         for (size_t i = 1, j = 0; i <= c.nvars; ++i) {
-            if (c.val[i] == UNSET) continue;
+            if (c.val[i] == UNSET) {
+                LOG_ONCE(1) << "Unset vars in solution, assuming false.";
+                c.val[i] = FALSE;
+            }
             if (j % 10 == 0) std::cout << "v";
             std::cout << ((c.val[i] & 1) ? " -" : " ") << i;
             ++j;

@@ -16,6 +16,10 @@ extern int FLAGS_verbosity;
 #define LOG_EVERY_N(i, n) \
     static int __c___LINE__ = 0; ++__c___LINE__; \
     if (LOG_ENABLED(i) && (__c___LINE__ % n == 0)) Logger(__FILE__,__LINE__)
+#define LOG_N_TIMES(i, n) \
+    static int __c__LINE__ = n; \
+    if (LOG_ENABLED(i) && __c__LINE__-- > 0) Logger(__FILE__,__LINE__)
+#define LOG_ONCE(i) LOG_N_TIMES(i, 1)
 #define CHECK(expr) if (!(expr)) AbortLogger(__FILE__,__LINE__)
 #define CHECK_NO_OVERFLOW(x, y) \
     CHECK(std::numeric_limits<x>::min() <= (y) &&  \
@@ -23,6 +27,7 @@ extern int FLAGS_verbosity;
     "Overflow/underflow detected setting variable of type " << #x \
     << ": " << #y << " = " << y << ". "
 #define UNSAT_EXIT UnsatExit()
+#define SAT_EXIT SatExit()
 #define PRINT std::cerr
 
 struct Logger {
@@ -63,6 +68,11 @@ private:
 void UnsatExit() {
     PRINT << "s UNSATISFIABLE" << std::endl;
     exit(UNSATISFIABLE);
+}
+
+void SatExit() {
+    PRINT << "s SATISFIABLE" << std::endl;
+    exit(SATISFIABLE);
 }
 
 #endif  // __LOGGING_H__

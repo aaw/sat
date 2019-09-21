@@ -378,10 +378,13 @@ int main(int argc, char** argv) {
     init_counters();
     init_timers();
     Cnf c = parse(argv[oidx]);
-    if (!c.start.empty() && solve(&c)) {
+    if (c.start.empty() || solve(&c)) {
         std::cout << "s SATISFIABLE" << std::endl;
         for (int i = 1, j = 0; i <= c.nvars; ++i) {
-            if (c.val[i] == UNSET) continue;
+            if (c.val[i] == UNSET) {
+                LOG_ONCE(1) << "Unset vars in solution, assuming false.";
+                c.val[i] = FALSE;
+            }
             if (j % 10 == 0) std::cout << "v";
             std::cout << ((c.val[i] & 1) ? " -" : " ") << i;
             ++j;
