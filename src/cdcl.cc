@@ -823,8 +823,6 @@ bool solve(Cnf* c) {
             // levels for all variables or warming up the heap activity stats.
             if (c->agility.should_restart() && c->full_runs == 0) {
                 lit_t dp = 0;
-                // TODO: there must be a bug here since this param doesn't
-                // have much effect.
                 if (flip(PARAM_partial_restart_prob)) {
                     // Find unset var of max activity.
                     lit_t vmax = c->heap.peek();
