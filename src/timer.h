@@ -68,7 +68,7 @@ public:
         begin_ = clock();
     }
     ~Timer() {
-        if (!FLAGS_time) return;        
+        if (!FLAGS_time) return;
         clock_t end = clock();
         _timers.inc(name_, static_cast<double>(end - begin_) / CLOCKS_PER_SEC);
     }

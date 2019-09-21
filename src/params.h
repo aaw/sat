@@ -22,7 +22,7 @@ struct Params {
         std::string kv;
         while(std::getline(iss, kv, ';')) {
             std::size_t eq = kv.find("=");
-            CHECK(eq != std::string::npos) 
+            CHECK(eq != std::string::npos)
                 << "Error parsing k=v: '" << kv << "'";
             std::string k = kv.substr(0,eq);
             std::string value_str = kv.substr(eq+1);
@@ -39,7 +39,7 @@ struct Params {
     }
 
     // TODO: store help_text, dump a help string.
-    
+
     static Params& singleton() {
         static Params s;
         return s;

@@ -34,7 +34,7 @@ public:
         sums_.clear();
         counts_.clear();
     }
-    
+
 private:
     std::map<const char*, uint64_t, cstrcmp> sums_;
     std::map<const char*, uint64_t, cstrcmp> counts_;

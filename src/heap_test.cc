@@ -105,7 +105,7 @@ TEST(multiple_bumps_4,
      EXPECT_EQ(h.delete_max(), 7);
      EXPECT_EQ(h.delete_max(), 6);
     )
-     
+
 int main(int argc, char **argv) {
     int oidx;
     CHECK(parse_flags(argc, argv, &oidx)) <<
