@@ -33,7 +33,7 @@ Clone this repo:
     git clone git@github.com:aaw/sat.git
 
 cd into the top level of the clone (`cd sat`) and run `make` to make sure everything
-builds. This should build three binaries and put them in the bin/ subdirectory:
+builds. This should build four binaries and put them in the bin/ subdirectory:
 
    * bin/btwl (Algorithm B)
    * bin/dpll (Algorithm D)
