@@ -97,7 +97,7 @@ struct Heap {
     void rescale_delta() {
         delta /= PARAM_heap_rho;
         if (max_key >= kMaxScore) {
-            INC("rescale heap delta");
+            INC(rescale_heap_delta);
             LOG(2) << "Scaling all heap scores down.";
             for (size_t i = 1; i < key.size(); ++i) {
                 key[i] /= kMaxScore;

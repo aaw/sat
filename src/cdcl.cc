@@ -152,7 +152,7 @@ struct restart_oracle {
     void bump(bool phase_change) {
         agility -= (agility >> 13);
         if (phase_change) agility += (1 << 19);
-        INC("phase changes", phase_change ? 0 : 1);
+        INC(phase_changes, phase_change ? 0 : 1);
     }
 
     // Called after each new learned clause. Exception: we don't actually call
@@ -438,7 +438,7 @@ struct Cnf {
             }
         }
         stamp[k] = epoch + 1;
-        INC("redundant recursion level",
+        INC(redundant_recursion_level,
             PARAM_max_redundant_recursion - max_recursion);
         return true;
     }
@@ -559,8 +559,8 @@ struct Cnf {
 
         ++nlemmas;
         LOG(2) << "Learned clause: " << clause_debug_string(lc);
-        INC("learned clause literals", r+1);
-        INC("learned clauses");
+        INC(learned_clause_literals, r+1);
+        INC(learned_clauses);
         return lc;
     }
 
@@ -808,7 +808,7 @@ bool solve(Cnf* c) {
                 lc = c->reduce_db();
                 c->npurges++;
                 LOG(1) << "Clause database reduced to size = " << c->nlemmas;
-                INC("clause database purges");
+                INC(clause_database_purges);
             }
 
             // Does our agility measure tell us that we're no longer making real
@@ -838,10 +838,10 @@ bool solve(Cnf* c) {
                            << " (level " << c->d << " -> " << dp << ")";
                     c->backjump(dp);
                     c->full_runs = PARAM_warm_up_runs;
-                    INC("agility restarts");
+                    INC(agility_restarts);
                     continue;
                 } else {
-                    INC("aborted agility restarts");
+                    INC(aborted_agility_restarts);
                 }
             }
 
@@ -853,14 +853,14 @@ bool solve(Cnf* c) {
                 c->backjump(0);
                 c->seen_conflict = false;
                 LOG(1) << "Full run done. " << c->full_runs << " runs left.";
-                INC("full runs");
+                INC(full_runs);
             }
 
             ++c->d;
             c->di[c->d] = c->trail.size();
 
             // C6: [Make a decision]
-            INC("decisions");
+            INC(decisions);
             bool peek = flip(PARAM_peek_prob);
             lit_t k = peek ? c->heap.rpeek() : c->heap.delete_max();
             while (c->val[k] != UNSET) {
@@ -870,7 +870,7 @@ bool solve(Cnf* c) {
             LOG(3) << "Decided on variable " << k;
             lit_t l = c->oval[k] == FALSE ? -k : k;
             if (flip(PARAM_phase_flip_prob)) {
-                INC("forced phase flips");
+                INC(forced_phase_flips);
                 l = -l;
             }
             LOG(3) << "Adding " << l << " to the trail.";
@@ -934,7 +934,7 @@ bool solve(Cnf* c) {
                     for(size_t i = j; i < c->SIZE(w); ++i) {
                         c->clauses[w+i].lit = lit_nil;
                     }
-                    INC("tombstoned-level-0-lits", c->SIZE(w) - j);
+                    INC(tombstoned_level_0_lits, c->SIZE(w) - j);
                     c->clauses[w-1].size = j;
                 }
 
@@ -1062,7 +1062,7 @@ bool solve(Cnf* c) {
                             c->clauses[rc-1].size--;
                             c->clauses[rc-2].ptr = c->watch[c->clauses[rc].lit];
                             c->watch[c->clauses[rc].lit] = rc;
-                            INC("on-the-fly subsumptions");
+                            INC(on_the_fly_subsumptions);
                         }
                     }
                 }
@@ -1082,7 +1082,7 @@ bool solve(Cnf* c) {
                     c->b[rr] = c->b[i];
                     ++rr;
                 }
-                INC("redundant literals", r - rr);
+                INC(redundant_literals, r - rr);
                 r = rr;
             }
 
@@ -1106,7 +1106,7 @@ bool solve(Cnf* c) {
                     c->remove_from_watchlist(lc, 0);
                     c->remove_from_watchlist(lc, 1);
                     c->clauses.resize(lc - kHeaderSize);
-                    INC("subsumed clauses");
+                    INC(subsumed_clauses);
                 }
             }
 
@@ -1123,7 +1123,7 @@ bool solve(Cnf* c) {
                 for (size_t j = 0; j < r; ++j) {
                     c->b[j] = c->trail[c->di[j+1]];
                 }
-                INC("trivial clauses learned");
+                INC(trivial_clauses_learned);
             }
 
             lc = c->learn_clause(lp, r, dp);

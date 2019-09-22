@@ -42,6 +42,8 @@ typedef uint64_t clause_t;
 #define var(x) (abs(x))
 #define STRING_TOKEN(x) #x
 #define STRING(x) STRING_TOKEN(x)
+#define VARNAME1(x,y) x##y
+#define VARNAME(x,y) VARNAME1(x,y)
 
 // nil values
 constexpr lit_t lit_nil = lit_t(0);
