@@ -58,6 +58,7 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
         case 'p':
             FLAGS_params = optarg;
             Params::singleton().parse(FLAGS_params);
+            break;
         case 't':
             PRINT << "c Timing enabled" << std::endl;
             FLAGS_time = true;
