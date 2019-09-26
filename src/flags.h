@@ -30,11 +30,12 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
         { "seed",           required_argument,  NULL, 's' },
         { "time",           no_argument,        NULL, 't' },
         { "counters",       no_argument,        NULL, 'c' },
+        { "help",           no_argument,        NULL, 'h' },
         { "params",         required_argument,  NULL, 'p' },
         { 0, 0, 0, 0}
     };
 
-    char optstring[] = "v:s:p:tc";
+    char optstring[] = "v:s:p:tch";
 
     while (1) {
         c = getopt_long(argc, argv, optstring, long_options, nullptr);
@@ -42,6 +43,10 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
             break;
 
         switch (c) {
+        case 'h':
+            PRINT << Params::singleton().help_string() << std::endl;
+            exit(0);
+            break;
         case 'v':
             FLAGS_verbosity = atoi(optarg);
             PRINT << "c Setting verbosity = " << FLAGS_verbosity
