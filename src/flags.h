@@ -14,6 +14,7 @@
 // (2) Declare an extern reference to it in the module where you want to use it.
 // (3) Add an entry to long_options[] and optstring[] below defining its parse.
 // (4) Add a case in the switch statement below to handle setting the flag.
+// (5) Add a sentence to the help text displayed with -h.
 
 int FLAGS_verbosity = 0;
 unsigned long FLAGS_seed = 0;
@@ -44,7 +45,32 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
 
         switch (c) {
         case 'h':
-            PRINT << Params::singleton().help_string() << std::endl;
+            PRINT << "Usage: " << argv[0] << " [OPTIONS]... FILE" << std::endl;
+            PRINT << std::endl;
+            PRINT << "FILE must be in DIMACS cnf format. If the input formula "
+                  << "is satisfiable, " << std::endl
+                  << "\"c SATISFIABLE\" is written to stdout and the program "
+                  << "returns 10. If the input" << std::endl
+                  << "formula is unsatisfiable, \"c UNSATISFIABLE\" is written "
+                  << "to stdout and the " << std::endl
+                  << "program returns 20." << std::endl << std::endl;
+            PRINT << "OPTIONS include:" << std::endl << std::endl;
+            PRINT << "  -sN    Set the random seed to N" << std::endl
+                  << std::endl;
+            PRINT << "  -vN    Set the verbosity to N" << std::endl
+                  << std::endl;
+            PRINT << "  -t     Collect and print timing information"
+                  << std::endl << std::endl;
+            PRINT << "  -c     Collect and print counters" << std::endl
+                  << std::endl;
+            PRINT << "  -h     Display this message" << std::endl << std::endl;
+            PRINT << "  -p     Set various double-valued params. Param "
+                  << "overrides must be provided as" << std::endl
+                  << "         key=value pairs, separated by semicolons. "
+                  << "Example: \"foo=1.0;bar=2.0\"." << std::endl
+                  << "         Available params include:" << std::endl
+                  << std::endl;
+            PRINT << Params::singleton().help_string();
             exit(0);
             break;
         case 'v':

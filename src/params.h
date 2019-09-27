@@ -42,7 +42,7 @@ struct Params {
     std::string help_string() {
         static const int kLineLength = 80;
         static const int kMaxHelpTextLength = 2048;
-        static const char kIndent[] = "    ";
+        static const char kIndent[] = "     ";
         char ht[kMaxHelpTextLength];
         std::ostringstream oss;
         for (const auto& kv : help) {
@@ -61,7 +61,9 @@ struct Params {
                 oss << sp << " ";
                 sp = strtok(NULL, " ");
             }
-            oss << std::endl;
+            oss << std::endl << kIndent << "  ";
+            for (size_t i = 0; i < strlen(kv.first); ++i) oss << " ";
+            oss << "Default: " << *ptrs[kv.first] << std::endl << std::endl;
         }
         return oss.str();
     }
