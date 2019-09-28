@@ -749,14 +749,17 @@ Cnf parse(const char* filename) {
             LOG(3) << "Found unit clause " << x;
             State s = x < 0 ? FALSE : TRUE;
             lit_t v = var(x);
-            if  (c.val[v] != UNSET && c.val[v] != s) {
+            if (c.val[v] != UNSET && c.val[v] != s) {
                 LOG(2) << "Contradictory unit clauses, unsatisfiable formula.";
                 UNSAT_EXIT;
+            } else if (c.val[v] == UNSET) {
+                c.val[v] = s;
+                c.tloc[v] = c.trail.size();
+                c.trail.push_back(x);
+                c.lev[v] = 0;
+            } else {
+                LOG(1) << "Duplicate unit (" << x << "). Skipping from now on.";
             }
-            c.val[v] = s;
-            c.tloc[v] = c.trail.size();
-            c.trail.push_back(x);
-            c.lev[v] = 0;
         }
         if (!read_lit) break;
         CHECK(cs > 0);
