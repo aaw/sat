@@ -64,13 +64,15 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
             PRINT << "  -c     Collect and print counters" << std::endl
                   << std::endl;
             PRINT << "  -h     Display this message" << std::endl << std::endl;
-            PRINT << "  -p     Set various double-valued params. Param "
-                  << "overrides must be provided as" << std::endl
-                  << "         key=value pairs, separated by semicolons. "
-                  << "Example: \"foo=1.0;bar=2.0\"." << std::endl
-                  << "         Available params include:" << std::endl
-                  << std::endl;
-            PRINT << Params::singleton().help_string();
+            if (!Params::singleton().empty()) {
+                PRINT << "  -p     Set various double-valued params. Param "
+                      << "overrides must be provided as" << std::endl
+                      << "         key=value pairs, separated by semicolons. "
+                      << "Example: \"foo=1.0;bar=2.0\"." << std::endl
+                      << "         Available params include:" << std::endl
+                      << std::endl;
+                PRINT << Params::singleton().help_string();
+            }
             exit(0);
             break;
         case 'v':

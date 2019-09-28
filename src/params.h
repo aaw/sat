@@ -39,6 +39,10 @@ struct Params {
         }
     }
 
+    bool empty() {
+        return ptrs.empty();
+    }
+
     std::string help_string() {
         static const int kLineLength = 80;
         static const int kMaxHelpTextLength = 2048;
