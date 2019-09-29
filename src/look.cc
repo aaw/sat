@@ -1,14 +1,37 @@
 // Algorithm L from Knuth's The Art of Computer Programming 7.2.2.2:
 // DPLL with Lookahead.
 
+#include <vector>
+
 #include "counters.h"
 #include "flags.h"
 #include "logging.h"
 #include "timer.h"
 #include "types.h"
 
+struct timp_t {
+    lit_t u;
+    lit_t v;
+};
+
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
+    // Number of variables in the original problem. These are the first
+    // nvars variables in the value array.
+    lit_t novars;
+
+    std::vector<std::vector<lit_t>> bimp_storage;
+    std::vector<lit_t>* bimp;
+
+    std::vector<std::vector<timp_t>> timp_storage;
+    std::vector<timp_t>* timp;
+
+    Cnf(lit_t novars, lit_t nsvars) :
+        novars(novars),
+        bimp_storage(2 * (novars + nsvars) + 1),
+        bimp(&bimp_storage[novars + nsvars]),
+        timp_storage(2 * (novars + nsvars) + 1),
+        timp(&timp_storage[novars + nsvars]) {}
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -45,28 +68,76 @@ Cnf parse(const char* filename) {
     CHECK_NO_OVERFLOW(lit_t, nvars);
     CHECK_NO_OVERFLOW(clause_t, nclauses);
 
-    // Initialize data structures now that we know nvars and nclauses.
-    Cnf c;
-
     // Read clauses until EOF.
     int lit;
+    lit_t nsvars = 0;
+    std::vector<std::vector<lit_t>> clauses;
+    std::vector<lit_t> clause;
     do {
+        clause.clear();
         bool read_lit = false;
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
-            // TODO: process literal
+            clause.push_back(lit);
             read_lit = true;
         }
-        if (nc != EOF /* TODO: detect empty clause */) {
+        if (clause.empty() && nc != EOF) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
         }
         if (!read_lit) break;
-        // TODO: install clause
+
+        if (clause.size() <= 3) {
+            clauses.emplace_back(std::move(clause));
+        } else {
+            // Convert any clause of length > 3 to an equivalent conjunction of
+            // 3-clauses. Example: (x1 x2 x3 x4 x5) becomes
+            // (x1 x2 z1) (-z1 x3 z2) (-z2 x4 z3) (-z3 x4 x5).
+            std::ostringstream oss;
+            for(const auto& x : clause) { oss << x << " "; }
+            LOG(3) << "Converting clause to 3-clauses: (" << oss.str() << ")";
+            clauses.push_back({});
+            clauses.back().push_back(clause[0]);
+            clauses.back().push_back(clause[1]);
+            ++nsvars;
+            clauses.back().push_back(nvars + nsvars);
+            LOG(3) << "  Added (" << clauses.back()[0] << " "
+                   << clauses.back()[1] << " " << clauses.back()[2] << ")";
+            for (size_t i = 0; i < clause.size() - 4; ++i) {
+                clauses.push_back({});
+                clauses.back().push_back(-nvars - nsvars);
+                clauses.back().push_back(clause[i + 2]);
+                ++nsvars;
+                clauses.back().push_back(nvars + nsvars);
+                LOG(3) << "  Added (" << clauses.back()[0] << " "
+                       << clauses.back()[1] << " " << clauses.back()[2] << ")";
+            }
+            clauses.push_back({});
+            clauses.back().push_back(-nvars - nsvars);
+            clauses.back().push_back(clause[clause.size()-2]);
+            clauses.back().push_back(clause[clause.size()-1]);
+            LOG(3) << "  Added (" << clauses.back()[0] << " "
+                   << clauses.back()[1] << " " << clauses.back()[2] << ")";
+        }
     } while (nc != EOF);
 
-    // TODO: any more problem pre-processing
+    Cnf c(nvars, nsvars);
+
+    // TODO: initialize LINK for timps
+    for (const auto& cl : clauses) {
+        if (cl.size() == 1) {
+            // TODO: record unit clauses in c.force
+        } else if (cl.size() == 2) {
+            c.bimp[-cl[0]].push_back(cl[1]);
+            c.bimp[-cl[1]].push_back(cl[0]);
+        } else /* cl.size() == 3 */ {
+            CHECK(cl.size() == 3) << "Unexpected long clause.";
+            c.timp[-cl[0]].push_back({u: cl[1], v: cl[2]});
+            c.timp[-cl[1]].push_back({u: cl[0], v: cl[2]});
+            c.timp[-cl[2]].push_back({u: cl[0], v: cl[1]});
+        }
+    }
 
     fclose(f);
     return c;
