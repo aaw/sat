@@ -52,33 +52,21 @@ Cnf parse(const char* filename) {
     int lit;
     do {
         bool read_lit = false;
-        std::size_t start = c.clauses.size();
         while (true) {
             nc = fscanf(f, " %i ", &lit);
             if (nc == EOF || lit == 0) break;
-            c.clauses.push_back(lit);
+            // TODO: process literal
             read_lit = true;
         }
-        if (nc != EOF && start == c.clauses.size()) {
+        if (nc != EOF /* TODO: detect empty clause */) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
         }
         if (!read_lit) break;
-        c.start.push_back(start);
-        clause_t old = c.watch[c.clauses[c.start.back()]];
-        c.watch[c.clauses[c.start.back()]] = c.start.size() - 1;
-        c.link[c.start.size() - 1] = old;
+        // TODO: install clause
     } while (nc != EOF);
 
-    // Initialize active ring of literals with non-empty watch lists.
-    for (lit_t k = c.nvars; k > 0; --k) {
-        if (c.watched(k) || c.watched(-k)) {
-            c.next[k] = c.head;
-            c.head = k;
-            if (c.tail == lit_nil) c.tail = k;
-        }
-    }
-    if (c.tail != lit_nil) c.next[c.tail] = c.head;
+    // TODO: any more problem pre-processing
 
     fclose(f);
     return c;
@@ -98,8 +86,9 @@ int main(int argc, char** argv) {
     init_counters();
     init_timers();
     Cnf c = parse(argv[oidx]);
-    if (c.start.empty() || solve(&c)) {
+    if (/* TODO: detect no clauses || */ solve(&c)) {
         std::cout << "s SATISFIABLE" << std::endl;
+        /* TODO: output solution, something like:
         for (int i = 1, j = 0; i <= c.nvars; ++i) {
             if (c.val[i] == UNSET) {
                 LOG_ONCE(1) << "Unset vars in solution, assuming false.";
@@ -111,6 +100,7 @@ int main(int argc, char** argv) {
             if (i == c.nvars) std::cout << " 0" << std::endl;
             else if (j > 0 && j % 10 == 0) std::cout << std::endl;
          }
+        */
         return SATISFIABLE;
     } else {
         std::cout << "s UNSATISFIABLE" << std::endl;
