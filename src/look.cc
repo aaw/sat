@@ -12,6 +12,10 @@
 struct timp_t {
     lit_t u;
     lit_t v;
+
+    // Use c.timp[-u][link] to cycle through the other two timps corresponding
+    // to the original ternary clause.
+    size_t link;
 };
 
 // Storage for the DPLL search and the final assignment, if one exists.
@@ -26,12 +30,26 @@ struct Cnf {
     std::vector<std::vector<timp_t>> timp_storage;
     std::vector<timp_t>* timp;
 
+    std::vector<lit_t> force; // list of unit literals
+
+    std::vector<lit_t> freevar;  // list of free variables
+    std::vector<lit_t> invfree;  // invfree[freevar[k]] == k
+    size_t nfree;                // last valid index of freevar
+
     Cnf(lit_t novars, lit_t nsvars) :
         novars(novars),
         bimp_storage(2 * (novars + nsvars) + 1),
         bimp(&bimp_storage[novars + nsvars]),
         timp_storage(2 * (novars + nsvars) + 1),
-        timp(&timp_storage[novars + nsvars]) {}
+        timp(&timp_storage[novars + nsvars]),
+        freevar(novars + nsvars),
+        invfree(novars  + nsvars + 1),
+        nfree(novars + nsvars) /* TODO: is this correct? */ {
+        for (lit_t i = 0; i < novars + nsvars; ++i) {
+            freevar[i] = i + 1;
+            invfree[i + 1] = i;
+        }
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -124,18 +142,28 @@ Cnf parse(const char* filename) {
 
     Cnf c(nvars, nsvars);
 
-    // TODO: initialize LINK for timps
+    std::vector<uint8_t> forced_storage(2 * nvars + 1, 0);
+    uint8_t* forced = &forced_storage[nvars];
     for (const auto& cl : clauses) {
         if (cl.size() == 1) {
-            // TODO: record unit clauses in c.force
+            if (forced[-cl[0]]) {
+                LOG(1) << "Conflicting unit clauses for " << var(cl[0]);
+                UNSAT_EXIT;
+            } else if (!forced[cl[0]]) {
+                c.force.push_back(cl[0]);
+                forced[cl[0]] = 1;
+            }
         } else if (cl.size() == 2) {
             c.bimp[-cl[0]].push_back(cl[1]);
             c.bimp[-cl[1]].push_back(cl[0]);
         } else /* cl.size() == 3 */ {
             CHECK(cl.size() == 3) << "Unexpected long clause.";
-            c.timp[-cl[0]].push_back({u: cl[1], v: cl[2]});
-            c.timp[-cl[1]].push_back({u: cl[0], v: cl[2]});
-            c.timp[-cl[2]].push_back({u: cl[0], v: cl[1]});
+            c.timp[-cl[0]].push_back(
+                {u: cl[1], v: cl[2], link: c.timp[-cl[1]].size()});
+            c.timp[-cl[1]].push_back(
+                {u: cl[2], v: cl[0], link: c.timp[-cl[2]].size()});
+            c.timp[-cl[2]].push_back(
+                {u: cl[0], v: cl[1], link: c.timp[-cl[0]].size() - 1});
         }
     }
 
