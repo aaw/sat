@@ -9,6 +9,10 @@
 #include "timer.h"
 #include "types.h"
 
+constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
+constexpr uint32_t NT = std::numeric_limits<uint32_t>::max() - 3;  // 2^32 - 4
+constexpr uint32_t PT = std::numeric_limits<uint32_t>::max() - 5;  // 2^32 - 6
+
 struct timp_t {
     lit_t u;
     lit_t v;
@@ -17,6 +21,10 @@ struct timp_t {
     // to the original ternary clause.
     size_t link;
 };
+
+// Cycles through timps corresponding to the same clause.
+// c->LINK(c->LINK(c->LINK(t))) == t.
+#define LINK(t) timp[-t.u][t.link]
 
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
@@ -32,9 +40,15 @@ struct Cnf {
 
     std::vector<lit_t> force; // list of unit literals
 
+    std::vector<lit_t> branch; // maps depth ->
+
     std::vector<lit_t> freevar;  // list of free variables
     std::vector<lit_t> invfree;  // invfree[freevar[k]] == k
     size_t nfree;                // last valid index of freevar
+
+    lit_t d;  // current search depth
+
+    uint64_t istamp;
 
     Cnf(lit_t novars, lit_t nsvars) :
         novars(novars),
@@ -42,9 +56,12 @@ struct Cnf {
         bimp(&bimp_storage[novars + nsvars]),
         timp_storage(2 * (novars + nsvars) + 1),
         timp(&timp_storage[novars + nsvars]),
+        branch(novars + nsvars, 0), // TODO: how to initialize?
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
-        nfree(novars + nsvars) /* TODO: is this correct? */ {
+        nfree(novars + nsvars), /* TODO: is this correct? */
+        d(0),
+        istamp(0){
         for (lit_t i = 0; i < novars + nsvars; ++i) {
             freevar[i] = i + 1;
             invfree[i + 1] = i;
@@ -174,6 +191,20 @@ Cnf parse(const char* filename) {
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer t("solve");
+
+    // L2 [New node.]
+    c->branch[c->d] = -1;
+    if (c->force.size() == 0) {
+        LOG(1) << "Calling Algorithm X for lookahead.";
+        // TODO: actually call Algorithm X, which either terminates the solver
+        // or compiles heuristic scores that will help us in stage L3.
+    }
+
+    if (c->force.size() == 0) {
+        // L3 [Choose l.]
+
+    }
+
 
     return true;
 }
