@@ -1,3 +1,18 @@
+// Counters: low-overhead unsigned 64-bit counters that report total and average
+// increment. Usage:
+//
+//   INC(foo);       // Increment foo by 1. foo must be a valid variable name.
+//   INC(foo, 100);  // Increment foo by 100.
+//
+// On program termination or SIGINT, totals are reported:
+//
+//   c counter: [foo] = 21225
+//
+// If the counter total is different than the number of calls to INC, an average
+// increment is also reported:
+//
+//   c counter: [foo] = 21225 (avg: 12.5)
+
 #ifndef __COUNTERS_H__
 #define __COUNTERS_H__
 
@@ -38,12 +53,11 @@ public:
             range = counts_.equal_range(itr->first);
             uint64_t total = 0;
             uint64_t sum = 0;
-            PRINT << "c counter: [" << range.first->first << "] = ";
             for(auto jtr = range.first; jtr != range.second; ++jtr) {
                 total += *jtr->second.first;
                 sum += *jtr->second.second;
             }
-            PRINT << total;
+            PRINT << "c counter: [" << range.first->first << "] = " << sum;
             if (total != sum) {
                 PRINT << " (avg: " << ((double)sum)/total << ")";
             }

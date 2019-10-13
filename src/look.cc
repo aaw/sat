@@ -9,8 +9,11 @@
 #include "timer.h"
 #include "types.h"
 
+// Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
+// Near truth
 constexpr uint32_t NT = std::numeric_limits<uint32_t>::max() - 3;  // 2^32 - 4
+// Proto truth
 constexpr uint32_t PT = std::numeric_limits<uint32_t>::max() - 5;  // 2^32 - 6
 
 struct timp_t {
@@ -194,13 +197,13 @@ bool solve(Cnf* c) {
 
     // L2 [New node.]
     c->branch[c->d] = -1;
-    if (c->force.size() == 0) {
+    if (c->force.empty()) {
         LOG(1) << "Calling Algorithm X for lookahead.";
         // TODO: actually call Algorithm X, which either terminates the solver
-        // or compiles heuristic scores that will help us in stage L3.
+        // or compiles heuristic scores that will help us in step L3.
     }
 
-    if (c->force.size() == 0) {
+    if (c->force.empty()) {
         // L3 [Choose l.]
 
     }
