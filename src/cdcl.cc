@@ -195,8 +195,8 @@ struct Cnf {
     // Array of all clauses. Consists of both clauses in the original formula
     // and lemmas learned by CDCL. All learned lemmas appear after original
     // clauses. The comment above clause_elem_t describes the layout. Clauses
-    // end with zero or tombstoned literals which are all lit_nil. Unit clauses
-    // don't have WATCH0/WATCH1 set.
+    // end with zero or more tombstoned literals which are all lit_nil. Unit
+    // clauses don't have WATCH0/WATCH1 set.
     std::vector<clause_elem_t> clauses;
 
     // The current value of a variable: either TRUE, FALSE, or UNSET.
@@ -210,7 +210,7 @@ struct Cnf {
     // phase-saving.
     std::vector<State> oval;
 
-    // Maps variables to epochs so we can figure out if a variables has been
+    // Maps variables to epochs so we can figure out if a variable has been
     // processed during a given epoch.
     std::vector<uint64_t> stamp;
 
@@ -235,7 +235,7 @@ struct Cnf {
     // Next index in the trail that we need to process. Since processing
     // propagations during a search may force several literals, we need to add
     // literals to the trail before they've been fully processed and keep track
-    // of our progress with this pointer into the trail. Knuth calls this "g".
+    // of our progress with this pointer into the trail. Knuth calls this "G".
     size_t next_trail_index;
 
     // Maps a level to the first trail position of that level. If
@@ -246,7 +246,7 @@ struct Cnf {
     // no such clause exists because the variable was part of a decision step.
     std::vector<clause_t> reason;
 
-    // Watchlists, maps a literal to the first clause in that literal's sequence
+    // Watchlists map a literal to the first clause in that literal's sequence
     // of watched clauses. Each subsequent clause in the literal's watchlist can
     // be found by following WATCH0/WATCH1 pointers, depending on whether the
     // literal in question is in LIT0/LIT1, respectively. See the implementation
