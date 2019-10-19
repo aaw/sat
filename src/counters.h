@@ -24,6 +24,10 @@
 #include "logging.h"
 #include "types.h"
 
+#ifndef COUNTERS
+#define COUNTERS 0
+#endif
+
 extern bool FLAGS_counters;
 
 #define INC2(counter, val) \
@@ -38,7 +42,7 @@ extern bool FLAGS_counters;
     }
 #define INC1(counter) INC2(counter, 1);
 #define GETMACRO(_1,_2,NAME,...) NAME
-#define INC(...) GETMACRO(__VA_ARGS__, INC2, INC1)(__VA_ARGS__)
+#define INC(...) if (COUNTERS) {GETMACRO(__VA_ARGS__, INC2, INC1)(__VA_ARGS__)}
 
 class Counters {
 public:
@@ -88,6 +92,7 @@ struct CounterRegisterer {
 };
 
 void init_counters() {
+    if (!COUNTERS) return;
     if (!FLAGS_counters) return;
     // Initialize singleton so it won't get destroyed before atexit call.
     Counters::singleton();

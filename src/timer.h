@@ -12,6 +12,10 @@
 #include "logging.h"
 #include "types.h"
 
+#ifndef TIMERS
+#define TIMERS 0
+#endif
+
 extern bool FLAGS_time;
 
 class Timers {
@@ -63,11 +67,13 @@ static Timers _timers;
 class Timer {
 public:
     Timer(const char* name) {
+        if (!TIMERS) return;
         if (!FLAGS_time) return;
         name_ = name;
         begin_ = clock();
     }
     ~Timer() {
+        if (!TIMERS) return;
         if (!FLAGS_time) return;
         clock_t end = clock();
         _timers.inc(name_, static_cast<double>(end - begin_) / CLOCKS_PER_SEC);
@@ -78,6 +84,7 @@ private:
 };
 
 void init_timers() {
+    if (!TIMERS) return;
     if (!FLAGS_time) return;
     std::atexit([]{ _timers.dump(); });
     struct sigaction sigbreak;

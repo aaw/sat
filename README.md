@@ -40,6 +40,11 @@ builds. This should build four binaries and put them in the bin/ subdirectory:
    * bin/cdcl (Algorithm C)
    * bin/look (Algorithm L)
 
+To create the fastest binaries, compile out any logging, counters, or timers by adding
+`OPT=1`:
+
+    make bin/cdcl OPT=1
+
 Running
 -------
 

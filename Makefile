@@ -1,4 +1,7 @@
-CPPFLAGS=-g -O3 -Werror -Wall -std=c++11 -DLOGGING
+CPPFLAGS=-g -O2 -Werror -Wall -std=c++11
+ifndef OPT
+CPPFLAGS += -DLOGGING -DCOUNTERS -DTIMERS
+endif
 LDFLAGS=-g
 LDLIBS=
 RM=rm -f
