@@ -25,6 +25,11 @@ struct timp_t {
     size_t link;
 };
 
+struct istack_frame_t {
+    lit_t l;
+    size_t bsize;
+};
+
 // Cycles through timps corresponding to the same clause.
 // c->LINK(c->LINK(c->LINK(t))) == t.
 #define LINK(t) timp[-t.u][t.link]
@@ -49,7 +54,22 @@ struct Cnf {
     std::vector<lit_t> invfree;  // invfree[freevar[k]] == k
     size_t nfree;                // last valid index of freevar
 
+    std::vector<lit_t> rstack;  // stack of literals. rstack.size() == E.
+
+    std::vector<lit_t> istamps_storage;  // maps literals to their istamp;
+    lit_t* istamps;
+
+    std::vector<lit_t> dec;  // maps d -> decision literal
+
+    std::vector<lit_t> backf;  // maps d -> f at the time decision d was made.
+
+    std::vector<lit_t> backi;  // maps d -> istack size when dec. d was made.
+
+    std::vector<istack_frame_t> istack;
+
     lit_t d;  // current search depth
+
+    lit_t f;  // index into rstack, number of fixed variables.
 
     uint64_t istamp;
 
@@ -59,11 +79,17 @@ struct Cnf {
         bimp(&bimp_storage[novars + nsvars]),
         timp_storage(2 * (novars + nsvars) + 1),
         timp(&timp_storage[novars + nsvars]),
-        branch(novars + nsvars, 0), // TODO: how to initialize?
+        branch(novars + nsvars + 1, 0), // TODO: how to initialize?
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
         nfree(novars + nsvars), /* TODO: is this correct? */
+        istamps_storage(2 * (novars + nsvars) + 1),
+        istamps(&istamps_storage[novars + nsvars]),
+        dec(novars + nsvars + 1),
+        backf(novars + nsvars + 1),
+        backi(novars + nsvars + 1),
         d(0),
+        f(0),
         istamp(0){
         for (lit_t i = 0; i < novars + nsvars; ++i) {
             freevar[i] = i + 1;
@@ -159,9 +185,11 @@ Cnf parse(const char* filename) {
                    << clauses.back()[1] << " " << clauses.back()[2] << ")";
         }
     } while (nc != EOF);
+    fclose(f);
 
     Cnf c(nvars, nsvars);
 
+    // L1. [Initialize.]
     std::vector<uint8_t> forced_storage(2 * nvars + 1, 0);
     uint8_t* forced = &forced_storage[nvars];
     for (const auto& cl : clauses) {
@@ -187,7 +215,6 @@ Cnf parse(const char* filename) {
         }
     }
 
-    fclose(f);
     return c;
 }
 
@@ -195,18 +222,31 @@ Cnf parse(const char* filename) {
 bool solve(Cnf* c) {
     Timer t("solve");
 
-    // L2 [New node.]
-    c->branch[c->d] = -1;
-    if (c->force.empty()) {
-        LOG(1) << "Calling Algorithm X for lookahead.";
-        // TODO: actually call Algorithm X, which either terminates the solver
-        // or compiles heuristic scores that will help us in step L3.
+    lit_t l = lit_nil;
+    for(; l != lit_nil; ++c->d) {
+        // L2. [New node.]
+        c->branch[c->d] = -1;
+        if (c->force.empty()) {
+            LOG(1) << "Calling Algorithm X for lookahead with d=" << c->d;
+            // TODO: actually call Algorithm X, which either terminates the
+            // solver or compiles heuristic scores that will help us in step L3.
+        }
+
+        if (c->force.empty()) {
+            // L3. [Choose l.]
+
+        }
     }
 
-    if (c->force.empty()) {
-        // L3 [Choose l.]
+    c->dec[c->d] = l;
+    c->backf[c->d] = c->f;
+    c->backi[c->d] = c->istack.size();
+    c->branch[c->d] = 0;
 
-    }
+    // L4. [Try l.]
+    c->force.push_back(l);
+
+    // L5. [Accept near truths.]
 
 
     return true;
