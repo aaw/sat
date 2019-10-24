@@ -67,11 +67,19 @@ struct Cnf {
 
     std::vector<istack_frame_t> istack;
 
+    std::vector<uint32_t> val;  // maps variables -> truth values
+
     lit_t d;  // current search depth
 
     lit_t f;  // index into rstack, number of fixed variables.
 
+    lit_t g;  // really true stacked literals.
+
     uint64_t istamp;
+
+    // TODO: do i need global t, or should it just be an arg passed
+    // in to propagate?
+    uint32_t t; // current truth level (RT, NT, PT, etc)
 
     Cnf(lit_t novars, lit_t nsvars) :
         novars(novars),
@@ -88,13 +96,28 @@ struct Cnf {
         dec(novars + nsvars + 1),
         backf(novars + nsvars + 1),
         backi(novars + nsvars + 1),
+        val(novars + nsvars + 1, 0),
         d(0),
         f(0),
-        istamp(0){
+        g(0),
+        istamp(0),
+        t(0) {
         for (lit_t i = 0; i < novars + nsvars; ++i) {
             freevar[i] = i + 1;
             invfree[i + 1] = i;
         }
+    }
+
+    bool fixed_true(lit_t l) {
+        uint32_t v = val[abs(l)];
+        if (v < t) return false;
+        return (l > 0) != (v % 2 == 1);
+   }
+
+    bool fixed_false(lit_t l) {
+        uint32_t v = val[abs(l)];
+        if (v < t) return false;
+        return (l > 0) != (v % 2 == 0);
     }
 };
 
@@ -218,6 +241,19 @@ Cnf parse(const char* filename) {
     return c;
 }
 
+// Returns false if a conflict was found.
+bool propagate(Cnf* c, lit_t l) {
+    size_t h = c->rstack.size();
+    if (c->fixed_false(l)) {
+        return false;
+    } else if (!c->fixed_true(l)) {
+
+    }
+    for(; h < c->rstack.size(); ++h) {
+
+    }
+}
+
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer t("solve");
@@ -234,7 +270,7 @@ bool solve(Cnf* c) {
 
         if (c->force.empty()) {
             // L3. [Choose l.]
-
+            // TODO
         }
     }
 
@@ -247,7 +283,16 @@ bool solve(Cnf* c) {
     c->force.push_back(l);
 
     // L5. [Accept near truths.]
+    c->t = NT;
+    c->rstack.resize(c->f);  // TODO: do i need this?
+    c->g = c->f;
+    ++c->istamp;
+    // TODO: CONFLICT = L11.
 
+    for(const lit_t l : c->force) {
+        propagate(c, l);
+    }
+    c->force.clear();
 
     return true;
 }
