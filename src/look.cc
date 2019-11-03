@@ -46,6 +46,9 @@ struct Cnf {
     std::vector<std::vector<timp_t>> timp_storage;
     std::vector<timp_t>* timp;
 
+    std::vector<size_t> tsize_storage;
+    size_t* tsize;
+
     std::vector<lit_t> force; // list of unit literals
 
     std::vector<lit_t> branch; // maps depth ->
@@ -71,9 +74,9 @@ struct Cnf {
 
     lit_t d;  // current search depth
 
-    lit_t f;  // index into rstack, number of fixed variables.
+    size_t f;  // index into rstack, number of fixed variables.
 
-    lit_t g;  // really true stacked literals.
+    size_t g;  // really true stacked literals.
 
     uint64_t istamp;
 
@@ -87,6 +90,8 @@ struct Cnf {
         bimp(&bimp_storage[novars + nsvars]),
         timp_storage(2 * (novars + nsvars) + 1),
         timp(&timp_storage[novars + nsvars]),
+        tsize_storage(2 * (novars + nsvars) + 1, 0),
+        tsize(&tsize_storage[novars + nsvars]),
         branch(novars + nsvars + 1, 0), // TODO: how to initialize?
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
@@ -108,6 +113,19 @@ struct Cnf {
         }
     }
 
+
+    inline void set_true(lit_t l, uint32_t context) {
+        val[abs(l)] = context + (l < 0 ? 1 : 0);
+    }
+
+    inline void set_false(lit_t l, uint32_t context) {
+        val[abs(l)] = context + (l < 0 ? 0 : 1);
+    }
+
+    bool fixed(lit_t l) {
+        return val[abs(l)] >= t;
+    }
+
     bool fixed_true(lit_t l) {
         uint32_t v = val[abs(l)];
         if (v < t) return false;
@@ -118,6 +136,14 @@ struct Cnf {
         uint32_t v = val[abs(l)];
         if (v < t) return false;
         return (l > 0) != (v % 2 == 0);
+    }
+
+    void make_unfree(lit_t v) {
+        CHECK(v > 0) << "wanted var, got lit";
+        --nfree;
+        lit_t s = freevar[nfree];
+        std::swap(freevar[invfree[v]], freevar[nfree]);
+        std::swap(invfree[v], invfree[s]);
     }
 };
 
@@ -238,6 +264,11 @@ Cnf parse(const char* filename) {
         }
     }
 
+    for (lit_t l = 1; l <= nvars; ++l) {
+        c.tsize[l] = c.timp[l].size();
+        c.tsize[-l] = c.timp[-l].size();
+    }
+
     return c;
 }
 
@@ -247,11 +278,19 @@ bool propagate(Cnf* c, lit_t l) {
     if (c->fixed_false(l)) {
         return false;
     } else if (!c->fixed_true(l)) {
-
+        c->val[abs(l)] = c->t + (l > 0 ? 0 : 1);
+        c->rstack.push_back(l);
     }
     for(; h < c->rstack.size(); ++h) {
-
+        l = c->rstack[h];
+        if (c->fixed_false(l)) {
+            return false;
+        } else if (!c->fixed_true(l)) {
+            c->val[abs(l)] = c->t + (l > 0 ? 0 : 1);
+            c->rstack.push_back(l);
+        }
     }
+    return true;
 }
 
 // Returns true exactly when a satisfying assignment exists for c.
@@ -270,7 +309,7 @@ bool solve(Cnf* c) {
 
         if (c->force.empty()) {
             // L3. [Choose l.]
-            // TODO
+            // TODO: actually choose an l or set l = lit_nil
         }
     }
 
@@ -291,8 +330,36 @@ bool solve(Cnf* c) {
 
     for(const lit_t l : c->force) {
         propagate(c, l);
+        // TODO: go to L11 if propagate returns false
     }
     c->force.clear();
+
+    while (c->g < c->rstack.size()) {
+        // L6. [Choose a nearly true L.]
+        lit_t l = c->rstack[c->g];
+        ++c->g;
+        // L7. [Promote l to real truth.]
+        c->set_true(l, RT);
+        c->make_unfree(abs(l));
+
+        // TODO: remove l from all timp pairs
+
+        for (const timp_t& t : c->timp[l]) {
+            // L8. [Consider u OR v.]
+            if (c->fixed_false(t.u) && c->fixed_false(t.v)) {
+                // TODO: go to CONFLICT
+            } else if (c->fixed_false(t.u) && !c->fixed(t.v)) {
+                propagate(c, t.v);
+                // TODO: go to CONFLICT if propagate returns false.
+            } else if (c->fixed_false(t.v) && !c->fixed(t.u)) {
+                propagate(c, t.u);
+                // TODO: go to CONFLICT if propagate returns false.
+            } else if (!c->fixed(t.u) && !c->fixed(t.v)) {
+                // L9. [Exploit u OR v.]
+                // TODO
+            }
+        }
+    }
 
     return true;
 }
