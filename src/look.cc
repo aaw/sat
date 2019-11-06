@@ -23,6 +23,8 @@ struct timp_t {
     // Use c.timp[-u][link] to cycle through the other two timps corresponding
     // to the original ternary clause.
     size_t link;
+
+    bool active;
 };
 
 struct istack_frame_t {
@@ -45,9 +47,6 @@ struct Cnf {
 
     std::vector<std::vector<timp_t>> timp_storage;
     std::vector<timp_t>* timp;
-
-    std::vector<size_t> tsize_storage;
-    size_t* tsize;
 
     std::vector<lit_t> force; // list of unit literals
 
@@ -90,8 +89,6 @@ struct Cnf {
         bimp(&bimp_storage[novars + nsvars]),
         timp_storage(2 * (novars + nsvars) + 1),
         timp(&timp_storage[novars + nsvars]),
-        tsize_storage(2 * (novars + nsvars) + 1, 0),
-        tsize(&tsize_storage[novars + nsvars]),
         branch(novars + nsvars + 1, 0), // TODO: how to initialize?
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
@@ -144,6 +141,14 @@ struct Cnf {
         lit_t s = freevar[nfree];
         std::swap(freevar[invfree[v]], freevar[nfree]);
         std::swap(invfree[v], invfree[s]);
+    }
+
+    // Returns true exactly when u is in bimp[v].
+    bool in_bimp(lit_t u, lit_t v) {
+        for (const lit_t x : bimp[v]) {
+            if (x == u) return true;
+        }
+        return false;
     }
 };
 
@@ -255,18 +260,16 @@ Cnf parse(const char* filename) {
             c.bimp[-cl[1]].push_back(cl[0]);
         } else /* cl.size() == 3 */ {
             CHECK(cl.size() == 3) << "Unexpected long clause.";
-            c.timp[-cl[0]].push_back(
-                {u: cl[1], v: cl[2], link: c.timp[-cl[1]].size()});
-            c.timp[-cl[1]].push_back(
-                {u: cl[2], v: cl[0], link: c.timp[-cl[2]].size()});
-            c.timp[-cl[2]].push_back(
-                {u: cl[0], v: cl[1], link: c.timp[-cl[0]].size() - 1});
+            size_t link = c.timp[-cl[1]].size();
+            c.timp[-cl[0]].push_back({
+                u: cl[1], v: cl[2], link: link, active: true});
+            link = c.timp[-cl[2]].size();
+            c.timp[-cl[1]].push_back({
+                u: cl[2], v: cl[0], link: link, active: true});
+            link = c.timp[-cl[0]].size() - 1;
+            c.timp[-cl[2]].push_back({
+                u: cl[0], v: cl[1], link: link, active: true});
         }
-    }
-
-    for (lit_t l = 1; l <= nvars; ++l) {
-        c.tsize[l] = c.timp[l].size();
-        c.tsize[-l] = c.timp[-l].size();
     }
 
     return c;
@@ -334,15 +337,24 @@ bool solve(Cnf* c) {
     }
     c->force.clear();
 
+    // L6 - L9
     while (c->g < c->rstack.size()) {
         // L6. [Choose a nearly true L.]
         lit_t l = c->rstack[c->g];
         ++c->g;
+
         // L7. [Promote l to real truth.]
         c->set_true(l, RT);
         c->make_unfree(abs(l));
 
-        // TODO: remove l from all timp pairs
+        // Deactivate any timp entries referencing l.
+        for (lit_t x : {l, -l}) {
+            for (timp_t& t : c->timp[x]) {
+                timp_t &u = c->timp[-t.u][t.link];
+                u.active = false;
+                c->timp[-u.u][u.link].active = false;
+            }
+        }
 
         for (const timp_t& t : c->timp[l]) {
             // L8. [Consider u OR v.]
@@ -356,7 +368,18 @@ bool solve(Cnf* c) {
                 // TODO: go to CONFLICT if propagate returns false.
             } else if (!c->fixed(t.u) && !c->fixed(t.v)) {
                 // L9. [Exploit u OR v.]
-                // TODO
+                if (c->in_bimp(-t.v, -t.u)) {
+                    propagate(c, t.u);
+                    // TODO: go to CONFLICT if propagate returns false.
+                } else if (c->in_bimp(t.v, -t.u)) {
+                    LOG(3) << "Already know clause (" << t.u << " " << t.v
+                           << "). No need to update bimp.";
+                } else if (c->in_bimp(-t.u, -t.v)) {
+                    propagate(c, t.v);
+                    // TODO: go to CONFLICT if propagate returns false.
+                } else {
+                    // TODO: append v to bimp(u), u to bimp(v)
+                }
             }
         }
     }
