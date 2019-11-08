@@ -296,6 +296,36 @@ bool propagate(Cnf* c, lit_t l) {
     return true;
 }
 
+// TODO: just make a member function of Cnf
+void resolve_conflict(Cnf* c) {
+    // L11. [Unfix near truths.]
+    while (c->g < c->rstack.size()) {
+        c->val[c->rstack.back()] = 0;
+        c->rstack.pop_back();
+    }
+    while (true) {
+        // L12. [Unfix real truths.]
+        while (c->f < c->rstack.size()) {
+            lit_t x = c->rstack.back();
+            c->rstack.pop_back();
+            // TODO: reactivate timp pairs that involve x
+            // TODO: restore x to the free list
+            c->val[x] = 0;
+        }
+        // L13. [Downdate BIMPs.]
+        // TODO
+
+        // L14. [Try again?]
+        // TODO
+
+        // L15. [Backtrack.]
+        if (c->d == 0) UNSAT_EXIT;
+        --c->d;
+        c->rstack.resize(c->f);
+        c->f = c->backf[c->d];
+    }
+}
+
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer t("solve");
