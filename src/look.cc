@@ -112,25 +112,25 @@ struct Cnf {
 
 
     inline void set_true(lit_t l, uint32_t context) {
-        val[abs(l)] = context + (l < 0 ? 1 : 0);
+        val[var(l)] = context + (l < 0 ? 1 : 0);
     }
 
     inline void set_false(lit_t l, uint32_t context) {
-        val[abs(l)] = context + (l < 0 ? 0 : 1);
+        val[var(l)] = context + (l < 0 ? 0 : 1);
     }
 
     bool fixed(lit_t l) {
-        return val[abs(l)] >= t;
+        return val[var(l)] >= t;
     }
 
     bool fixed_true(lit_t l) {
-        uint32_t v = val[abs(l)];
+        uint32_t v = val[var(l)];
         if (v < t) return false;
         return (l > 0) != (v % 2 == 1);
    }
 
     bool fixed_false(lit_t l) {
-        uint32_t v = val[abs(l)];
+        uint32_t v = val[var(l)];
         if (v < t) return false;
         return (l > 0) != (v % 2 == 0);
     }
@@ -143,12 +143,30 @@ struct Cnf {
         std::swap(invfree[v], invfree[s]);
     }
 
+    void make_free(lit_t v) {
+        CHECK(v > 0) << "wanted var, got lit";
+        ++nfree;
+        lit_t s = freevar[nfree];
+        std::swap(freevar[invfree[v]], freevar[nfree]);
+        std::swap(invfree[v], invfree[s]);
+    }
+
     // Returns true exactly when u is in bimp[v].
     bool in_bimp(lit_t u, lit_t v) {
         for (const lit_t x : bimp[v]) {
             if (x == u) return true;
         }
         return false;
+    }
+
+    void timp_set_active(lit_t l, bool active) {
+        for (lit_t x : {l, -l}) {
+            for (timp_t& t : timp[x]) {
+                timp_t &u = timp[-t.u][t.link];
+                u.active = active;
+                timp[-u.u][u.link].active = active;
+            }
+        }
     }
 };
 
@@ -281,7 +299,7 @@ bool propagate(Cnf* c, lit_t l) {
     if (c->fixed_false(l)) {
         return false;
     } else if (!c->fixed_true(l)) {
-        c->val[abs(l)] = c->t + (l > 0 ? 0 : 1);
+        c->val[var(l)] = c->t + (l > 0 ? 0 : 1);
         c->rstack.push_back(l);
     }
     for(; h < c->rstack.size(); ++h) {
@@ -289,7 +307,7 @@ bool propagate(Cnf* c, lit_t l) {
         if (c->fixed_false(l)) {
             return false;
         } else if (!c->fixed_true(l)) {
-            c->val[abs(l)] = c->t + (l > 0 ? 0 : 1);
+            c->val[var(l)] = c->t + (l > 0 ? 0 : 1);
             c->rstack.push_back(l);
         }
     }
@@ -308,9 +326,9 @@ void resolve_conflict(Cnf* c) {
         while (c->f < c->rstack.size()) {
             lit_t x = c->rstack.back();
             c->rstack.pop_back();
-            // TODO: reactivate timp pairs that involve x
-            // TODO: restore x to the free list
-            c->val[x] = 0;
+            c->timp_set_active(x, true);
+            c->make_free(var(x));
+            c->val[var(x)] = 0;
         }
         // L13. [Downdate BIMPs.]
         // TODO
@@ -375,17 +393,9 @@ bool solve(Cnf* c) {
 
         // L7. [Promote l to real truth.]
         c->set_true(l, RT);
-        c->make_unfree(abs(l));
+        c->make_unfree(var(l));
 
-        // Deactivate any timp entries referencing l.
-        for (lit_t x : {l, -l}) {
-            for (timp_t& t : c->timp[x]) {
-                timp_t &u = c->timp[-t.u][t.link];
-                u.active = false;
-                c->timp[-u.u][u.link].active = false;
-            }
-        }
-
+        c->timp_set_active(l, false);
         for (const timp_t& t : c->timp[l]) {
             // L8. [Consider u OR v.]
             if (c->fixed_false(t.u) && c->fixed_false(t.v)) {
