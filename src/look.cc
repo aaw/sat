@@ -330,6 +330,7 @@ void resolve_conflict(Cnf* c) {
             c->make_free(var(x));
             c->val[var(x)] = 0;
         }
+
         // L13. [Downdate BIMPs.]
         // TODO
 
@@ -364,12 +365,14 @@ bool solve(Cnf* c) {
         }
     }
 
+    // L3. [Choose l.] (continued)
     c->dec[c->d] = l;
     c->backf[c->d] = c->f;
     c->backi[c->d] = c->istack.size();
     c->branch[c->d] = 0;
 
     // L4. [Try l.]
+    // TODO: need to come back here after each resolve_conflict call below.
     c->force.push_back(l);
 
     // L5. [Accept near truths.]
@@ -377,11 +380,10 @@ bool solve(Cnf* c) {
     c->rstack.resize(c->f);  // TODO: do i need this?
     c->g = c->f;
     ++c->istamp;
-    // TODO: CONFLICT = L11.
+    // TODO: CONFLICT = L11
 
     for(const lit_t l : c->force) {
-        propagate(c, l);
-        // TODO: go to L11 if propagate returns false
+        if (!propagate(c, l)) resolve_conflict(c);
     }
     c->force.clear();
 
@@ -399,30 +401,30 @@ bool solve(Cnf* c) {
         for (const timp_t& t : c->timp[l]) {
             // L8. [Consider u OR v.]
             if (c->fixed_false(t.u) && c->fixed_false(t.v)) {
-                // TODO: go to CONFLICT
+                resolve_conflict(c);
             } else if (c->fixed_false(t.u) && !c->fixed(t.v)) {
-                propagate(c, t.v);
-                // TODO: go to CONFLICT if propagate returns false.
+                if (!propagate(c, t.v)) resolve_conflict(c);
             } else if (c->fixed_false(t.v) && !c->fixed(t.u)) {
-                propagate(c, t.u);
-                // TODO: go to CONFLICT if propagate returns false.
+                if (!propagate(c, t.u)) resolve_conflict(c);
             } else if (!c->fixed(t.u) && !c->fixed(t.v)) {
                 // L9. [Exploit u OR v.]
                 if (c->in_bimp(-t.v, -t.u)) {
-                    propagate(c, t.u);
-                    // TODO: go to CONFLICT if propagate returns false.
+                    if (!propagate(c, t.u)) resolve_conflict(c);
                 } else if (c->in_bimp(t.v, -t.u)) {
                     LOG(3) << "Already know clause (" << t.u << " " << t.v
                            << "). No need to update bimp.";
                 } else if (c->in_bimp(-t.u, -t.v)) {
-                    propagate(c, t.v);
-                    // TODO: go to CONFLICT if propagate returns false.
+                    if (!propagate(c, t.v)) resolve_conflict(c);
                 } else {
                     // TODO: append v to bimp(u), u to bimp(v)
                 }
             }
         }
     }
+
+    // L10. [Accept real truths.]
+    // TODO
+    // TODO: need to loop back to L2/L3 after this
 
     return true;
 }
