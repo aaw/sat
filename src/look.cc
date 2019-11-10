@@ -50,7 +50,9 @@ struct Cnf {
 
     std::vector<lit_t> force; // list of unit literals
 
-    std::vector<lit_t> branch; // maps depth ->
+     // maps depth -> values of dec[depth] attempted.
+    // -1 = none, 0 = dec[depth], 1 = -dec[depth].
+    std::vector<uint8_t> branch;
 
     std::vector<lit_t> freevar;  // list of free variables
     std::vector<lit_t> invfree;  // invfree[freevar[k]] == k
@@ -323,8 +325,9 @@ bool propagate(Cnf* c, lit_t l) {
     return true;
 }
 
+//
 // TODO: just make a member function of Cnf
-void resolve_conflict(Cnf* c) {
+lit_t resolve_conflict(Cnf* c) {
     // L11. [Unfix near truths.]
     while (c->g < c->rstack.size()) {
         c->val[c->rstack.back()] = 0;
@@ -350,7 +353,11 @@ void resolve_conflict(Cnf* c) {
         }
 
         // L14. [Try again?]
-        // TODO
+        if (c->branch[c->d] == 0) {
+            c->branch[c->d] = 1;
+            c->dec[c->d] = -c->dec[c->d];
+            return c->dec[c->d];
+        }
 
         // L15. [Backtrack.]
         if (c->d == 0) UNSAT_EXIT;
