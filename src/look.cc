@@ -58,14 +58,14 @@ struct Cnf {
 
     std::vector<lit_t> rstack;  // stack of literals. rstack.size() == E.
 
-    std::vector<lit_t> istamps_storage;  // maps literals to their istamp;
-    lit_t* istamps;
+    std::vector<uint64_t> istamps_storage;  // maps literals to their istamp;
+    uint64_t* istamps;
 
     std::vector<lit_t> dec;  // maps d -> decision literal
 
     std::vector<lit_t> backf;  // maps d -> f at the time decision d was made.
 
-    std::vector<lit_t> backi;  // maps d -> istack size when dec. d was made.
+    std::vector<uint64_t> backi;  // maps d -> istack size when dec. d was made.
 
     std::vector<istack_frame_t> istack;
 
@@ -157,6 +157,15 @@ struct Cnf {
             if (x == u) return true;
         }
         return false;
+    }
+
+    // Append v to bimp[u].
+    void bimp_append(lit_t u, lit_t v) {
+        if (istamps[u] != istamp) {
+            istamps[u] = istamp;
+            istack.push_back({l: u, bsize: bimp[u].size()});
+        }
+        bimp[u].push_back(v);
     }
 
     void timp_set_active(lit_t l, bool active) {
@@ -332,7 +341,13 @@ void resolve_conflict(Cnf* c) {
         }
 
         // L13. [Downdate BIMPs.]
-        // TODO
+        if (c->branch[c->d] >= 0) {
+            while (c->istack.size() > c->backi[c->d]) {
+                istack_frame_t f = c->istack.back();
+                c->istack.pop_back();
+                c->bimp[f.l].resize(f.bsize);
+            }
+        }
 
         // L14. [Try again?]
         // TODO
@@ -416,7 +431,8 @@ bool solve(Cnf* c) {
                 } else if (c->in_bimp(-t.u, -t.v)) {
                     if (!propagate(c, t.v)) resolve_conflict(c);
                 } else {
-                    // TODO: append v to bimp(u), u to bimp(v)
+                    c->bimp_append(t.u, t.v);
+                    c->bimp_append(t.v, t.u);
                 }
             }
         }
