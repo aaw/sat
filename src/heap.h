@@ -26,7 +26,6 @@ DEFINE_PARAM(heap_d, 32,
              "d-heap parameter defining the branching factor of the heap.");
 
 // max heap, stores variables
-// TODO: make D a param that can change at runtime, not a template parameter
 struct Heap {
     Heap(lit_t nvars, size_t D=PARAM_heap_d) :
       hloc(nvars + 1),

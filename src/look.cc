@@ -367,36 +367,10 @@ lit_t resolve_conflict(Cnf* c) {
     }
 }
 
-// Returns true exactly when a satisfying assignment exists for c.
-bool solve(Cnf* c) {
-    Timer t("solve");
-
-    lit_t l = lit_nil;
-    for(; l != lit_nil; ++c->d) {
-        // L2. [New node.]
-        c->branch[c->d] = -1;
-        if (c->force.empty()) {
-            LOG(1) << "Calling Algorithm X for lookahead with d=" << c->d;
-            // TODO: actually call Algorithm X, which either terminates the
-            // solver or compiles heuristic scores that will help us in step L3.
-        }
-
-        if (c->force.empty()) {
-            // L3. [Choose l.]
-            // TODO: actually choose an l or set l = lit_nil
-        }
-    }
-
-    // L3. [Choose l.] (continued)
-    c->dec[c->d] = l;
-    c->backf[c->d] = c->f;
-    c->backi[c->d] = c->istack.size();
-    c->branch[c->d] = 0;
-
-    // L4. [Try l.]
-    // TODO: need to come back here after each resolve_conflict call below.
-    c->force.push_back(l);
-
+// Does L5 - L9
+// TODO: return true/false based on conflict status
+// TODO: just make a member function of Cnf
+void accept_near_truths(Cnf* c) {
     // L5. [Accept near truths.]
     c->t = NT;
     c->rstack.resize(c->f);  // TODO: do i need this?
@@ -404,8 +378,8 @@ bool solve(Cnf* c) {
     ++c->istamp;
     // TODO: CONFLICT = L11
 
-    for(const lit_t l : c->force) {
-        if (!propagate(c, l)) resolve_conflict(c);
+    for(const lit_t f : c->force) {
+        if (!propagate(c, f)) resolve_conflict(c);
     }
     c->force.clear();
 
@@ -444,10 +418,60 @@ bool solve(Cnf* c) {
             }
         }
     }
+}
 
-    // L10. [Accept real truths.]
-    // TODO
-    // TODO: need to loop back to L2/L3 after this
+// Returns true exactly when a satisfying assignment exists for c.
+bool solve(Cnf* c) {
+    Timer t("solve");
+    lit_t l = lit_nil;
+
+    while (true) {
+        for(; l == lit_nil; ++c->d) {
+            // L2. [New node.]
+            c->branch[c->d] = -1;
+            if (c->d == 0 || c->force.empty()) {
+                LOG(1) << "Calling Algorithm X for lookahead with d=" << c->d;
+                // TODO: actually call Algorithm X, which either terminates the
+                // solver or compiles heuristic scores that will help us in step
+                // L3.
+                /* TODO: if conflict:
+                // L15. [Backtrack.]
+                if (c->d == 0) UNSAT_EXIT;
+                --c->d;
+                c->rstack.resize(c->f);
+                c->f = c->backf[c->d];
+                // L12 - L15
+                resolve_conflict(c);
+
+                else if (!c->force.empty()) {
+                  // L5 - L9. [Accept near truths.]
+                  accept_near_truths(c);
+                }*/
+            }
+
+            // L3. [Choose l.]
+            // TODO: actually choose an l or set l = lit_nil
+            c->dec[c->d] = l;
+            c->backf[c->d] = c->f;
+            c->backi[c->d] = c->istack.size();
+            c->branch[c->d] = 0;
+        }
+
+        // L4. [Try l.]
+        c->force.push_back(l);
+
+        // L5 - L9. [Accept near truths.]
+        accept_near_truths(c);
+
+        // L10. [Accept real truths.]
+        c->f = c->rstack.size();
+        if (c->branch[c->d] >= 0) { ++c->d; }
+
+        // GOTO L2
+        l = lit_nil;
+        // TODO: look at flow from L10 -> L2/L3 again
+
+    }  // main while loop
 
     return true;
 }
