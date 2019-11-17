@@ -423,38 +423,49 @@ void accept_near_truths(Cnf* c) {
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer t("solve");
-    lit_t l = lit_nil;
 
+    bool choose_new_node = true;
     while (true) {
+        lit_t l = lit_nil;
         for(; l == lit_nil; ++c->d) {
             // L2. [New node.]
-            c->branch[c->d] = -1;
-            if (c->d == 0 || c->force.empty()) {
-                LOG(1) << "Calling Algorithm X for lookahead with d=" << c->d;
-                // TODO: actually call Algorithm X, which either terminates the
-                // solver or compiles heuristic scores that will help us in step
-                // L3.
-                /* TODO: if conflict:
-                // L15. [Backtrack.]
-                if (c->d == 0) UNSAT_EXIT;
-                --c->d;
-                c->rstack.resize(c->f);
-                c->f = c->backf[c->d];
-                // L12 - L15
-                resolve_conflict(c);
-
-                else if (!c->force.empty()) {
-                  // L5 - L9. [Accept near truths.]
-                  accept_near_truths(c);
-                }*/
+            if (choose_new_node) {
+                c->branch[c->d] = -1;
+                if (c->force.empty()) {
+                    LOG(1) << "Calling Algorithm X for lookahead, d=" << c->d;
+                    // TODO: actually call Algorithm X, which either terminates
+                    // the solver or compiles heuristic scores.
+                    // L3.
+                    if (false /* Algorithm X found a conflict */) {
+                        // L15. [Backtrack.]
+                        if (c->d == 0) UNSAT_EXIT;
+                        --c->d;
+                        c->rstack.resize(c->f);
+                        c->f = c->backf[c->d];
+                        // L12 - L15
+                        resolve_conflict(c);
+                        // TODO: break to L4 from L14
+                    } else if (!c->force.empty()) {
+                        // L5 - L9. [Accept near truths.]
+                        accept_near_truths(c);
+                        // TODO: do L10 from L6, continue to L2 or L3
+                    }
+                }
             }
 
             // L3. [Choose l.]
-            // TODO: actually choose an l or set l = lit_nil
+            // TODO: use heuristic scores to choose l.
+            if (c->nfree > 0) {  // TODO: c->f == nvars instead?
+                l = c->freevar[0];
+            } else {
+                SAT_EXIT;
+            }
+
             c->dec[c->d] = l;
             c->backf[c->d] = c->f;
             c->backi[c->d] = c->istack.size();
             c->branch[c->d] = 0;
+            choose_new_node = true;
         }
 
         // L4. [Try l.]
@@ -465,12 +476,11 @@ bool solve(Cnf* c) {
 
         // L10. [Accept real truths.]
         c->f = c->rstack.size();
-        if (c->branch[c->d] >= 0) { ++c->d; }
-
-        // GOTO L2
-        l = lit_nil;
-        // TODO: look at flow from L10 -> L2/L3 again
-
+        if (c->branch[c->d] >= 0) {
+            ++c->d;
+        } else if (c->d > 0) {
+            choose_new_node = false;
+        }
     }  // main while loop
 
     return true;
