@@ -150,10 +150,10 @@ struct Cnf {
 
     void make_free(lit_t v) {
         CHECK(v > 0) << "wanted var, got lit";
-        ++nfree;
         lit_t s = freevar[nfree];
         std::swap(freevar[invfree[v]], freevar[nfree]);
         std::swap(invfree[v], invfree[s]);
+        ++nfree;
     }
 
     // Returns true exactly when u is in bimp[v].
@@ -324,10 +324,10 @@ bool propagate(Cnf* c, lit_t l) {
         for (lit_t lp : c->bimp[l]) {
             LOG(1) << "taking account of " << lp;
             if (c->fixed_false(lp)) {
-                LOG(1) << lp << " fixed false.";
+                LOG(1) << "  " << lp << " fixed false.";
                 return false;
             } else if (!c->fixed_true(lp)) {
-                LOG(1) << "fixing " << lp << " true.";
+                LOG(1) << "  fixing " << lp << " true.";
                 c->val[var(lp)] = c->t + (lp > 0 ? 0 : 1);
                 c->rstack.push_back(lp);
             }
@@ -341,13 +341,15 @@ bool propagate(Cnf* c, lit_t l) {
 lit_t resolve_conflict(Cnf* c) {
     // L11. [Unfix near truths.]
     while (c->g < c->rstack.size()) {
-        c->val[c->rstack.back()] = 0;
+        LOG(1) << "unsetting " << var(c->rstack.back()) << " (NT)";
+        c->val[var(c->rstack.back())] = 0;
         c->rstack.pop_back();
     }
     while (true) {
         // L12. [Unfix real truths.]
         while (c->f < c->rstack.size()) {
             lit_t x = c->rstack.back();
+            LOG(1) << "unsetting " << var(x) << " (RT)";
             c->rstack.pop_back();
             c->timp_set_active(x, true);
             c->make_free(var(x));
@@ -359,6 +361,13 @@ lit_t resolve_conflict(Cnf* c) {
             while (c->istack.size() > c->backi[c->d]) {
                 istack_frame_t f = c->istack.back();
                 c->istack.pop_back();
+                // debug only loop
+                if (LOG_ENABLED(3)) {
+                    for (size_t i = f.bsize; i < c->bimp[f.l].size(); ++i) {
+                        LOG(3) << "forgetting bimp " << f.l << " -> "
+                               << c->bimp[f.l][i];
+                    }
+                }
                 c->bimp[f.l].resize(f.bsize);
             }
         }
@@ -413,6 +422,7 @@ lit_t accept_near_truths(Cnf* c) {
             LOG(1) << "  considering (" << t.u << ", " << t.v << ")";
             // L8. [Consider u OR v.]
             if (c->fixed_false(t.u) && c->fixed_false(t.v)) {
+                LOG(1) << "  " << t.u << " and " << t.v << " -> conflict";
                 return resolve_conflict(c);
             } else if (c->fixed_false(t.u) && !c->fixed(t.v)) {
                 if (!propagate(c, t.v)) return resolve_conflict(c);
