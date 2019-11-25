@@ -91,7 +91,7 @@ struct Cnf {
         bimp(&bimp_storage[novars + nsvars]),
         timp_storage(2 * (novars + nsvars) + 1),
         timp(&timp_storage[novars + nsvars]),
-        branch(novars + nsvars + 1, 0), // TODO: how to initialize?
+        branch(novars + nsvars + 1, -1), // TODO: how to initialize?
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
         nfree(novars + nsvars), /* TODO: is this correct? */
@@ -377,10 +377,15 @@ lit_t resolve_conflict(Cnf* c) {
             LOG(1) << "Trying again at " << c->d << " with " << -c->dec[c->d];
             c->branch[c->d] = 1;
             c->dec[c->d] = -c->dec[c->d];
+            // TODO: this force->clear is inserted so that L4 will actually
+            // notice the new decision. There's probably a way to communicate
+            // between this stage and L4 better. Fix once everything's working.
+            c->force.clear();
             return c->dec[c->d];
         }
 
         // L15. [Backtrack.]
+        LOG(1) << "Entering L15 with d = " << c->d;
         if (c->d == 0) UNSAT_EXIT;
         --c->d;
         c->rstack.resize(c->f);
@@ -400,7 +405,11 @@ lit_t accept_near_truths(Cnf* c) {
     // TODO: CONFLICT = L11
 
     for(const lit_t f : c->force) {
-        if (!propagate(c, f)) return resolve_conflict(c);
+        LOG(1) << "Taking account of forced lit " << f;
+        if (!propagate(c, f)) {
+            LOG(1) << "conflict with forced lit " << f;
+            return resolve_conflict(c);
+        }
     }
     c->force.clear();
 
@@ -411,8 +420,8 @@ lit_t accept_near_truths(Cnf* c) {
         ++c->g;
 
         // L7. [Promote l to real truth.]
+        LOG(1) << "Promoting " << l << " to RT";
         c->set_true(l, RT);
-        LOG(1) << "make_unfree(" << var(l) << ")";
         c->make_unfree(var(l));
 
         c->timp_set_active(l, false);
@@ -475,11 +484,11 @@ bool solve(Cnf* c) {
                         // L12 - L15
                         resolve_conflict(c);
                         // TODO: break to L4 from L14
-                    } else if (!c->force.empty()) {
-                        // L5 - L9. [Accept near truths.]
-                        accept_near_truths(c);
-                        // TODO: do L10 from L6, continue to L2 or L3
                     }
+                } else /* !c->force.empty() */ {
+                    // L5 - L9. [Accept near truths.]
+                    l = accept_near_truths(c);
+                    break; // -> L10 if l == lit_nil, otherwise L4
                 }
             }
 
@@ -505,10 +514,12 @@ bool solve(Cnf* c) {
 
         while (l != lit_nil) {
             // L4. [Try l.]
-            c->force.clear();
-            c->force.push_back(l);
+            if (c->force.empty()) {
+                c->force.push_back(l);
+            }
 
             // L5 - L9. [Accept near truths.]
+            LOG(1) << "Accepting near truths";
             l = accept_near_truths(c);
         }
 
