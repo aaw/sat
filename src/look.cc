@@ -1,6 +1,7 @@
 // Algorithm L from Knuth's The Art of Computer Programming 7.2.2.2:
 // DPLL with Lookahead.
 
+#include <sstream>
 #include <vector>
 
 #include "counters.h"
@@ -182,6 +183,28 @@ struct Cnf {
             }
         }
     }
+
+    std::string val_debug_string() const {
+        std::ostringstream oss;
+        for(int i = 0; i < d; ++i) {
+            oss << (branch[i] == 0 ? "+" : "") << dec[i];
+        }
+        return oss.str();
+    }
+
+    void print_assignment() {
+        for (int i = 1, j = 0; i <= novars; ++i) {
+            if (val[i] == 0) {
+                LOG_ONCE(1) << "Unset vars in solution, assuming false.";
+                val[i] = -RT;
+            }
+            if (j % 10 == 0) PRINT << "v";
+            PRINT << ((val[i] < 0) ? " -" : " ") << i;
+            ++j;
+            if (i == novars) PRINT << " 0" << std::endl;
+            else if (j > 0 && j % 10 == 0) PRINT << std::endl;
+        }
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -281,7 +304,7 @@ Cnf parse(const char* filename) {
     for (const auto& cl : clauses) {
         if (cl.size() == 1) {
             if (forced[-cl[0]]) {
-                LOG(1) << "Conflicting unit clauses for " << var(cl[0]);
+                LOG(2) << "Conflicting unit clauses for " << var(cl[0]);
                 UNSAT_EXIT;
             } else if (!forced[cl[0]]) {
                 c.force.push_back(cl[0]);
@@ -309,25 +332,25 @@ Cnf parse(const char* filename) {
 
 // Returns false if a conflict was found.
 bool propagate(Cnf* c, lit_t l) {
-    LOG(1) << "Propagating " << l;
+    LOG(2) << "Propagating " << l;
     size_t h = c->rstack.size();
     if (c->fixed_false(l)) {
-        LOG(1) << l << " fixed false.";
+        LOG(2) << l << " fixed false.";
         return false;
     } else if (!c->fixed_true(l)) {
-        LOG(1) << "fixing " << l << " true.";
+        LOG(2) << "fixing " << l << " true.";
         c->val[var(l)] = c->t + (l > 0 ? 0 : 1);
         c->rstack.push_back(l);
     }
     for(; h < c->rstack.size(); ++h) {
         l = c->rstack[h];
         for (lit_t lp : c->bimp[l]) {
-            LOG(1) << "taking account of " << lp;
+            LOG(2) << "taking account of " << lp;
             if (c->fixed_false(lp)) {
-                LOG(1) << "  " << lp << " fixed false.";
+                LOG(2) << "  " << lp << " fixed false.";
                 return false;
             } else if (!c->fixed_true(lp)) {
-                LOG(1) << "  fixing " << lp << " true.";
+                LOG(2) << "  fixing " << lp << " true.";
                 c->val[var(lp)] = c->t + (lp > 0 ? 0 : 1);
                 c->rstack.push_back(lp);
             }
@@ -341,7 +364,7 @@ bool propagate(Cnf* c, lit_t l) {
 lit_t resolve_conflict(Cnf* c) {
     // L11. [Unfix near truths.]
     while (c->g < c->rstack.size()) {
-        LOG(1) << "unsetting " << var(c->rstack.back()) << " (NT)";
+        LOG(2) << "unsetting " << var(c->rstack.back()) << " (NT)";
         c->val[var(c->rstack.back())] = 0;
         c->rstack.pop_back();
     }
@@ -349,7 +372,7 @@ lit_t resolve_conflict(Cnf* c) {
         // L12. [Unfix real truths.]
         while (c->f < c->rstack.size()) {
             lit_t x = c->rstack.back();
-            LOG(1) << "unsetting " << var(x) << " (RT)";
+            LOG(2) << "unsetting " << var(x) << " (RT)";
             c->rstack.pop_back();
             c->timp_set_active(x, true);
             c->make_free(var(x));
@@ -374,7 +397,7 @@ lit_t resolve_conflict(Cnf* c) {
 
         // L14. [Try again?]
         if (c->branch[c->d] == 0) {
-            LOG(1) << "Trying again at " << c->d << " with " << -c->dec[c->d];
+            LOG(2) << "Trying again at " << c->d << " with " << -c->dec[c->d];
             c->branch[c->d] = 1;
             c->dec[c->d] = -c->dec[c->d];
             // TODO: this force->clear is inserted so that L4 will actually
@@ -385,7 +408,7 @@ lit_t resolve_conflict(Cnf* c) {
         }
 
         // L15. [Backtrack.]
-        LOG(1) << "Entering L15 with d = " << c->d;
+        LOG(2) << "Entering L15 with d = " << c->d;
         if (c->d == 0) UNSAT_EXIT;
         --c->d;
         c->rstack.resize(c->f);
@@ -405,9 +428,9 @@ lit_t accept_near_truths(Cnf* c) {
     // TODO: CONFLICT = L11
 
     for(const lit_t f : c->force) {
-        LOG(1) << "Taking account of forced lit " << f;
+        LOG(2) << "Taking account of forced lit " << f;
         if (!propagate(c, f)) {
-            LOG(1) << "conflict with forced lit " << f;
+            LOG(2) << "conflict with forced lit " << f;
             return resolve_conflict(c);
         }
     }
@@ -420,18 +443,18 @@ lit_t accept_near_truths(Cnf* c) {
         ++c->g;
 
         // L7. [Promote l to real truth.]
-        LOG(1) << "Promoting " << l << " to RT";
+        LOG(2) << "Promoting " << l << " to RT";
         c->set_true(l, RT);
         c->make_unfree(var(l));
 
         c->timp_set_active(l, false);
-        LOG(1) << "considering timps of " << l;
+        LOG(2) << "considering timps of " << l;
         for (const timp_t& t : c->timp[l]) {
             if (!t.active) continue;
-            LOG(1) << "  considering (" << t.u << ", " << t.v << ")";
+            LOG(2) << "  considering (" << t.u << ", " << t.v << ")";
             // L8. [Consider u OR v.]
             if (c->fixed_false(t.u) && c->fixed_false(t.v)) {
-                LOG(1) << "  " << t.u << " and " << t.v << " -> conflict";
+                LOG(2) << "  " << t.u << " and " << t.v << " -> conflict";
                 return resolve_conflict(c);
             } else if (c->fixed_false(t.u) && !c->fixed(t.v)) {
                 if (!propagate(c, t.v)) return resolve_conflict(c);
@@ -447,8 +470,8 @@ lit_t accept_near_truths(Cnf* c) {
                 } else if (c->in_bimp(-t.u, -t.v)) {
                     if (!propagate(c, t.v)) return resolve_conflict(c);
                 } else {
-                    LOG(1) << "Adding " << t.v << " to " << -t.u;
-                    LOG(1) << "Adding " << t.u << " to " << -t.v;
+                    LOG(2) << "Adding " << t.v << " to " << -t.u;
+                    LOG(2) << "Adding " << t.u << " to " << -t.v;
                     c->bimp_append(-t.u, t.v);
                     c->bimp_append(-t.v, t.u);
                 }
@@ -468,10 +491,10 @@ bool solve(Cnf* c) {
         while (l == lit_nil) {
             // L2. [New node.]
             if (choose_new_node) {
-                LOG(1) << "Choosing a new node.";
+                LOG(2) << "Choosing a new node.";
                 c->branch[c->d] = -1;
                 if (c->force.empty()) {
-                    LOG(1) << "Calling Algorithm X for lookahead, d=" << c->d;
+                    LOG(2) << "Calling Algorithm X for lookahead, d=" << c->d;
                     // TODO: actually call Algorithm X, which either terminates
                     // the solver or compiles heuristic scores.
                     // L3.
@@ -496,15 +519,15 @@ bool solve(Cnf* c) {
             // TODO: use heuristic scores to choose l.
             if (c->nfree > 0) {  // TODO: c->f == nvars instead?
                 l = c->freevar[0];
-                LOG(1) << "Chose " << l;
+                LOG(2) << "Chose " << l;
             } else if (c->f == c->nvars()) {
-                SAT_EXIT;
+                SAT_EXIT(c);
             } else {
                 c->d++;
                 continue;
             }
 
-            LOG(1) << "dec[" << c->d << "] = " << l;
+            LOG(2) << "dec[" << c->d << "] = " << l;
             c->dec[c->d] = l;
             c->backf[c->d] = c->f;
             c->backi[c->d] = c->istack.size();
@@ -514,17 +537,18 @@ bool solve(Cnf* c) {
 
         while (l != lit_nil) {
             // L4. [Try l.]
+            LOG(1) << c->val_debug_string();
             if (c->force.empty()) {
                 c->force.push_back(l);
             }
 
             // L5 - L9. [Accept near truths.]
-            LOG(1) << "Accepting near truths";
+            LOG(2) << "Accepting near truths";
             l = accept_near_truths(c);
         }
 
         // L10. [Accept real truths.]
-        LOG(1) << "Accepting real truths.";
+        LOG(2) << "Accepting real truths.";
         c->f = c->rstack.size();
         if (c->branch[c->d] >= 0) {
             ++c->d;
@@ -544,21 +568,7 @@ int main(int argc, char** argv) {
     init_timers();
     Cnf c = parse(argv[oidx]);
     if (/* TODO: detect no clauses || */ solve(&c)) {
-        std::cout << "s SATISFIABLE" << std::endl;
-        /* TODO: output solution, something like:
-        for (int i = 1, j = 0; i <= c.nvars; ++i) {
-            if (c.val[i] == UNSET) {
-                LOG_ONCE(1) << "Unset vars in solution, assuming false.";
-                c.val[i] = FALSE;
-            }
-            if (j % 10 == 0) std::cout << "v";
-            std::cout << ((c.val[i] & 1) ? " -" : " ") << i;
-            ++j;
-            if (i == c.nvars) std::cout << " 0" << std::endl;
-            else if (j > 0 && j % 10 == 0) std::cout << std::endl;
-         }
-        */
-        return SATISFIABLE;
+        SAT_EXIT(&c);
     } else {
         std::cout << "s UNSATISFIABLE" << std::endl;
         return UNSATISFIABLE;

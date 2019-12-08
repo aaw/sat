@@ -684,6 +684,20 @@ struct Cnf {
         });
         return last_clause;
     }
+
+    void print_assignment() {
+        for (size_t i = 1, j = 0; i <= nvars; ++i) {
+            if (val[i] == UNSET) {
+                LOG_ONCE(1) << "Unset vars in solution, assuming false.";
+                val[i] = FALSE;
+            }
+            if (j % 10 == 0) PRINT << "v";
+            PRINT << ((val[i] & 1) ? " -" : " ") << i;
+            ++j;
+            if (i == nvars) PRINT << " 0" << std::endl;
+            else if (j > 0 && j % 10 == 0) PRINT << std::endl;
+         }
+    }
 };
 
 // Parse a DIMACS cnf input file. File starts with zero or more comments
@@ -1165,19 +1179,7 @@ int main(int argc, char** argv) {
     init_timers();
     Cnf c = parse(argv[oidx]);
     if (c.clauses.empty() || solve(&c)) {
-        std::cout << "s SATISFIABLE" << std::endl;
-        for (size_t i = 1, j = 0; i <= c.nvars; ++i) {
-            if (c.val[i] == UNSET) {
-                LOG_ONCE(1) << "Unset vars in solution, assuming false.";
-                c.val[i] = FALSE;
-            }
-            if (j % 10 == 0) std::cout << "v";
-            std::cout << ((c.val[i] & 1) ? " -" : " ") << i;
-            ++j;
-            if (i == c.nvars) std::cout << " 0" << std::endl;
-            else if (j > 0 && j % 10 == 0) std::cout << std::endl;
-         }
-        return SATISFIABLE;
+        SAT_EXIT(&c);
     } else {
         std::cout << "s UNSATISFIABLE" << std::endl;
         return UNSATISFIABLE;
