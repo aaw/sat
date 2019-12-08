@@ -194,12 +194,12 @@ struct Cnf {
 
     void print_assignment() {
         for (int i = 1, j = 0; i <= novars; ++i) {
-            if (val[i] == 0) {
+            if (!fixed(i)) {
                 LOG_ONCE(1) << "Unset vars in solution, assuming false.";
-                val[i] = -RT;
+                set_false(i, t);
             }
             if (j % 10 == 0) PRINT << "v";
-            PRINT << ((val[i] < 0) ? " -" : " ") << i;
+            PRINT << (fixed_false(i) ? " -" : " ") << i;
             ++j;
             if (i == novars) PRINT << " 0" << std::endl;
             else if (j > 0 && j % 10 == 0) PRINT << std::endl;
