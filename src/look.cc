@@ -33,6 +33,11 @@ struct istack_frame_t {
     size_t bsize;
 };
 
+struct path_sig_t {
+    uint64_t branch;
+    uint32_t length;
+};
+
 // Cycles through timps corresponding to the same clause.
 // c->LINK(c->LINK(c->LINK(t))) == t.
 #define LINK(t) timp[-t.u][t.link]
@@ -74,6 +79,10 @@ struct Cnf {
 
     std::vector<uint32_t> val;  // maps variables -> truth values
 
+    std::vector<path_sig_t> sig;  // to identify participants/newbies
+
+    uint64_t sigma; // branch signature, to compare against sig[var(l)] above
+
     lit_t d;  // current search depth
 
     size_t f;  // index into rstack, number of fixed variables.
@@ -102,6 +111,8 @@ struct Cnf {
         backf(novars + nsvars + 1),
         backi(novars + nsvars + 1),
         val(novars + nsvars + 1, 0),
+        sig(novars + nsvars + 1, path_sig_t{branch: 0, length: 0}),
+        sigma(0),
         d(0),
         f(0),
         g(0),
@@ -462,6 +473,8 @@ lit_t accept_near_truths(Cnf* c) {
                 if (!propagate(c, t.u)) return resolve_conflict(c);
             } else if (!c->fixed(t.u) && !c->fixed(t.v)) {
                 // L9. [Exploit u OR v.]
+                // TODO(sig): sig[var(t.u)] = sigma and sig[var(t.v)] = sigma
+                // unless either is already a prefix of sigma
                 if (c->in_bimp(-t.v, -t.u)) {
                     if (!propagate(c, t.u)) return resolve_conflict(c);
                 } else if (c->in_bimp(t.v, -t.u)) {
@@ -492,6 +505,8 @@ bool solve(Cnf* c) {
             // L2. [New node.]
             if (choose_new_node) {
                 LOG(2) << "Choosing a new node.";
+                // TODO(sig): if d isn't too big, mask out everything but first
+                // d-1 entries of sigma
                 c->branch[c->d] = -1;
                 if (c->force.empty()) {
                     LOG(2) << "Calling Algorithm X for lookahead, d=" << c->d;
@@ -538,6 +553,7 @@ bool solve(Cnf* c) {
         while (l != lit_nil) {
             // L4. [Try l.]
             LOG(1) << c->val_debug_string();
+            // TODO(sig): add current decision to end of sigma
             if (c->force.empty()) {
                 c->force.push_back(l);
             }
