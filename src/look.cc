@@ -17,6 +17,9 @@ constexpr uint32_t NT = std::numeric_limits<uint32_t>::max() - 3;  // 2^32 - 4
 // Proto truth
 constexpr uint32_t PT = std::numeric_limits<uint32_t>::max() - 5;  // 2^32 - 6
 
+// Bits in signature of decision path used for identifying participants/newbies.
+constexpr lit_t kPathBits = 64;
+
 struct timp_t {
     lit_t u;
     lit_t v;
@@ -33,9 +36,9 @@ struct istack_frame_t {
     size_t bsize;
 };
 
-struct path_sig_t {
-    uint64_t branch;
-    uint32_t length;
+struct psig_t {
+    uint64_t path;
+    lit_t length;
 };
 
 // Cycles through timps corresponding to the same clause.
@@ -79,7 +82,7 @@ struct Cnf {
 
     std::vector<uint32_t> val;  // maps variables -> truth values
 
-    std::vector<path_sig_t> sig;  // to identify participants/newbies
+    std::vector<psig_t> sig;  // to identify participants/newbies
 
     uint64_t sigma; // branch signature, to compare against sig[var(l)] above
 
@@ -111,7 +114,7 @@ struct Cnf {
         backf(novars + nsvars + 1),
         backi(novars + nsvars + 1),
         val(novars + nsvars + 1, 0),
-        sig(novars + nsvars + 1, path_sig_t{branch: 0, length: 0}),
+        sig(novars + nsvars + 1, psig_t{path: 0, length: -1}),
         sigma(0),
         d(0),
         f(0),
@@ -193,6 +196,17 @@ struct Cnf {
                 timp[-u.u][u.link].active = active;
             }
         }
+    }
+
+    bool participant(lit_t l) {
+        psig_t p = sig[var(l)];
+        return p.length >= 0 && p.length <= d &&
+            p.path == (sigma & ((1 << std::min(p.length, kPathBits)) - 1));
+    }
+
+    void sigma_stamp(lit_t l) {
+        if (participant(l)) return;
+        sig[var(l)] = psig_t{path: sigma, length: d};
     }
 
     std::string val_debug_string() const {
@@ -473,8 +487,8 @@ lit_t accept_near_truths(Cnf* c) {
                 if (!propagate(c, t.u)) return resolve_conflict(c);
             } else if (!c->fixed(t.u) && !c->fixed(t.v)) {
                 // L9. [Exploit u OR v.]
-                // TODO(sig): sig[var(t.u)] = sigma and sig[var(t.v)] = sigma
-                // unless either is already a prefix of sigma
+                c->sigma_stamp(t.u);
+                c->sigma_stamp(t.v);
                 if (c->in_bimp(-t.v, -t.u)) {
                     if (!propagate(c, t.u)) return resolve_conflict(c);
                 } else if (c->in_bimp(t.v, -t.u)) {
@@ -505,8 +519,7 @@ bool solve(Cnf* c) {
             // L2. [New node.]
             if (choose_new_node) {
                 LOG(2) << "Choosing a new node.";
-                // TODO(sig): if d isn't too big, mask out everything but first
-                // d-1 entries of sigma
+                if (c->d < kPathBits) c->sigma &= (1UL << c->d)-1; // trim sigma
                 c->branch[c->d] = -1;
                 if (c->force.empty()) {
                     LOG(2) << "Calling Algorithm X for lookahead, d=" << c->d;
@@ -553,7 +566,9 @@ bool solve(Cnf* c) {
         while (l != lit_nil) {
             // L4. [Try l.]
             LOG(1) << c->val_debug_string();
-            // TODO(sig): add current decision to end of sigma
+            if (c->d < kPathBits && c->branch[c->d] == 1) {
+                c->sigma |= 1UL << c->d;  // append to sigma
+            }
             if (c->force.empty()) {
                 c->force.push_back(l);
             }
