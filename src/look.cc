@@ -7,8 +7,13 @@
 #include "counters.h"
 #include "flags.h"
 #include "logging.h"
+#include "params.h"
 #include "timer.h"
 #include "types.h"
+
+DEFINE_PARAM(alpha, 3.5,
+             "Constant multiplicative factor used in computing heuristic "
+             "literal scores.");
 
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
@@ -57,6 +62,13 @@ struct Cnf {
     std::vector<std::vector<timp_t>> timp_storage;
     std::vector<timp_t>* timp;
 
+    // heuristic scores, maps lit -> score. hnew is used for scratch for
+    // computing the next round of scores, then swapped.
+    std::vector<double> h_storage;
+    double* h;
+    std::vector<double> hnew_storage;
+    double* hnew;
+
     std::vector<lit_t> force; // list of unit literals
 
      // maps depth -> values of dec[depth] attempted.
@@ -104,6 +116,10 @@ struct Cnf {
         bimp(&bimp_storage[novars + nsvars]),
         timp_storage(2 * (novars + nsvars) + 1),
         timp(&timp_storage[novars + nsvars]),
+        h_storage(2 * (novars + nsvars) + 1, 1),
+        h(&h_storage[novars + nsvars]),
+        hnew_storage(2 * (novars + nsvars) + 1),
+        hnew(&hnew_storage[novars + nsvars]),
         branch(novars + nsvars + 1, -1), // TODO: how to initialize?
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
@@ -127,7 +143,7 @@ struct Cnf {
         }
     }
 
-    inline size_t nvars() {
+    inline lit_t nvars() const {
         return val.size() - 1;
     }
 
@@ -207,6 +223,29 @@ struct Cnf {
     void sigma_stamp(lit_t l) {
         if (participant(l)) return;
         sig[var(l)] = psig_t{path: sigma, length: d};
+    }
+
+    void refine_heuristic_scores() {
+        double avg = 0.0;
+        for (lit_t l = 1; l <= nvars(); ++l) {
+            avg += h[l] + h[-l];
+        }
+        avg /= 2 * nvars();
+        for (lit_t l = -nvars(); l <= nvars(); ++l) {
+            if (l == 0) continue;
+            double bimpsum = 0.0;
+            for (lit_t lp : bimp[l]) {
+                if (fixed(lp)) continue;
+                bimpsum += h[lp];
+            }
+            double timpsum = 0.0;
+            for (const timp_t& t : timp[l]) {
+                if (!t.active) continue;
+                timpsum += h[t.u] * h[t.v];
+            }
+            hnew[l] = 0.1 + PARAM_alpha*bimpsum/avg + timpsum/(avg*avg);
+        }
+        std::swap(h, hnew);
     }
 
     std::string val_debug_string() const {
@@ -548,7 +587,7 @@ bool solve(Cnf* c) {
             if (c->nfree > 0) {  // TODO: c->f == nvars instead?
                 l = c->freevar[0];
                 LOG(2) << "Chose " << l;
-            } else if (c->f == c->nvars()) {
+            } else if (c->f == static_cast<size_t>(c->nvars())) {
                 SAT_EXIT(c);
             } else {
                 c->d++;
