@@ -547,6 +547,26 @@ lit_t accept_near_truths(Cnf* c) {
     return lit_nil;
 }
 
+// Algorithm X:
+// Returns false exactly when a conflict is found.
+bool lookahead(Cnf* c) {
+    // X1. [Satisfied?]
+    if (c->f == static_cast<size_t>(c->nvars())) {
+        SAT_EXIT(c);
+    }
+
+    // X2. [Compile rough heuristics.]
+    // size_t n = static_cast<size_t>(c->nvars()) - c->f; TODO: needed?
+    // TODO: tune refinement a little, Knuth mentions doing this differently
+    // based on how close we are to the root of the search tree.
+    c->refine_heuristic_scores();
+
+    // X3. [Preselect candidates.]
+
+
+    return true;
+}
+
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer t("solve");
@@ -562,10 +582,8 @@ bool solve(Cnf* c) {
                 c->branch[c->d] = -1;
                 if (c->force.empty()) {
                     LOG(2) << "Calling Algorithm X for lookahead, d=" << c->d;
-                    // TODO: actually call Algorithm X, which either terminates
-                    // the solver or compiles heuristic scores.
                     // L3.
-                    if (false /* Algorithm X found a conflict */) {
+                    if (!lookahead(c)) {
                         // L15. [Backtrack.]
                         if (c->d == 0) UNSAT_EXIT;
                         --c->d;
@@ -583,12 +601,10 @@ bool solve(Cnf* c) {
             }
 
             // L3. [Choose l.]
-            // TODO: use heuristic scores to choose l.
             if (c->nfree > 0) {  // TODO: c->f == nvars instead?
+                // TODO: use heuristic scores to choose l.
                 l = c->freevar[0];
                 LOG(2) << "Chose " << l;
-            } else if (c->f == static_cast<size_t>(c->nvars())) {
-                SAT_EXIT(c);
             } else {
                 c->d++;
                 continue;
