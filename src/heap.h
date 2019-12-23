@@ -49,6 +49,8 @@ struct Heap {
         }
     }
 
+    // TODO: offer alternate initialization/reset for Alg. X
+
     void insert(lit_t l) {
         LOG(4) << "HEAP inserting " << l;
         if (hloc[l] != std::numeric_limits<size_t>::max()) return;
@@ -83,6 +85,14 @@ struct Heap {
 
     double act(lit_t l) {
         return key[l];
+    }
+
+    double avg() {
+        double sum = 0;
+        for (lit_t v : heap) {
+            sum += key[v];
+        }
+        return sum / heap.size();
     }
 
     void bump(lit_t l) {

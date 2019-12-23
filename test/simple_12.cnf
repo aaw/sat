@@ -1,0 +1,10 @@
+c Example in solution to Ex. 152, Art of Computer Programming Vol. 4 Fascicle 6.
+c label:satisfiable
+c label:easy
+p cnf 5 6
+1 2 -3 0
+1 -2 3 0
+-1 2 -3 0
+-1 -2 3 0
+2 4 5 0
+3 -4 -5 0

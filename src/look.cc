@@ -15,6 +15,14 @@ DEFINE_PARAM(alpha, 3.5,
              "Constant multiplicative factor used in computing heuristic "
              "literal scores.");
 
+DEFINE_PARAM(c0, 30,
+             "Defines maximum number of candidates considered for lookahead. "
+             "See also c1, since max(c0, c1/d) is the actual bound.");
+
+DEFINE_PARAM(c1, 600,
+             "Defines maximum number of candidates considered for lookahead. "
+             "See also c0, since max(c0, c1/d) is the actual bound.");
+
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
 // Near truth
@@ -80,6 +88,8 @@ struct Cnf {
     size_t nfree;                // last valid index of freevar
 
     std::vector<lit_t> rstack;  // stack of literals. rstack.size() == E.
+
+    std::vector<lit_t> cand; // list of candidates for lookahead in Alg. X.
 
     std::vector<uint64_t> istamps_storage;  // maps literals to their istamp;
     uint64_t* istamps;
@@ -555,6 +565,8 @@ bool lookahead(Cnf* c) {
         SAT_EXIT(c);
     }
 
+    // TODO: add a param to disable lookahead by returning true here.
+
     // X2. [Compile rough heuristics.]
     // size_t n = static_cast<size_t>(c->nvars()) - c->f; TODO: needed?
     // TODO: tune refinement a little, Knuth mentions doing this differently
@@ -562,6 +574,19 @@ bool lookahead(Cnf* c) {
     c->refine_heuristic_scores();
 
     // X3. [Preselect candidates.]
+    int cmax = static_cast<int>((std::max(PARAM_c0, PARAM_c1 / c->d)));
+    LOG(2) << "cmax = " << cmax;
+    c->cand.clear();
+    for (lit_t v = 1; v <= c->nvars(); ++v) {
+        if (c->participant(v)) c->cand.push_back(v);
+    }
+    if (c->cand.empty()) {
+        LOG(2) << "No participants, flagging all vars as candidates.";
+        for (lit_t v = 1; v <= c->nvars(); ++v) { c->cand.push_back(v); }
+    }
+    // TODO: terminate if all clauses are satisfied (ex. 152).
+
+
 
 
     return true;
