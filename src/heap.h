@@ -17,6 +17,8 @@
 extern unsigned long FLAGS_seed;
 
 const double kMaxScore = pow(10,100);
+const double kHeapNil = std::numeric_limits<size_t>::max();
+const double kNegInf = std::numeric_limits<double>::min();
 
 DEFINE_PARAM(heap_rho, 0.96,
              "Scaling factor for literal activities. The bump applied to "
@@ -25,44 +27,63 @@ DEFINE_PARAM(heap_rho, 0.96,
 DEFINE_PARAM(heap_d, 32,
              "d-heap parameter defining the branching factor of the heap.");
 
+// TODO: clean up and document now that this is used by both CDCL and lookahead
+// in slightly different ways.
+
 // max heap, stores variables
 struct Heap {
     Heap(lit_t nvars, size_t D=PARAM_heap_d) :
-      hloc(nvars + 1),
-      heap(nvars),
+    hloc(nvars + 1, kHeapNil),
       key(nvars + 1, 0.0),
       D(D),
       delta(1.0),
-      max_key(std::numeric_limits<double>::min()) {
+      max_key(kNegInf) {
+    }
+
+    // Initialize heap for CDCL by adding all vars and shuffling their order.
+    void shuffle_init() {
         if (FLAGS_seed == 0) {
             FLAGS_seed = time(NULL);
         }
         srand(FLAGS_seed);
         // Initialize heap to a random permutation of [1,n]
-        for (int i = 1; i <= nvars; ++i) {
+        heap.resize(hloc.size() - 1, 0);
+        for (size_t i = 1; i < hloc.size(); ++i) {
             int r = rand() % i;
-            heap[i - 1] = heap[r];
+            heap[i-1] = heap[r];
             heap[r] = i;
         }
-        for (int i = 0; i < nvars; ++i) {
+        for (size_t i = 0; i < heap.size(); ++i) {
             hloc[heap[i]] = i;
         }
     }
 
-    // TODO: offer alternate initialization/reset for Alg. X
+    void clear() {
+        for (lit_t h : heap) {
+            hloc[h] = kHeapNil;
+        }
+        heap.clear();
+    }
 
-    void insert(lit_t l) {
-        LOG(4) << "HEAP inserting " << l;
-        if (hloc[l] != std::numeric_limits<size_t>::max()) return;
-        LOG(4) << "HEAP inserted " << l;
+    bool empty() {
+        return heap.empty();
+    }
+
+    size_t size() {
+        return heap.size();
+    }
+
+    void insert(lit_t l, double val=kNegInf) {
+        if (hloc[l] != kHeapNil) return;
         hloc[l] = heap.size();
         heap.push_back(l);
+        if (val != kNegInf) key[l] = val;
         siftup(heap.size() - 1);
     }
 
     lit_t delete_max() {
         if (heap.empty()) return lit_nil;
-        hloc[heap[0]] = std::numeric_limits<size_t>::max();
+        hloc[heap[0]] = kHeapNil;
         lit_t m = heap[0];
         heap[0] = heap[heap.size() - 1];
         heap.pop_back();
@@ -70,7 +91,6 @@ struct Heap {
             hloc[heap[0]] = 0;
             siftdown(0);
         }
-        LOG(4) << "HEAP deleting " << m;
         return m;
     }
 
@@ -117,7 +137,7 @@ struct Heap {
     }
 
     void siftup(size_t i) {
-        if (i == 0 || i == std::numeric_limits<size_t>::max()) return;
+        if (i == 0 || i == kHeapNil) return;
         lit_t v = heap[i];
         size_t p = (i - 1) / D;
         while (key[heap[p]] < key[heap[i]]) {
@@ -176,7 +196,7 @@ struct Heap {
         return s.str();
     }
 
-    std::vector<size_t> hloc; // std::numeric_limits<size_t>::max() == nil, hloc is 1-indexed.
+    std::vector<size_t> hloc; // kHeapNil == nil, hloc is 1-indexed.
     std::vector<lit_t> heap;  // heap is 0-indexed.
     std::vector<double> key;  // key is 1-indexed
     const size_t D;

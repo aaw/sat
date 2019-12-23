@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "counters.h"
+#include "heap.h"
 #include "flags.h"
 #include "logging.h"
 #include "params.h"
@@ -106,6 +107,8 @@ struct Cnf {
 
     std::vector<psig_t> sig;  // to identify participants/newbies
 
+    Heap heap;
+
     uint64_t sigma; // branch signature, to compare against sig[var(l)] above
 
     lit_t d;  // current search depth
@@ -141,6 +144,7 @@ struct Cnf {
         backi(novars + nsvars + 1),
         val(novars + nsvars + 1, 0),
         sig(novars + nsvars + 1, psig_t{path: 0, length: -1}),
+        heap(novars + nsvars),
         sigma(0),
         d(0),
         f(0),
@@ -551,6 +555,7 @@ lit_t accept_near_truths(Cnf* c) {
                     c->bimp_append(-t.u, t.v);
                     c->bimp_append(-t.v, t.u);
                 }
+                // TODO: deduce compensation resolvents (see ex. 139)
             }
         }
     }
@@ -574,20 +579,35 @@ bool lookahead(Cnf* c) {
     c->refine_heuristic_scores();
 
     // X3. [Preselect candidates.]
-    int cmax = static_cast<int>((std::max(PARAM_c0, PARAM_c1 / c->d)));
+    size_t cmax = static_cast<size_t>((std::max(PARAM_c0, PARAM_c1 / c->d)));
     LOG(2) << "cmax = " << cmax;
-    c->cand.clear();
+    c->heap.clear();
     for (lit_t v = 1; v <= c->nvars(); ++v) {
-        if (c->participant(v)) c->cand.push_back(v);
+        if (c->participant(v)) c->heap.insert(v, -c->h[v]*c->h[-v]);
     }
-    if (c->cand.empty()) {
+    if (c->heap.empty()) {
         LOG(2) << "No participants, flagging all vars as candidates.";
-        for (lit_t v = 1; v <= c->nvars(); ++v) { c->cand.push_back(v); }
+        for (lit_t v = 1; v <= c->nvars(); ++v) {
+            c->heap.insert(v, -c->h[v]*c->h[-v]);
+        }
     }
-    // TODO: terminate if all clauses are satisfied (ex. 152).
+
+    // TODO: check this on langford 8, langford 9, make sure it terminates
+    // Prune candidates
+    while (c->heap.size() > 2 * cmax) {
+        double avg = c->heap.avg() + 2 * std::numeric_limits<double>::epsilon();
+        bool deleted = false;
+        while (c->heap.act(c->heap.peek()) > avg) {
+            c->heap.delete_max();
+            deleted = true;
+        }
+        if (!deleted) break;
+    }
 
 
-
+    // TODO: terminate if all clauses are satisfied (see ex. 152). term only if
+    // you can iterate over all free vars, verify that all of their timps are
+    // empty and all of their bimps are at real truth.
 
     return true;
 }

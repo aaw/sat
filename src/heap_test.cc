@@ -10,6 +10,7 @@
 
 TEST(basic,
      Heap h(1, 2);
+     h.shuffle_init();
      EXPECT_EQ(h.delete_max(), 1);
      EXPECT_EQ(h.delete_max(), lit_nil);
      EXPECT_EQ(h.delete_max(), lit_nil);
@@ -17,6 +18,7 @@ TEST(basic,
 
 TEST(double_insert,
      Heap h(1, 2);
+     h.shuffle_init();
      h.insert(1);
      h.insert(1);
      EXPECT_EQ(h.delete_max(), 1);
@@ -25,6 +27,7 @@ TEST(double_insert,
 
 TEST(insert_after_delete,
      Heap h(1, 2);
+     h.shuffle_init();
      EXPECT_EQ(h.delete_max(), 1);
      EXPECT_EQ(h.delete_max(), lit_nil);
      h.insert(1);
@@ -34,6 +37,7 @@ TEST(insert_after_delete,
 
 TEST(delete_max,
      Heap h(2, 2);
+     h.shuffle_init();
      h.bump(2);
      EXPECT_EQ(h.delete_max(), 2);
      EXPECT_EQ(h.delete_max(), 1);
@@ -51,6 +55,7 @@ TEST(delete_max,
 
 TEST(multiple_bumps_2,
      Heap h(10, 2);
+     h.shuffle_init();
      for (int i = 0; i < 200; ++i) { h.bump(10); }
      for (int i = 0; i < 50; ++i) { h.bump(8); }
      for (int i = 0; i < 180; ++i) { h.bump(9); }
@@ -70,6 +75,7 @@ TEST(multiple_bumps_2,
 
 TEST(multiple_bumps_3,
      Heap h(10, 3);
+     h.shuffle_init();
      for (int i = 0; i < 200; ++i) { h.bump(10); }
      for (int i = 0; i < 50; ++i) { h.bump(8); }
      for (int i = 0; i < 180; ++i) { h.bump(9); }
@@ -89,6 +95,7 @@ TEST(multiple_bumps_3,
 
 TEST(multiple_bumps_4,
      Heap h(10, 4);
+     h.shuffle_init();
      for (int i = 0; i < 200; ++i) { h.bump(10); }
      for (int i = 0; i < 50; ++i) { h.bump(8); }
      for (int i = 0; i < 180; ++i) { h.bump(9); }
@@ -106,6 +113,32 @@ TEST(multiple_bumps_4,
      EXPECT_EQ(h.delete_max(), 6);
     )
 
+TEST(empty,
+     Heap h(10, 4);
+     EXPECT_EQ(h.delete_max(), lit_nil);
+    )
+
+TEST(insert_from_empty,
+     Heap h(10, 2);
+     h.insert(5, 100);
+     EXPECT_EQ(h.delete_max(), 5);
+     EXPECT_EQ(h.delete_max(), lit_nil);
+     h.insert(7, 100);
+     h.insert(3, 200);
+     EXPECT_EQ(h.delete_max(), 3);
+     EXPECT_EQ(h.delete_max(), 7);
+     EXPECT_EQ(h.delete_max(), lit_nil);
+    )
+
+TEST(avg,
+     Heap h(10, 3);
+     h.insert(7, 100);
+     h.insert(3, 200);
+     h.insert(5, 300);
+     h.insert(8, 400);
+     EXPECT_EQ(h.avg(), 250.0);
+    )
+
 int main(int argc, char **argv) {
     int oidx;
     CHECK(parse_flags(argc, argv, &oidx)) <<
@@ -119,4 +152,7 @@ int main(int argc, char **argv) {
     RUN(multiple_bumps_2);
     RUN(multiple_bumps_3);
     RUN(multiple_bumps_4);
+    RUN(empty);
+    RUN(insert_from_empty);
+    RUN(avg);
 }

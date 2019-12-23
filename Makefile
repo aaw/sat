@@ -19,7 +19,7 @@ bin/cdcl: src/cdcl.cc src/logging.h src/types.h src/flags.h src/heap.h src/timer
 bin/dpll: src/dpll.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h src/params.h
 	g++ $(CPPFLAGS) -o bin/dpll src/dpll.cc $(LDLIBS)
 
-bin/look: src/look.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h src/params.h
+bin/look: src/look.cc src/logging.h src/types.h src/flags.h src/heap.h src/timer.h src/counters.h src/params.h
 	g++ $(CPPFLAGS) -o bin/look src/look.cc $(LDLIBS)
 
 tbin/heap_test: src/heap_test.cc src/heap.h

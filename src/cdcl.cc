@@ -327,6 +327,7 @@ struct Cnf {
         agility(PARAM_restart_sensitivity),
         npurges(0) {
         trail.reserve(nvars + 1);
+        heap.shuffle_init();
     }
 
     // Is the literal x false under the current assignment?
