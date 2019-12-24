@@ -24,6 +24,9 @@ DEFINE_PARAM(c1, 600,
              "Defines maximum number of candidates considered for lookahead. "
              "See also c0, since max(c0, c1/d) is the actual bound.");
 
+DEFINE_PARAM(disable_lookahead, 0.0,
+             "If 1, no lookahead (Algorithm X) will be performed.");
+
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
 // Near truth
@@ -272,10 +275,7 @@ struct Cnf {
 
     void print_assignment() {
         for (int i = 1, j = 0; i <= novars; ++i) {
-            if (!fixed(i)) {
-                LOG_ONCE(1) << "Unset vars in solution, assuming false.";
-                set_false(i, t);
-            }
+            if (!fixed(i)) { set_false(i, t); }
             if (j % 10 == 0) PRINT << "v";
             PRINT << (fixed_false(i) ? " -" : " ") << i;
             ++j;
@@ -570,7 +570,7 @@ bool lookahead(Cnf* c) {
         SAT_EXIT(c);
     }
 
-    // TODO: add a param to disable lookahead by returning true here.
+    if (PARAM_disable_lookahead == 1.0) return true;
 
     // X2. [Compile rough heuristics.]
     // size_t n = static_cast<size_t>(c->nvars()) - c->f; TODO: needed?
@@ -579,35 +579,37 @@ bool lookahead(Cnf* c) {
     c->refine_heuristic_scores();
 
     // X3. [Preselect candidates.]
-    size_t cmax = static_cast<size_t>((std::max(PARAM_c0, PARAM_c1 / c->d)));
-    LOG(2) << "cmax = " << cmax;
     c->heap.clear();
-    for (lit_t v = 1; v <= c->nvars(); ++v) {
+
+    bool ts = true, bs = true;
+    for (lit_t v : c->freevar) {
         if (c->participant(v)) c->heap.insert(v, -c->h[v]*c->h[-v]);
+        // We can also use this opportunity iterating through free vars to
+        // figure out if all clauses are satisfied and exit early if so. See
+        // Exercise 152 for more details.
+        if (!ts || !bs) continue;
+        for (const lit_t l : {-v, v}) {
+            for (const timp_t t : c->timp[l]) {
+                if (t.active) { ts = false; break; }
+            }
+            for (lit_t b : c->bimp[l]) {
+                if (c->val[var(b)] < RT) { bs = false; break; }
+            }
+        }
     }
+    if (ts && bs) { SAT_EXIT(c); }
+
     if (c->heap.empty()) {
         LOG(2) << "No participants, flagging all vars as candidates.";
-        for (lit_t v = 1; v <= c->nvars(); ++v) {
+        for (lit_t v : c->freevar) {
             c->heap.insert(v, -c->h[v]*c->h[-v]);
         }
     }
 
-    // TODO: check this on langford 8, langford 9, make sure it terminates
     // Prune candidates
-    while (c->heap.size() > 2 * cmax) {
-        double avg = c->heap.avg() + 2 * std::numeric_limits<double>::epsilon();
-        bool deleted = false;
-        while (c->heap.act(c->heap.peek()) > avg) {
-            c->heap.delete_max();
-            deleted = true;
-        }
-        if (!deleted) break;
-    }
-
-
-    // TODO: terminate if all clauses are satisfied (see ex. 152). term only if
-    // you can iterate over all free vars, verify that all of their timps are
-    // empty and all of their bimps are at real truth.
+    size_t cmax = std::max(PARAM_c0, PARAM_c1 / (c->d + 1));
+    LOG(2) << "cmax = " << cmax << ", d = " << c->d;
+    while (!c->heap.empty() && c->heap.size() > cmax) c->heap.delete_max();
 
     return true;
 }

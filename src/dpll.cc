@@ -152,10 +152,7 @@ struct Cnf {
 
     void print_assignment() {
         for (int i = 1, j = 0; i <= nvars; ++i) {
-            if (val[i] == UNSET) {
-                LOG_ONCE(1) << "Unset vars in solution, assuming false.";
-                val[i] = FALSE;
-            }
+            if (val[i] == UNSET) { val[i] = FALSE; }
             if (j % 10 == 0) PRINT << "v";
             PRINT << ((val[i] & 1) ? " -" : " ") << i;
             ++j;
