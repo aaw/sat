@@ -58,6 +58,14 @@ struct psig_t {
     lit_t length;
 };
 
+struct dfs_t {
+    lit_t rank;
+    lit_t low;
+    lit_t component;
+    bool seen;
+    bool onstack;
+};
+
 // Cycles through timps corresponding to the same clause.
 // c->LINK(c->LINK(c->LINK(t))) == t.
 #define LINK(t) timp[-t.u][t.link]
@@ -81,6 +89,10 @@ struct Cnf {
     std::vector<double> hnew_storage;
     double* hnew;
 
+    std::vector<lit_t> dfsstack;
+    std::vector<dfs_t> dfs_storage;
+    dfs_t* dfs;
+
     std::vector<lit_t> force; // list of unit literals
 
      // maps depth -> values of dec[depth] attempted.
@@ -92,8 +104,6 @@ struct Cnf {
     size_t nfree;                // last valid index of freevar
 
     std::vector<lit_t> rstack;  // stack of literals. rstack.size() == E.
-
-    std::vector<lit_t> cand; // list of candidates for lookahead in Alg. X.
 
     std::vector<uint64_t> istamps_storage;  // maps literals to their istamp;
     uint64_t* istamps;
@@ -110,7 +120,7 @@ struct Cnf {
 
     std::vector<psig_t> sig;  // to identify participants/newbies
 
-    Heap heap;
+    Heap cand;  // lookahead candidates
 
     uint64_t sigma; // branch signature, to compare against sig[var(l)] above
 
@@ -136,6 +146,8 @@ struct Cnf {
         h(&h_storage[novars + nsvars]),
         hnew_storage(2 * (novars + nsvars) + 1),
         hnew(&hnew_storage[novars + nsvars]),
+        dfs_storage(2 * (novars + nsvars) + 1),
+        dfs(&dfs_storage[novars + nsvars]),
         branch(novars + nsvars + 1, -1), // TODO: how to initialize?
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
@@ -147,7 +159,7 @@ struct Cnf {
         backi(novars + nsvars + 1),
         val(novars + nsvars + 1, 0),
         sig(novars + nsvars + 1, psig_t{path: 0, length: -1}),
-        heap(novars + nsvars),
+        cand(novars + nsvars),
         sigma(0),
         d(0),
         f(0),
@@ -269,6 +281,20 @@ struct Cnf {
         std::ostringstream oss;
         for(int i = 0; i < d; ++i) {
             oss << (branch[i] == 0 ? "+" : "") << dec[i];
+        }
+        return oss.str();
+    }
+
+    std::string dump_bimp() const {
+        std::ostringstream oss;
+        for(lit_t l = -nvars(); l <= nvars(); ++l) {
+            if (l == 0) continue;
+            if (bimp[l].empty()) continue;
+            oss << "[" << l << "] -> ";
+            for (lit_t x : bimp[l]) {
+                oss << x << ", ";
+            }
+            oss << std::endl;
         }
         return oss.str();
     }
@@ -405,6 +431,7 @@ Cnf parse(const char* filename) {
         }
     }
 
+    if (LOG_ENABLED(3)) { LOG(3) << c.dump_bimp(); }
     return c;
 }
 
@@ -562,6 +589,45 @@ lit_t accept_near_truths(Cnf* c) {
     return lit_nil;
 }
 
+// DFS helper function for finding strongly connected components.
+void scc_search(Cnf* c, lit_t& count, lit_t& components, lit_t l) {
+    c->dfs[l].seen = true;
+    ++count;
+    c->dfs[l].rank = c->dfs[l].low = count;
+    c->dfsstack.push_back(l); c->dfs[l].onstack = true;
+    // TODO: experiment with only direct implications among
+    // candidates. iterating over c->bimp here includes what Knuth
+    // calls "indirect" implications like x1 -> x2 -> x3, where x1
+    // and x3 are candidates but x2 is not.
+    for (lit_t w : c->bimp[l]) {
+        if (c->fixed_true(w) || c->fixed_false(w)) { continue; }
+        if (!c->dfs[w].seen) {
+            LOG(2) << l << " -> " << w;
+            scc_search(c, count, components, w);
+            c->dfs[l].low = std::min(c->dfs[l].low, c->dfs[w].low);
+        } else {
+            LOG(2) << "b: " << l << " -> " << w;
+            if (c->dfs[w].rank < c->dfs[l].rank &&
+                c->dfs[w].onstack) {
+                c->dfs[l].low =
+                    std::min(c->dfs[w].rank, c->dfs[l].low);
+            }
+        }
+    }
+    if (c->dfs[l].low == c->dfs[l].rank) {
+        ++components;
+        LOG(2) << "Connected component " << components << ": ";
+        for(lit_t x = lit_nil; x != l;) {
+            x = c->dfsstack.back();
+            LOG(2) << "  : " << x << " (low = " << c->dfs[x].low << ")";
+            // TODO: process x's?
+            c->dfs[x].onstack = false;
+            c->dfs[x].component = components;
+            c->dfsstack.pop_back();
+        }
+    }
+}
+
 // Algorithm X:
 // Returns false exactly when a conflict is found.
 bool lookahead(Cnf* c) {
@@ -579,11 +645,11 @@ bool lookahead(Cnf* c) {
     c->refine_heuristic_scores();
 
     // X3. [Preselect candidates.]
-    c->heap.clear();
+    c->cand.clear();
 
     bool ts = true, bs = true;
     for (lit_t v : c->freevar) {
-        if (c->participant(v)) c->heap.insert(v, -c->h[v]*c->h[-v]);
+        if (c->participant(v)) c->cand.insert(v, -c->h[v]*c->h[-v]);
         // We can also use this opportunity iterating through free vars to
         // figure out if all clauses are satisfied and exit early if so. See
         // Exercise 152 for more details.
@@ -599,17 +665,45 @@ bool lookahead(Cnf* c) {
     }
     if (ts && bs) { SAT_EXIT(c); }
 
-    if (c->heap.empty()) {
+    if (c->cand.empty()) {
         LOG(2) << "No participants, flagging all vars as candidates.";
         for (lit_t v : c->freevar) {
-            c->heap.insert(v, -c->h[v]*c->h[-v]);
+            c->cand.insert(v, -c->h[v]*c->h[-v]);
         }
     }
 
     // Prune candidates
     size_t cmax = std::max(PARAM_c0, PARAM_c1 / (c->d + 1));
     LOG(2) << "cmax = " << cmax << ", d = " << c->d;
-    while (!c->heap.empty() && c->heap.size() > cmax) c->heap.delete_max();
+    // TODO: verify that we don't need empty check below
+    while (!c->cand.empty() && c->cand.size() > cmax) c->cand.delete_max();
+
+    // X4. [Nest the candidates.]
+    // TODO: experiment with only direct implications (iterate over just
+    // c->cand.heap here) see comment in scc_search as well.
+    if (LOG_ENABLED(3)) { LOG(3) << "before nesting: " << c->dump_bimp(); }
+    for (lit_t l = -c->nvars(); l <= c->nvars(); ++l) {
+        if (l == 0) continue;
+        c->dfs[l].seen = c->dfs[l].onstack = false;
+    }
+    lit_t count = 0;
+    lit_t components = 0;
+    c->dfsstack.clear();
+    for(lit_t v : c->cand.heap) {
+        for (lit_t l : {-v,v}) {
+            if (c->dfs[l].seen) continue;
+            scc_search(c, count, components, l);
+        }
+    }
+
+    // Are l and -l in the same strongly connected component for any literal l?
+    // If so, the formula is unsatisfiable.
+    for (lit_t l = 1; l <= c->nvars(); ++l) {
+        if (!c->dfs[l].seen || !c->dfs[-l].seen ||
+            c->dfs[l].component != c->dfs[-l].component) continue;
+        LOG(0) << l << " implies " << -l << " via binary implications.";
+        return false;
+    }
 
     return true;
 }
@@ -636,9 +730,11 @@ bool solve(Cnf* c) {
                         --c->d;
                         c->rstack.resize(c->f);
                         c->f = c->backf[c->d];
-                        // L12 - L15
-                        resolve_conflict(c);
-                        // TODO: break to L4 from L14
+                        // (L11 - L15) -> L4
+                        // Note: L15 should jump to L12, but I think jumping to
+                        // L11 is safe here. Verify.
+                        l = resolve_conflict(c);
+                        break;
                     }
                 } else /* !c->force.empty() */ {
                     // L5 - L9. [Accept near truths.]
