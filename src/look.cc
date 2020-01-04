@@ -59,11 +59,15 @@ struct psig_t {
 };
 
 struct dfs_t {
-    lit_t rank;
-    lit_t low;
-    lit_t component;
+    dfs_t() : seen(false), cand(false) {}
+
     bool seen;
-    bool onstack;
+    bool cand;
+};
+
+struct lookahead_order_t {
+    lit_t lit;
+    uint32_t t;
 };
 
 // Cycles through timps corresponding to the same clause.
@@ -82,6 +86,9 @@ struct Cnf {
     std::vector<std::vector<timp_t>> timp_storage;
     std::vector<timp_t>* timp;
 
+    std::vector<std::vector<lit_t>> big_storage;
+    std::vector<lit_t>* big; // binary implication graph, used for lookahead.
+
     // heuristic scores, maps lit -> score. hnew is used for scratch for
     // computing the next round of scores, then swapped.
     std::vector<double> h_storage;
@@ -89,9 +96,10 @@ struct Cnf {
     std::vector<double> hnew_storage;
     double* hnew;
 
-    std::vector<lit_t> dfsstack;
     std::vector<dfs_t> dfs_storage;
     dfs_t* dfs;
+
+    std::vector<lookahead_order_t> lookahead_order;
 
     std::vector<lit_t> force; // list of unit literals
 
@@ -142,12 +150,15 @@ struct Cnf {
         bimp(&bimp_storage[novars + nsvars]),
         timp_storage(2 * (novars + nsvars) + 1),
         timp(&timp_storage[novars + nsvars]),
+        big_storage(2 * (novars + nsvars) + 1),
+        big(&big_storage[novars + nsvars]),
         h_storage(2 * (novars + nsvars) + 1, 1),
         h(&h_storage[novars + nsvars]),
         hnew_storage(2 * (novars + nsvars) + 1),
         hnew(&hnew_storage[novars + nsvars]),
         dfs_storage(2 * (novars + nsvars) + 1),
         dfs(&dfs_storage[novars + nsvars]),
+        lookahead_order(novars + nsvars),
         branch(novars + nsvars + 1, -1), // TODO: how to initialize?
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
@@ -285,19 +296,23 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string dump_bimp() const {
+    std::string dump_graph(std::vector<lit_t>* g) const {
         std::ostringstream oss;
         for(lit_t l = -nvars(); l <= nvars(); ++l) {
             if (l == 0) continue;
-            if (bimp[l].empty()) continue;
+            if (g[l].empty()) continue;
             oss << "[" << l << "] -> ";
-            for (lit_t x : bimp[l]) {
+            for (lit_t x : g[l]) {
                 oss << x << ", ";
             }
             oss << std::endl;
         }
         return oss.str();
     }
+
+    std::string dump_bimp() const { return dump_graph(bimp); }
+
+    std::string dump_big() const { return dump_graph(big); }
 
     void print_assignment() {
         for (int i = 1, j = 0; i <= novars; ++i) {
@@ -589,43 +604,19 @@ lit_t accept_near_truths(Cnf* c) {
     return lit_nil;
 }
 
-// DFS helper function for finding strongly connected components.
-void scc_search(Cnf* c, lit_t& count, lit_t& components, lit_t l) {
+// DFS helper function.
+void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
     c->dfs[l].seen = true;
-    ++count;
-    c->dfs[l].rank = c->dfs[l].low = count;
-    c->dfsstack.push_back(l); c->dfs[l].onstack = true;
-    // TODO: experiment with only direct implications among
-    // candidates. iterating over c->bimp here includes what Knuth
-    // calls "indirect" implications like x1 -> x2 -> x3, where x1
-    // and x3 are candidates but x2 is not.
-    for (lit_t w : c->bimp[l]) {
-        if (c->fixed_true(w) || c->fixed_false(w)) { continue; }
+    size_t i = c->lookahead_order.size();
+    c->lookahead_order.push_back({lit: l});
+    for (lit_t w : c->big[l]) {
+        // TODO: need this? if (c->fixed_false(w)) { continue; }
         if (!c->dfs[w].seen) {
-            LOG(2) << l << " -> " << w;
-            scc_search(c, count, components, w);
-            c->dfs[l].low = std::min(c->dfs[l].low, c->dfs[w].low);
-        } else {
-            LOG(2) << "b: " << l << " -> " << w;
-            if (c->dfs[w].rank < c->dfs[l].rank &&
-                c->dfs[w].onstack) {
-                c->dfs[l].low =
-                    std::min(c->dfs[w].rank, c->dfs[l].low);
-            }
+            lookahead_dfs(c, count, w);
         }
     }
-    if (c->dfs[l].low == c->dfs[l].rank) {
-        ++components;
-        LOG(2) << "Connected component " << components << ": ";
-        for(lit_t x = lit_nil; x != l;) {
-            x = c->dfsstack.back();
-            LOG(2) << "  : " << x << " (low = " << c->dfs[x].low << ")";
-            // TODO: process x's?
-            c->dfs[x].onstack = false;
-            c->dfs[x].component = components;
-            c->dfsstack.pop_back();
-        }
-    }
+    count += 2;
+    c->lookahead_order[i].t = count;
 }
 
 // Algorithm X:
@@ -667,6 +658,7 @@ bool lookahead(Cnf* c) {
 
     if (c->cand.empty()) {
         LOG(2) << "No participants, flagging all vars as candidates.";
+        INC(no_candidates_during_lookahead);
         for (lit_t v : c->freevar) {
             c->cand.insert(v, -c->h[v]*c->h[-v]);
         }
@@ -679,31 +671,54 @@ bool lookahead(Cnf* c) {
     while (!c->cand.empty() && c->cand.size() > cmax) c->cand.delete_max();
 
     // X4. [Nest the candidates.]
-    // TODO: experiment with only direct implications (iterate over just
-    // c->cand.heap here) see comment in scc_search as well.
     if (LOG_ENABLED(3)) { LOG(3) << "before nesting: " << c->dump_bimp(); }
     for (lit_t l = -c->nvars(); l <= c->nvars(); ++l) {
         if (l == 0) continue;
-        c->dfs[l].seen = c->dfs[l].onstack = false;
+        c->dfs[l] = dfs_t();
+        c->big[l].clear();
     }
+    for (lit_t v : c->cand.heap) {
+        c->dfs[v].cand = c->dfs[-v].cand = true;
+    }
+    // Copy reverse graph induced by candidates into big.
+    for (lit_t u = -c->nvars(); u <= c->nvars(); ++u) {
+        if (u == 0) continue;
+        for (lit_t v : c->bimp[u]) {
+            if (!c->dfs[u].cand || !c->dfs[v].cand) continue;
+            c->big[v].push_back(u);
+        }
+    }
+    if (LOG_ENABLED(3)) { LOG(3) << "candidate graph: " << c->dump_big(); }
+
+    // TODO: Knuth computes strongly-connected components here, which can reduce
+    // the number of candidates we need to consider (all literals in the the
+    // same component imply each other) as well as allow us to deduce
+    // contradictions earlier (when l and -l are in the same component). But it
+    // also requires a little more work and bookkeeping so we only run DFS on
+    // all candidates for now.
+
     lit_t count = 0;
-    lit_t components = 0;
-    c->dfsstack.clear();
+    c->lookahead_order.clear();
     for(lit_t v : c->cand.heap) {
         for (lit_t l : {-v,v}) {
             if (c->dfs[l].seen) continue;
-            scc_search(c, count, components, l);
+            lookahead_dfs(c, count, l);
         }
     }
-
-    // Are l and -l in the same strongly connected component for any literal l?
-    // If so, the formula is unsatisfiable.
-    for (lit_t l = 1; l <= c->nvars(); ++l) {
-        if (!c->dfs[l].seen || !c->dfs[-l].seen ||
-            c->dfs[l].component != c->dfs[-l].component) continue;
-        LOG(0) << l << " implies " << -l << " via binary implications.";
-        return false;
+    if (LOG_ENABLED(3)) {
+        std::ostringstream oss;
+        oss << "count: " << count << ", "
+            << "cands x 4: " << c->cand.heap.size() * 4 << std::endl;
+        oss << "order: ";
+        for(const auto& x : c->lookahead_order) {
+            oss << "[" << x.lit << ":" << x.t << "]";
+        }
+        LOG(3) << oss.str();
     }
+
+    // X5. [Prepare to explore.]
+
+    // X6. [Choose l for lookahead.]
 
     return true;
 }
