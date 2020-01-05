@@ -59,8 +59,9 @@ struct psig_t {
 };
 
 struct dfs_t {
-    dfs_t() : seen(false), cand(false) {}
+    dfs_t() : parent(lit_nil), seen(false), cand(false) {}
 
+    lit_t parent;
     bool seen;
     bool cand;
 };
@@ -100,6 +101,8 @@ struct Cnf {
     dfs_t* dfs;
 
     std::vector<lookahead_order_t> lookahead_order;
+
+    std::vector<lit_t> windfalls;
 
     std::vector<lit_t> force; // list of unit literals
 
@@ -265,6 +268,7 @@ struct Cnf {
         sig[var(l)] = psig_t{path: sigma, length: d};
     }
 
+    // TODO: keep 2D array of h by level, use previous level to refine current.
     void refine_heuristic_scores() {
         double avg = 0.0;
         for (lit_t l = 1; l <= nvars(); ++l) {
@@ -611,12 +615,62 @@ void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
     c->lookahead_order.push_back({lit: l});
     for (lit_t w : c->big[l]) {
         // TODO: need this? if (c->fixed_false(w)) { continue; }
-        if (!c->dfs[w].seen) {
-            lookahead_dfs(c, count, w);
-        }
+        if (c->dfs[w].seen) continue;
+        c->dfs[w].parent = l;
+        lookahead_dfs(c, count, w);
     }
     count += 2;
     c->lookahead_order[i].t = count;
+}
+
+// Main loop of truth value propagation for Algorithm X. (72) in the text.
+// Returns false iff a conflict was detected. If hh is non-null, a score
+// bump is added to it.
+bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
+    // Set l0 <- l, i <- w <- 0, and G <- E <- F; perform (62)
+    CHECK(c->rstack.size() == c->f)
+        << "Hmm, maybe not important, but (72) says G <- E <- F and E != F. "
+        << "E = " << c->rstack.size() << " and F = " << c->f;
+    c->windfalls.clear();
+    size_t g = c->rstack.size();
+    if (!propagate(c, l)) return false;
+    for (; g < c->rstack.size(); ++g) {
+        lit_t lp = c->rstack[g];
+        for (const timp_t& t : c->timp[lp]) {
+            if (c->fixed_true(t.u) || c->fixed_true(t.v)) continue;
+            if (c->fixed_false(t.u) && c->fixed_false(t.v)) return false;
+            if (c->fixed_false(t.u)) { // => v not fixed
+                c->windfalls.push_back(t.v);
+                if (!propagate(c, t.v)) return false;
+                continue;
+            }
+            if (c->fixed_false(t.v)) { // => u not fixed
+                c->windfalls.push_back(t.u);
+                if (!propagate(c, t.u)) return false;
+                continue;
+            }
+            // Otherwise, neither u nor v are fixed.
+            if (hh != nullptr) *hh += c->h[t.u] * c->h[t.v];
+        }
+    }
+    for (lit_t w : c->windfalls) { c->bimp_append(-l, w); }
+    return true;
+}
+
+// Returns false iff a conflict is found.
+bool force_lookahead(Cnf* c, lit_t l) {
+    // X12. [Force l.]
+    c->force.push_back(l);
+    uint32_t tsave = c->t;
+    c->t = PT;
+    if (!propagate_lookahead(c, l, nullptr)) { c->t = tsave; return false; }
+    c->t = tsave;
+    return true;
+}
+
+void conflict_lookahead(Cnf* c, lit_t l) {
+    // X13. [Recover from conflict.]
+    //if (c->t < PT) ... need to stop loop from X13 -> X12 -> X13 here somehow
 }
 
 // Algorithm X:
