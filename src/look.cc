@@ -33,6 +33,8 @@ constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
 constexpr uint32_t NT = std::numeric_limits<uint32_t>::max() - 3;  // 2^32 - 4
 // Proto truth
 constexpr uint32_t PT = std::numeric_limits<uint32_t>::max() - 5;  // 2^32 - 6
+// Nil truth : never used as a truth value
+constexpr uint32_t nil_truth = 0;
 
 // Bits in signature of decision path used for identifying participants/newbies.
 constexpr lit_t kPathBits = 64;
@@ -59,8 +61,9 @@ struct psig_t {
 };
 
 struct dfs_t {
-    dfs_t() : parent(lit_nil), seen(false), cand(false) {}
+    dfs_t() : H(0.0), parent(lit_nil), seen(false), cand(false) {}
 
+    double H;
     lit_t parent;
     bool seen;
     bool cand;
@@ -198,19 +201,22 @@ struct Cnf {
         val[var(l)] = context + (l < 0 ? 0 : 1);
     }
 
-    bool fixed(lit_t l) {
-        return val[var(l)] >= t;
+    bool fixed(lit_t l, uint32_t T=nil_truth) {
+        if (T == nil_truth) T = t;
+        return val[var(l)] >= T;
     }
 
-    bool fixed_true(lit_t l) {
+    bool fixed_true(lit_t l, uint32_t T=nil_truth) {
+        if (T == nil_truth) T = t;
         uint32_t v = val[var(l)];
-        if (v < t) return false;
+        if (v < T) return false;
         return (l > 0) != (v % 2 == 1);
    }
 
-    bool fixed_false(lit_t l) {
+    bool fixed_false(lit_t l, uint32_t T=nil_truth) {
+        if (T == nil_truth) T = t;
         uint32_t v = val[var(l)];
-        if (v < t) return false;
+        if (v < T) return false;
         return (l > 0) != (v % 2 == 0);
     }
 
@@ -771,8 +777,41 @@ bool lookahead(Cnf* c) {
     }
 
     // X5. [Prepare to explore.]
+    size_t j = 0, jp = 0;
+    uint32_t base = 0;
+    size_t nf = c->force.size();
+    CHECK(!c->lookahead_order.empty()) << "lookahead_order is empty.";
 
-    // X6. [Choose l for lookahead.]
+    while (true) {
+        // X6. [Choose l for lookahead.]
+        lit_t l = c->lookahead_order[j].lit;
+        c->t = base + c->lookahead_order[j].t;
+        if (c->dfs[l].parent) c->dfs[l].H = c->dfs[c->dfs[l].parent].H;
+        if (!c->fixed(l)) {
+            // X8. [Compute sharper heuristic.]
+            // TODO
+        } else if (c->fixed_false(l) && !c->fixed_false(l, PT)) {
+            force_lookahead(c, -l); // TODO: handle conflict (return value)
+            // TODO -> X7
+        }
+
+        // X7. [Move to next.]
+        if (c->force.size() > nf) {
+            nf = c->force.size();
+            jp = j;
+            ++j;
+        }
+        if (j == c->cand.heap.size()) {
+            INC(lookahead_wraparound);
+            j = 0;
+            base += c->cand.heap.size();
+        }
+        if (j == jp) return true;
+        if (j == 0 && base + c->cand.heap.size() >= PT) {
+            INC(lookahead_exhausted);
+            return true;
+        }
+    }
 
     return true;
 }
