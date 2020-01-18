@@ -710,8 +710,8 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
     }
     for (lit_t w : c->windfalls) {
         LOG(2) << "Adding windfall (" << -l << " " << w << ")";
-        c->bimp_append(-l, w);
-        c->bimp_append(-w, l);
+        c->bimp_append(l, w);
+        c->bimp_append(-w, -l);
     }
     return true;
 }
