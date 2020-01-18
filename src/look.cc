@@ -908,7 +908,6 @@ bool lookahead(Cnf* c) {
 }
 
 lit_t choose_branch_lit(Cnf* c) {
-    return c->freevar[0];
     CHECK(!c->freevar.empty()) << "choose_best_lit called with no free vars.";
     double best_h = 0;
     lit_t best_var = lit_nil;
