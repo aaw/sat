@@ -27,6 +27,9 @@ DEFINE_PARAM(c1, 600,
 DEFINE_PARAM(disable_lookahead, 0.0,
              "If 1, no lookahead (Algorithm X) will be performed.");
 
+DEFINE_PARAM(add_windfalls, 1.0,
+             "If 1, generate 'windfall' clauses during lookahead (see (72)).");
+
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
 // Near truth
@@ -35,6 +38,20 @@ constexpr uint32_t NT = std::numeric_limits<uint32_t>::max() - 3;  // 2^32 - 4
 constexpr uint32_t PT = std::numeric_limits<uint32_t>::max() - 5;  // 2^32 - 6
 // Nil truth : never used as a truth value
 constexpr uint32_t nil_truth = 0;
+
+std::string tval(uint32_t t) {
+    if (t == RT+1) return "RF";
+    if (t == RT) return "RT";
+    if (t == NT+1) return "NF";
+    if (t == NT) return "NT";
+    if (t == PT+1) return "PT";
+    if (t == PT) return "PT";
+    if (t == nil_truth) return "nil";
+    std::ostringstream oss;
+    oss << t;
+    oss << ((t % 2) == 0 ? "T" : "F");
+    return oss.str();
+}
 
 // Bits in signature of decision path used for identifying participants/newbies.
 constexpr lit_t kPathBits = 64;
@@ -114,8 +131,8 @@ struct Cnf {
     std::vector<uint8_t> branch;
 
     std::vector<lit_t> freevar;  // list of free variables
-    std::vector<lit_t> invfree;  // invfree[freevar[k]] == k
-    size_t nfree;                // last valid index of freevar
+    // invfree[freevar[k]] == k, k free if this is a valid index into freevar.
+    std::vector<lit_t> invfree;
 
     std::vector<lit_t> rstack;  // stack of literals. rstack.size() == E.
 
@@ -168,7 +185,6 @@ struct Cnf {
         branch(novars + nsvars + 1, -1), // TODO: how to initialize?
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
-        nfree(novars + nsvars), /* TODO: is this correct? */
         istamps_storage(2 * (novars + nsvars) + 1),
         istamps(&istamps_storage[novars + nsvars]),
         dec(novars + nsvars + 1),
@@ -221,19 +237,20 @@ struct Cnf {
     }
 
     void make_unfree(lit_t v) {
-        CHECK(v > 0) << "wanted var, got lit";
-        --nfree;
-        lit_t s = freevar[nfree];
-        std::swap(freevar[invfree[v]], freevar[nfree]);
+        LOG(3) << "make_unfree(" << v << ")";
+        CHECK(v > 0) << "wanted var in make_unfree, got lit";
+        CHECK(!freevar.empty()) << "make_unfree called on empty freevar array.";
+        lit_t s = freevar[freevar.size()-1];
+        std::swap(freevar[invfree[v]], freevar[freevar.size()-1]);
+        freevar.pop_back();
         std::swap(invfree[v], invfree[s]);
     }
 
     void make_free(lit_t v) {
-        CHECK(v > 0) << "wanted var, got lit";
-        lit_t s = freevar[nfree];
-        std::swap(freevar[invfree[v]], freevar[nfree]);
-        std::swap(invfree[v], invfree[s]);
-        ++nfree;
+        LOG(3) << "make_free(" << v << ")";
+        CHECK(v > 0) << "wanted var in make_free, got lit";
+        freevar.push_back(v);
+        invfree[v] = freevar.size()-1;
     }
 
     // Returns true exactly when u is in bimp[v].
@@ -333,6 +350,28 @@ struct Cnf {
             if (i == novars) PRINT << " 0" << std::endl;
             else if (j > 0 && j % 10 == 0) PRINT << std::endl;
         }
+    }
+
+    std::string dump_truths() const {
+        std::ostringstream oss;
+        for (lit_t l = 1; l <= nvars(); ++l) {
+            if (val[l] != nil_truth) {
+                oss << "[" << l << ":" << tval(val[l]) << "]";
+            }
+        }
+        return oss.str();
+    }
+
+    std::string dump_rstack() const {
+        std::ostringstream oss;
+        for (size_t i = 0; i < rstack.size(); ++i) {
+            if (i == g) oss << "{G}";
+            if (i == f) oss << "{F}";
+            oss << "[" << rstack[i] << ":" << tval(val[var(rstack[i])]) << "]";
+        }
+        if (rstack.size() == g) oss << "{G}";
+        if (rstack.size() == f) oss << "{F}";
+        return oss.str();
     }
 };
 
@@ -456,7 +495,7 @@ Cnf parse(const char* filename) {
         }
     }
 
-    if (LOG_ENABLED(3)) { LOG(3) << c.dump_bimp(); }
+    if (LOG_ENABLED(3)) { LOG(3) << "bimp: " << c.dump_bimp(); }
     return c;
 }
 
@@ -465,50 +504,56 @@ bool propagate(Cnf* c, lit_t l) {
     LOG(2) << "Propagating " << l;
     size_t h = c->rstack.size();
     if (c->fixed_false(l)) {
-        LOG(2) << l << " fixed false.";
+        LOG(2) << l << " fixed false at " << tval(c->t);
         return false;
     } else if (!c->fixed_true(l)) {
-        LOG(2) << "fixing " << l << " true.";
+        LOG(2) << "fixing " << l << " true at " << tval(c->t);
         c->val[var(l)] = c->t + (l > 0 ? 0 : 1);
         c->rstack.push_back(l);
     }
     for(; h < c->rstack.size(); ++h) {
         l = c->rstack[h];
         for (lit_t lp : c->bimp[l]) {
-            LOG(2) << "taking account of " << lp;
+            LOG(2) << "taking account of " << l << "'s bimp " << lp;
             if (c->fixed_false(lp)) {
-                LOG(2) << "  " << lp << " fixed false.";
+                LOG(2) << "  " << lp << " fixed false at " << tval(c->t);
                 return false;
             } else if (!c->fixed_true(lp)) {
-                LOG(2) << "  fixing " << lp << " true.";
+                LOG(2) << "  fixing " << lp << " true at " << tval(c->t);
                 c->val[var(lp)] = c->t + (lp > 0 ? 0 : 1);
                 c->rstack.push_back(lp);
             }
         }
     }
+    LOG(2) << "Successful propagation of " << l;
     return true;
 }
 
 //
 // TODO: just make a member function of Cnf
 lit_t resolve_conflict(Cnf* c) {
+    LOG(3) << "L11: Current rstack: " << c->dump_rstack();
     // L11. [Unfix near truths.]
     while (c->g < c->rstack.size()) {
-        LOG(2) << "unsetting " << var(c->rstack.back()) << " (NT)";
+        LOG(2) << "L11: unsetting " << var(c->rstack.back())
+               << " (" << tval(c->val[var(c->rstack.back())]) << ")";
         c->val[var(c->rstack.back())] = 0;
         c->rstack.pop_back();
     }
     while (true) {
+        LOG(3) << "L12: Current rstack: " << c->dump_rstack();
         // L12. [Unfix real truths.]
         while (c->f < c->rstack.size()) {
             lit_t x = c->rstack.back();
-            LOG(2) << "unsetting " << var(x) << " (RT)";
+            LOG(2) << "L12: unsetting " << var(x) << " ("
+                   << tval(c->val[var(x)]) << ")";
             c->rstack.pop_back();
             c->timp_set_active(x, true);
             c->make_free(var(x));
             c->val[var(x)] = 0;
         }
 
+        LOG(3) << "L13: Current rstack: " << c->dump_rstack();
         // L13. [Downdate BIMPs.]
         if (c->branch[c->d] >= 0) {
             while (c->istack.size() > c->backi[c->d]) {
@@ -576,8 +621,8 @@ lit_t accept_near_truths(Cnf* c) {
         LOG(2) << "Promoting " << l << " to RT";
         c->set_true(l, RT);
         c->make_unfree(var(l));
-
         c->timp_set_active(l, false);
+
         LOG(2) << "considering timps of " << l;
         for (const timp_t& t : c->timp[l]) {
             if (!t.active) continue;
@@ -602,8 +647,8 @@ lit_t accept_near_truths(Cnf* c) {
                 } else if (c->in_bimp(-t.u, -t.v)) {
                     if (!propagate(c, t.v)) return resolve_conflict(c);
                 } else {
-                    LOG(2) << "Adding " << t.v << " to " << -t.u;
-                    LOG(2) << "Adding " << t.u << " to " << -t.v;
+                    LOG(2) << "    Adding bimps " << -t.u << " -> " << t.v
+                           << " and " << -t.v << " -> " << t.u;
                     c->bimp_append(-t.u, t.v);
                     c->bimp_append(-t.v, t.u);
                 }
@@ -634,24 +679,28 @@ void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
 // bump is added to it.
 bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
     // Set l0 <- l, i <- w <- 0, and G <- E <- F; perform (62)
-    CHECK(c->rstack.size() == c->f)
-        << "Hmm, maybe not important, but (72) says G <- E <- F and E != F. "
-        << "E = " << c->rstack.size() << " and F = " << c->f;
+    CHECK(c->rstack.size() >= c->f) << "(72) says set G <- E <- F but E > F.";
+    c->rstack.resize(c->f);
+    c->g = c->f;
     c->windfalls.clear();
-    size_t g = c->rstack.size();
     if (!propagate(c, l)) return false;
-    for (; g < c->rstack.size(); ++g) {
-        lit_t lp = c->rstack[g];
+    for (; c->g < c->rstack.size(); ++c->g) {
+        lit_t lp = c->rstack[c->g];
         for (const timp_t& t : c->timp[lp]) {
+            if (!t.active) continue;
             if (c->fixed_true(t.u) || c->fixed_true(t.v)) continue;
-            if (c->fixed_false(t.u) && c->fixed_false(t.v)) return false;
+            if (c->fixed_false(t.u) && c->fixed_false(t.v)) {
+                LOG(3) << "Both " << t.u << " and " << t.v << " fixed false at "
+                       << tval(c->t) << " and in timp[" << lp << "], conflict.";
+                return false;
+            }
             if (c->fixed_false(t.u)) { // => v not fixed
-                c->windfalls.push_back(t.v);
+                if (PARAM_add_windfalls) c->windfalls.push_back(t.v);
                 if (!propagate(c, t.v)) return false;
                 continue;
             }
             if (c->fixed_false(t.v)) { // => u not fixed
-                c->windfalls.push_back(t.u);
+                if (PARAM_add_windfalls) c->windfalls.push_back(t.u);
                 if (!propagate(c, t.u)) return false;
                 continue;
             }
@@ -659,24 +708,24 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
             if (hh != nullptr) *hh += c->h[t.u] * c->h[t.v];
         }
     }
-    for (lit_t w : c->windfalls) { c->bimp_append(-l, w); }
+    for (lit_t w : c->windfalls) {
+        LOG(2) << "Adding windfall (" << -l << " " << w << ")";
+        c->bimp_append(-l, w);
+        c->bimp_append(-w, l);
+    }
     return true;
 }
 
 // Returns false iff a conflict is found.
 bool force_lookahead(Cnf* c, lit_t l) {
     // X12. [Force l.]
+    LOG(3) << "X12 with " << l;
     c->force.push_back(l);
     uint32_t tsave = c->t;
     c->t = PT;
-    if (!propagate_lookahead(c, l, nullptr)) { c->t = tsave; return false; }
+    bool could_propagate = propagate_lookahead(c, l, nullptr);
     c->t = tsave;
-    return true;
-}
-
-void conflict_lookahead(Cnf* c, lit_t l) {
-    // X13. [Recover from conflict.]
-    //if (c->t < PT) ... need to stop loop from X13 -> X12 -> X13 here somehow
+    return could_propagate;
 }
 
 // Algorithm X:
@@ -701,6 +750,7 @@ bool lookahead(Cnf* c) {
     bool ts = true, bs = true;
     for (lit_t v : c->freevar) {
         if (c->participant(v)) c->cand.insert(v, -c->h[v]*c->h[-v]);
+        c->val[v] = 0;
         // We can also use this opportunity iterating through free vars to
         // figure out if all clauses are satisfied and exit early if so. See
         // Exercise 152 for more details.
@@ -765,10 +815,10 @@ bool lookahead(Cnf* c) {
             lookahead_dfs(c, count, l);
         }
     }
+    CHECK(static_cast<size_t>(count) == c->cand.heap.size() * 4)
+        << "Inconsistent DFS detected.";
     if (LOG_ENABLED(3)) {
         std::ostringstream oss;
-        oss << "count: " << count << ", "
-            << "cands x 4: " << c->cand.heap.size() * 4 << std::endl;
         oss << "order: ";
         for(const auto& x : c->lookahead_order) {
             oss << "[" << x.lit << ":" << x.t << "]";
@@ -784,33 +834,73 @@ bool lookahead(Cnf* c) {
 
     while (true) {
         // X6. [Choose l for lookahead.]
+        LOG(3) << "X6";
         lit_t l = c->lookahead_order[j].lit;
         c->t = base + c->lookahead_order[j].t;
-        if (c->dfs[l].parent) c->dfs[l].H = c->dfs[c->dfs[l].parent].H;
+        if (c->dfs[l].parent) {
+            LOG(3) << "bootstrapping " << l << "'s H value with "
+                   << c->dfs[l].parent << "'s: " << c->dfs[c->dfs[l].parent].H;
+            c->dfs[l].H = c->dfs[c->dfs[l].parent].H;
+        }
         if (!c->fixed(l)) {
             // X8. [Compute sharper heuristic.]
+            LOG(3) << "X8";
+            LOG(2) << "Current truths: " << c->dump_truths();
+            double w = 0;
+            if (!propagate_lookahead(c, l, &w)) {
+                LOG(3) << "Can't propagate " << l << ", trying to force " << -l;
+                // X13. [Recover from conflict]
+                if (!force_lookahead(c, -l)) {
+                    LOG(3) << "Can't propagate " << l << " or force " << -l
+                           << ", bailing from lookahead";
+                    return false;
+                }
+                // -> X7
+            }
+            if (w > 0) {
+                c->dfs[l].H += w;
+                LOG(3) << l << "'s H now " << c->dfs[l].H;
+            } else {
+                // X9. [Exploit an autarky]
+                if (c->dfs[l].H == 0) {
+                    // TODO: do X12 with l.
+                } else {
+                    // TODO: generate new binary clause
+                }
+            }
+            // X10. [Optionally look deeper.] (Algorithm Y)
+            // TODO
+            // X11. [Exploit necessary assignments.]
             // TODO
         } else if (c->fixed_false(l) && !c->fixed_false(l, PT)) {
-            force_lookahead(c, -l); // TODO: handle conflict (return value)
-            // TODO -> X7
+            // X13. [Recover from conflict]
+            if (!force_lookahead(c, -l)) {
+                LOG(3) << "Can't force " << -l << ", bailing from lookahead";
+                return false;
+            }
         }
 
         // X7. [Move to next.]
+        LOG(3) << "X7";
+        LOG(3) << "X7: Current rstack: " << c->dump_rstack();
         if (c->force.size() > nf) {
             nf = c->force.size();
             jp = j;
-            ++j;
         }
+        ++j;
         if (j == c->cand.heap.size()) {
             INC(lookahead_wraparound);
             j = 0;
-            base += c->cand.heap.size();
+            base += 2 * c->cand.heap.size();
         }
-        if (j == jp) return true;
-        if (j == 0 && base + c->cand.heap.size() >= PT) {
+        if (j == jp) {
+            return true;
+        }
+        if (j == 0 && base + 2 * c->cand.heap.size() >= PT) {
             INC(lookahead_exhausted);
             return true;
         }
+        // -> X6
     }
 
     return true;
@@ -826,6 +916,8 @@ bool solve(Cnf* c) {
         while (l == lit_nil) {
             // L2. [New node.]
             if (choose_new_node) {
+                LOG(2) << "Current truths: " << c->dump_truths();
+                LOG(2) << "Current rstack: " << c->dump_rstack();
                 LOG(2) << "Choosing a new node.";
                 if (c->d < kPathBits) c->sigma &= (1UL << c->d)-1; // trim sigma
                 c->branch[c->d] = -1;
@@ -852,7 +944,7 @@ bool solve(Cnf* c) {
             }
 
             // L3. [Choose l.]
-            if (c->nfree > 0) {  // TODO: c->f == nvars instead?
+            if (!c->freevar.empty()) {
                 // TODO: use heuristic scores to choose l.
                 l = c->freevar[0];
                 LOG(2) << "Chose " << l;
