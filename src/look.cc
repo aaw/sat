@@ -907,6 +907,24 @@ bool lookahead(Cnf* c) {
     return true;
 }
 
+lit_t choose_branch_lit(Cnf* c) {
+    return c->freevar[0];
+    CHECK(!c->freevar.empty()) << "choose_best_lit called with no free vars.";
+    double best_h = 0;
+    lit_t best_var = lit_nil;
+    for (lit_t v : c->freevar) {
+        double h = (c->dfs[v].H + 0.1) * (c->dfs[-v].H + 0.1);
+        if (h > best_h) {
+            best_h = h;
+            best_var = v;
+        }
+    }
+    if (c->dfs[best_var].H > c->dfs[-best_var].H) {
+        best_var = -best_var;
+    }
+    return best_var;
+}
+
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer t("solve");
@@ -946,8 +964,7 @@ bool solve(Cnf* c) {
 
             // L3. [Choose l.]
             if (!c->freevar.empty()) {
-                // TODO: use heuristic scores to choose l.
-                l = c->freevar[0];
+                l = choose_branch_lit(c);
                 LOG(2) << "Chose " << l;
             } else {
                 c->d++;
