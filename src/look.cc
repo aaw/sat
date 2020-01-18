@@ -708,6 +708,7 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
             if (hh != nullptr) *hh += c->h[t.u] * c->h[t.v];
         }
     }
+    if (PARAM_add_windfalls) INC(windfalls, c->windfalls.size());
     for (lit_t w : c->windfalls) {
         LOG(2) << "Adding windfall (" << -l << " " << w << ")";
         c->bimp_append(l, w);
