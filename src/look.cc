@@ -163,8 +163,6 @@ struct Cnf {
 
     uint64_t istamp;
 
-    // TODO: do i need global t, or should it just be an arg passed
-    // in to propagate?
     uint32_t t; // current truth level (RT, NT, PT, etc)
 
     Cnf(lit_t novars, lit_t nsvars) :
@@ -268,6 +266,12 @@ struct Cnf {
             istack.push_back({l: u, bsize: bimp[u].size()});
         }
         bimp[u].push_back(v);
+    }
+
+    void add_binary_clause(lit_t u, lit_t v) {
+        LOG(3) << "Adding binary clause (" << u << " " << v << ")";
+        bimp_append(-u, v);
+        bimp_append(-v, u);
     }
 
     void timp_set_active(lit_t l, bool active) {
@@ -597,10 +601,9 @@ lit_t resolve_conflict(Cnf* c) {
 lit_t accept_near_truths(Cnf* c) {
     // L5. [Accept near truths.]
     c->t = NT;
-    c->rstack.resize(c->f);  // TODO: do i need this?
+    c->rstack.resize(c->f);
     c->g = c->f;
     ++c->istamp;
-    // TODO: CONFLICT = L11
 
     for(const lit_t f : c->force) {
         LOG(2) << "Taking account of forced lit " << f;
@@ -647,10 +650,7 @@ lit_t accept_near_truths(Cnf* c) {
                 } else if (c->in_bimp(-t.u, -t.v)) {
                     if (!propagate(c, t.v)) return resolve_conflict(c);
                 } else {
-                    LOG(2) << "    Adding bimps " << -t.u << " -> " << t.v
-                           << " and " << -t.v << " -> " << t.u;
-                    c->bimp_append(-t.u, t.v);
-                    c->bimp_append(-t.v, t.u);
+                    c->add_binary_clause(t.u, t.v);
                 }
                 // TODO: deduce compensation resolvents (see ex. 139)
             }
@@ -705,14 +705,19 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
                 continue;
             }
             // Otherwise, neither u nor v are fixed.
-            if (hh != nullptr) *hh += c->h[t.u] * c->h[t.v];
+            if (hh != nullptr) {
+                // TODO: try taking std::max out below -- only have it b/c I'm
+                // paranoid about branch on w in X8/X9
+                *hh += c->h[t.u] * c->h[t.v];
+                //*hh = std::max(*hh + c->h[t.u] * c->h[t.v],
+                //               std::numeric_limits<double>::min());
+            }
         }
     }
     if (PARAM_add_windfalls) INC(windfalls, c->windfalls.size());
+    LOG(2) << "Adding " << c->windfalls.size() << " windfalls";
     for (lit_t w : c->windfalls) {
-        LOG(2) << "Adding windfall (" << -l << " " << w << ")";
-        c->bimp_append(l, w);
-        c->bimp_append(-w, -l);
+        c->add_binary_clause(-l, w);
     }
     return true;
 }
@@ -740,7 +745,6 @@ bool lookahead(Cnf* c) {
     if (PARAM_disable_lookahead == 1.0) return true;
 
     // X2. [Compile rough heuristics.]
-    // size_t n = static_cast<size_t>(c->nvars()) - c->f; TODO: needed?
     // TODO: tune refinement a little, Knuth mentions doing this differently
     // based on how close we are to the root of the search tree.
     c->refine_heuristic_scores();
@@ -838,9 +842,8 @@ bool lookahead(Cnf* c) {
         LOG(3) << "X6";
         lit_t l = c->lookahead_order[j].lit;
         c->t = base + c->lookahead_order[j].t;
-        if (c->dfs[l].parent) {
-            LOG(3) << "bootstrapping " << l << "'s H value with "
-                   << c->dfs[l].parent << "'s: " << c->dfs[c->dfs[l].parent].H;
+        c->dfs[l].H = 0.0;
+        if (c->dfs[l].parent != lit_nil) {
             c->dfs[l].H = c->dfs[c->dfs[l].parent].H;
         }
         if (!c->fixed(l)) {
@@ -855,24 +858,27 @@ bool lookahead(Cnf* c) {
                     LOG(3) << "Can't propagate " << l << " or force " << -l
                            << ", bailing from lookahead";
                     return false;
-                }
-                // -> X7
-            }
-            if (w > 0) {
+                }  // -> X7
+            } else if (w > 0) {
                 c->dfs[l].H += w;
-                LOG(3) << l << "'s H now " << c->dfs[l].H;
+                LOG(3) << l << "'s H=" << c->dfs[l].H << ", p="
+                       << c->dfs[l].parent;
             } else {
                 // X9. [Exploit an autarky]
                 if (c->dfs[l].H == 0) {
-                    // TODO: do X12 with l.
+                    if (!force_lookahead(c, l)) return false;
                 } else {
-                    // TODO: generate new binary clause
+                    CHECK(c->dfs[l].parent != lit_nil) << "no parent for " << l;
+                    c->add_binary_clause(l, -c->dfs[l].parent);
                 }
             }
             // X10. [Optionally look deeper.] (Algorithm Y)
             // TODO
             // X11. [Exploit necessary assignments.]
-            // TODO
+            for (lit_t ll : c->bimp[-l]) {
+                if (!c->fixed_true(ll) || c->fixed_true(ll, PT)) continue;
+                if (!force_lookahead(c, ll)) return false;
+            }
         } else if (c->fixed_false(l) && !c->fixed_false(l, PT)) {
             // X13. [Recover from conflict]
             if (!force_lookahead(c, -l)) {
@@ -909,15 +915,17 @@ bool lookahead(Cnf* c) {
 
 lit_t choose_branch_lit(Cnf* c) {
     CHECK(!c->freevar.empty()) << "choose_best_lit called with no free vars.";
-    double best_h = 0;
+    double best_h = std::numeric_limits<double>::min();
     lit_t best_var = lit_nil;
-    for (lit_t v : c->freevar) {
-        double h = (c->dfs[v].H + 0.1) * (c->dfs[-v].H + 0.1);
+    for (lookahead_order_t la : c->lookahead_order) {
+        if (la.lit < 0) continue;
+        double h = (c->dfs[la.lit].H + 0.1) * (c->dfs[-la.lit].H + 0.1);
         if (h > best_h) {
             best_h = h;
-            best_var = v;
+            best_var = la.lit;
         }
     }
+    CHECK(best_var != lit_nil) << "no branch lit found in choose_branch_lit.";
     if (c->dfs[best_var].H > c->dfs[-best_var].H) {
         best_var = -best_var;
     }
