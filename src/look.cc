@@ -30,6 +30,12 @@ DEFINE_PARAM(disable_lookahead, 0.0,
 DEFINE_PARAM(add_windfalls, 1.0,
              "If 1, generate 'windfall' clauses during lookahead (see (72)).");
 
+DEFINE_PARAM(extra_heuristic_iterations, 0,
+             "Number of iterations to run each time we calculate heuristics.");
+
+DEFINE_PARAM(max_heuristic_level, 128,
+             "Max level (d) we'll retain separate heuristic scores.");
+
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
 // Near truth
@@ -110,12 +116,10 @@ struct Cnf {
     std::vector<std::vector<lit_t>> big_storage;
     std::vector<lit_t>* big; // binary implication graph, used for lookahead.
 
-    // heuristic scores, maps lit -> score. hnew is used for scratch for
-    // computing the next round of scores, then swapped.
-    std::vector<double> h_storage;
+    // heuristic scores, maps lit -> score. h_storage[d][l] is the score for
+    // level d, lit l.
+    std::vector<std::vector<double>> h_storage;
     double* h;
-    std::vector<double> hnew_storage;
-    double* hnew;
 
     std::vector<dfs_t> dfs_storage;
     dfs_t* dfs;
@@ -173,14 +177,10 @@ struct Cnf {
         timp(&timp_storage[novars + nsvars]),
         big_storage(2 * (novars + nsvars) + 1),
         big(&big_storage[novars + nsvars]),
-        h_storage(2 * (novars + nsvars) + 1, 1),
-        h(&h_storage[novars + nsvars]),
-        hnew_storage(2 * (novars + nsvars) + 1),
-        hnew(&hnew_storage[novars + nsvars]),
         dfs_storage(2 * (novars + nsvars) + 1),
         dfs(&dfs_storage[novars + nsvars]),
         lookahead_order(novars + nsvars),
-        branch(novars + nsvars + 1, -1), // TODO: how to initialize?
+        branch(novars + nsvars + 1, -1),
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
         istamps_storage(2 * (novars + nsvars) + 1),
@@ -201,6 +201,13 @@ struct Cnf {
             freevar[i] = i + 1;
             invfree[i + 1] = i;
         }
+        CHECK(PARAM_max_heuristic_level >= 2)
+            << "max_heuristic_level must be at least 2";
+        h_storage.resize(PARAM_max_heuristic_level+1);
+        for (int i = 0; i <= PARAM_max_heuristic_level; ++i) {
+            h_storage[i].resize(2 * (novars + nsvars) + 1, 1);
+        }
+        h = h_ptr(0);
     }
 
     inline lit_t nvars() const {
@@ -295,11 +302,14 @@ struct Cnf {
         sig[var(l)] = psig_t{path: sigma, length: d};
     }
 
-    // TODO: keep 2D array of h by level, use previous level to refine current.
-    void refine_heuristic_scores() {
+    double* h_ptr(size_t level) {
+        return &h_storage[level][nvars()];
+    }
+
+    void cascade_heuristic_scores(double* hold, double* hnew) {
         double avg = 0.0;
         for (lit_t l = 1; l <= nvars(); ++l) {
-            avg += h[l] + h[-l];
+            avg += hold[l] + hold[-l];
         }
         avg /= 2 * nvars();
         for (lit_t l = -nvars(); l <= nvars(); ++l) {
@@ -307,16 +317,43 @@ struct Cnf {
             double bimpsum = 0.0;
             for (lit_t lp : bimp[l]) {
                 if (fixed(lp)) continue;
-                bimpsum += h[lp];
+                bimpsum += hold[lp];
             }
             double timpsum = 0.0;
             for (const timp_t& t : timp[l]) {
                 if (!t.active) continue;
-                timpsum += h[t.u] * h[t.v];
+                timpsum += hold[t.u] * hold[t.v];
             }
             hnew[l] = 0.1 + PARAM_alpha*bimpsum/avg + timpsum/(avg*avg);
         }
-        std::swap(h, hnew);
+    }
+
+    void refine_heuristic_scores() {
+        if (d <= 1) {
+            cascade_heuristic_scores(h_ptr(0), h_ptr(1));
+            for (int i = 0; i < 2 + PARAM_extra_heuristic_iterations; ++i) {
+                cascade_heuristic_scores(h_ptr(1), h_ptr(2));
+                cascade_heuristic_scores(h_ptr(2), h_ptr(1));
+            }
+            h = h_ptr(1);
+        } else if (d < PARAM_max_heuristic_level) {
+            cascade_heuristic_scores(h_ptr(d-1), h_ptr(d));
+            for (int i = 0; i < PARAM_extra_heuristic_iterations; ++i) {
+                cascade_heuristic_scores(h_ptr(d), h_ptr(d-1));
+                cascade_heuristic_scores(h_ptr(d-1), h_ptr(d));
+            }
+            h = h_ptr(d);
+        } else {
+            cascade_heuristic_scores(h_ptr(PARAM_max_heuristic_level-1),
+                                     h_ptr(PARAM_max_heuristic_level));
+            for (int i = 0; i < PARAM_extra_heuristic_iterations; ++i) {
+                cascade_heuristic_scores(h_ptr(PARAM_max_heuristic_level),
+                                         h_ptr(PARAM_max_heuristic_level-1));
+                cascade_heuristic_scores(h_ptr(PARAM_max_heuristic_level-1),
+                                         h_ptr(PARAM_max_heuristic_level));
+            }
+            h = h_ptr(PARAM_max_heuristic_level);
+        }
     }
 
     std::string val_debug_string() const {
@@ -706,11 +743,7 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
             }
             // Otherwise, neither u nor v are fixed.
             if (hh != nullptr) {
-                // TODO: try taking std::max out below -- only have it b/c I'm
-                // paranoid about branch on w in X8/X9
                 *hh += c->h[t.u] * c->h[t.v];
-                //*hh = std::max(*hh + c->h[t.u] * c->h[t.v],
-                //               std::numeric_limits<double>::min());
             }
         }
     }
@@ -737,6 +770,8 @@ bool force_lookahead(Cnf* c, lit_t l) {
 // Algorithm X:
 // Returns false exactly when a conflict is found.
 bool lookahead(Cnf* c) {
+    Timer timer("lookahead");
+
     // X1. [Satisfied?]
     if (c->f == static_cast<size_t>(c->nvars())) {
         SAT_EXIT(c);
@@ -745,8 +780,6 @@ bool lookahead(Cnf* c) {
     if (PARAM_disable_lookahead == 1.0) return true;
 
     // X2. [Compile rough heuristics.]
-    // TODO: tune refinement a little, Knuth mentions doing this differently
-    // based on how close we are to the root of the search tree.
     c->refine_heuristic_scores();
 
     // X3. [Preselect candidates.]
@@ -841,6 +874,7 @@ bool lookahead(Cnf* c) {
         // X6. [Choose l for lookahead.]
         LOG(3) << "X6";
         lit_t l = c->lookahead_order[j].lit;
+        CHECK(c->dfs[l].cand);
         c->t = base + c->lookahead_order[j].t;
         c->dfs[l].H = 0.0;
         if (c->dfs[l].parent != lit_nil) {
@@ -915,6 +949,7 @@ bool lookahead(Cnf* c) {
 
 lit_t choose_branch_lit(Cnf* c) {
     CHECK(!c->freevar.empty()) << "choose_best_lit called with no free vars.";
+    if (PARAM_disable_lookahead) return c->freevar[0];
     double best_h = std::numeric_limits<double>::min();
     lit_t best_var = lit_nil;
     for (lookahead_order_t la : c->lookahead_order) {
@@ -934,7 +969,7 @@ lit_t choose_branch_lit(Cnf* c) {
 
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
-    Timer t("solve");
+    Timer timer("solve");
 
     bool choose_new_node = true;
     while (true) {

@@ -2,3 +2,4 @@
 * Make a script to test consistency (clause count, var count) and formatting of all test files
 * ignore comments correctly in input. right now, "c p cnf 1 2" will fool us in preamble.
 * use clang instead of gcc? seems to be a little faster on most examples.
+* close all timers during SAT_EXIT/UNSAT_EXIT
