@@ -393,6 +393,15 @@ struct Cnf {
         }
     }
 
+    std::string dump_h_scores() const {
+        std::ostringstream oss;
+        for (lit_t l = 1; l <= nvars(); ++l) {
+            oss << "[" << l << ":" << h[l] << "*" << h[-l] << "=" << h[l]*h[-l]
+                << "]";
+        }
+        return oss.str();
+    }
+
     std::string dump_truths() const {
         std::ostringstream oss;
         for (lit_t l = 1; l <= nvars(); ++l) {
@@ -781,6 +790,7 @@ bool lookahead(Cnf* c) {
 
     // X2. [Compile rough heuristics.]
     c->refine_heuristic_scores();
+    if (LOG_ENABLED(3)) LOG(3) << "h: " << c->dump_h_scores();
 
     // X3. [Preselect candidates.]
     c->cand.clear();
@@ -813,7 +823,9 @@ bool lookahead(Cnf* c) {
     }
 
     // Prune candidates
-    size_t cmax = std::max(PARAM_c0, PARAM_c1 / (c->d + 1));
+    size_t cmax = c->d == 0 ?
+        c->cand.size() :
+        std::max(PARAM_c0, PARAM_c1/(c->d));
     LOG(2) << "cmax = " << cmax << ", d = " << c->d;
     // TODO: verify that we don't need empty check below
     while (!c->cand.empty() && c->cand.size() > cmax) c->cand.delete_max();
