@@ -771,9 +771,9 @@ bool force_lookahead(Cnf* c, lit_t l) {
     c->force.push_back(l);
     uint32_t tsave = c->t;
     c->t = PT;
-    bool could_propagate = propagate_lookahead(c, l, nullptr);
+    bool success = propagate_lookahead(c, l, nullptr);
     c->t = tsave;
-    return could_propagate;
+    return success;
 }
 
 // Algorithm X:
@@ -823,9 +823,7 @@ bool lookahead(Cnf* c) {
     }
 
     // Prune candidates
-    size_t cmax = c->d == 0 ?
-        c->cand.size() :
-        std::max(PARAM_c0, PARAM_c1/(c->d));
+    size_t cmax = std::max(PARAM_c0, PARAM_c1/(c->d + 1));
     LOG(2) << "cmax = " << cmax << ", d = " << c->d;
     // TODO: verify that we don't need empty check below
     while (!c->cand.empty() && c->cand.size() > cmax) c->cand.delete_max();
@@ -941,16 +939,19 @@ bool lookahead(Cnf* c) {
             jp = j;
         }
         ++j;
-        if (j == c->cand.heap.size()) {
+        if (j == c->lookahead_order.size()) {
+            LOG(3) << "Lookahead wraparound.";
             INC(lookahead_wraparound);
             j = 0;
-            base += 2 * c->cand.heap.size();
+            base += 2 * c->lookahead_order.size();
         }
         if (j == jp) {
+            LOG(3) << "Bailing on lookahead, no change in j = " << j;
             return true;
         }
-        if (j == 0 && base + 2 * c->cand.heap.size() >= PT) {
+        if (j == 0 && base + 2 * c->lookahead_order.size() >= PT) {
             INC(lookahead_exhausted);
+            LOG(3) << "Bailing on lookahead, base counter too high.";
             return true;
         }
         // -> X6
@@ -966,14 +967,18 @@ lit_t choose_branch_lit(Cnf* c) {
     lit_t best_var = lit_nil;
     for (lookahead_order_t la : c->lookahead_order) {
         if (la.lit < 0) continue;
-        double h = (c->dfs[la.lit].H + 0.1) * (c->dfs[-la.lit].H + 0.1);
+        double h = (c->dfs[la.lit].H + 0.001) * (c->dfs[-la.lit].H + 0.001);
+        LOG(3) << la.lit << "'s H*-H = " << c->dfs[la.lit].H + 0.001
+               << " * " << c->dfs[-la.lit].H + 0.001 << " = " << h;
         if (h > best_h) {
+            LOG(3) << "new winner is " << la.lit;
             best_h = h;
             best_var = la.lit;
         }
     }
     CHECK(best_var != lit_nil) << "no branch lit found in choose_branch_lit.";
     if (c->dfs[best_var].H > c->dfs[-best_var].H) {
+        LOG(3) << "swapping winner " << best_var << " for " << -best_var;
         best_var = -best_var;
     }
     return best_var;
@@ -987,6 +992,7 @@ bool solve(Cnf* c) {
     while (true) {
         lit_t l = lit_nil;
         while (l == lit_nil) {
+            INC(decision_level, c->d);
             // L2. [New node.]
             if (choose_new_node) {
                 LOG(2) << "Current truths: " << c->dump_truths();
@@ -998,6 +1004,7 @@ bool solve(Cnf* c) {
                     LOG(2) << "Calling Algorithm X for lookahead, d=" << c->d;
                     // L3.
                     if (!lookahead(c)) {
+                        INC(lookahead_failure);
                         // L15. [Backtrack.]
                         if (c->d == 0) UNSAT_EXIT;
                         --c->d;
@@ -1009,6 +1016,7 @@ bool solve(Cnf* c) {
                         l = resolve_conflict(c);
                         break;
                     }
+                    INC(lookahead_success);
                 } else /* !c->force.empty() */ {
                     // L5 - L9. [Accept near truths.]
                     l = accept_near_truths(c);
@@ -1019,6 +1027,7 @@ bool solve(Cnf* c) {
             // L3. [Choose l.]
             if (!c->freevar.empty()) {
                 l = choose_branch_lit(c);
+                INC(decisions);
                 LOG(2) << "Chose " << l;
             } else {
                 c->d++;
