@@ -16,11 +16,11 @@ DEFINE_PARAM(alpha, 3.5,
              "Constant multiplicative factor used in computing heuristic "
              "literal scores.");
 
-DEFINE_PARAM(c0, 30,
+DEFINE_PARAM(c0, 100,
              "Defines maximum number of candidates considered for lookahead. "
              "See also c1, since max(c0, c1/d) is the actual bound.");
 
-DEFINE_PARAM(c1, 600,
+DEFINE_PARAM(c1, 1200,
              "Defines maximum number of candidates considered for lookahead. "
              "See also c0, since max(c0, c1/d) is the actual bound.");
 
@@ -30,7 +30,7 @@ DEFINE_PARAM(disable_lookahead, 0.0,
 DEFINE_PARAM(add_windfalls, 1.0,
              "If 1, generate 'windfall' clauses during lookahead (see (72)).");
 
-DEFINE_PARAM(extra_heuristic_iterations, 0,
+DEFINE_PARAM(extra_heuristic_iterations, 1,
              "Number of iterations to run each time we calculate heuristics.");
 
 DEFINE_PARAM(max_heuristic_level, 128,
