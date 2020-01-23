@@ -3,3 +3,9 @@
 * ignore comments correctly in input. right now, "c p cnf 1 2" will fool us in preamble.
 * use clang instead of gcc? seems to be a little faster on most examples.
 * close all timers during SAT_EXIT/UNSAT_EXIT
+
+* write script/rand.sh
+* filter out mutual implications during lookahead using strongly connected components
+* speed up heuristic iterations by only looking at freevars (Knuth does this, but this slows down my test cases)
+* update h scores on the fly during lookahead
+* double lookahead

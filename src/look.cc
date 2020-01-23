@@ -711,7 +711,6 @@ void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
     size_t i = c->lookahead_order.size();
     c->lookahead_order.push_back({lit: l});
     for (lit_t w : c->big[l]) {
-        // TODO: need this? if (c->fixed_false(w)) { continue; }
         if (c->dfs[w].seen) continue;
         c->dfs[w].parent = l;
         lookahead_dfs(c, count, w);
@@ -719,6 +718,13 @@ void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
     count += 2;
     c->lookahead_order[i].t = count;
 }
+
+// TODO:
+/*void lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
+    c->dfs[l].seen = true;
+    size_t i = c->lookahead_order.size();
+    c->lookahead_order.push_back({lit: l});
+    }*/
 
 // Main loop of truth value propagation for Algorithm X. (72) in the text.
 // Returns false iff a conflict was detected. If hh is non-null, a score
@@ -864,7 +870,7 @@ bool lookahead(Cnf* c) {
         }
     }
     CHECK(static_cast<size_t>(count) == c->cand.heap.size() * 4)
-        << "Inconsistent DFS detected.";
+        << "Inconsistent DFS detected.";  // we 'count += 2' for each vertex.
     if (LOG_ENABLED(3)) {
         std::ostringstream oss;
         oss << "order: ";
