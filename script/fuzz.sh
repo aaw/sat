@@ -10,9 +10,10 @@ DIFFICULTY=easy
 TIMEOUT=30s
 SEED_ARG=
 EXPERIMENT_PARAMS_ARG=
+CONTROL_SEED=
 
 # Process any overrides from command-line flags.
-while getopts ":b:c:d:p:t:s:" opt; do
+while getopts ":b:c:d:p:r:t:s:" opt; do
     case $opt in
         b)
             EXPERIMENT_BINARY="${OPTARG}"
@@ -25,6 +26,9 @@ while getopts ":b:c:d:p:t:s:" opt; do
             ;;
         p)
             EXPERIMENT_PARAMS_ARG="-p${OPTARG}"
+            ;;
+        r)
+            CONTROL_SEED="-s${OPTARG}"
             ;;
         s)
             SEED_ARG="${OPTARG}"
@@ -48,7 +52,7 @@ case $DIFFICULTY in
         ARGS="25 50 3"
         ;;
     medium)
-        ARGS="200 800 3"
+        ARGS="200 870 3"
         ;;
     hard)
         ARGS="1000 3500 3"
@@ -66,7 +70,7 @@ fi
 
 CONTROL_BINARY="bin/${CONTROL_BINARY}"
 EXPERIMENT_BINARY="bin/${EXPERIMENT_BINARY}"
-echo "Testing binary ${CONTROL_BINARY} using ${EXPERIMENT_BINARY} as control."
+echo "Testing binary ${EXPERIMENT_BINARY} using ${CONTROL_BINARY} as control."
 
 make ${CONTROL_BINARY}
 if [[ "$?" != 0 ]]; then exit "$?"; fi
@@ -79,6 +83,7 @@ NFAILURE=0
 NTIMEOUT=0
 
 start=`date +%s`
+overall_delta=0
 
 echo "Testing ${DIFFICULTY} examples:"
 for i in {1..20}; do
@@ -86,7 +91,7 @@ for i in {1..20}; do
     printf "rand ${ARGS} ${seed} "
     ./gen/rand.py ${ARGS} ${seed} >| /tmp/test.cnf
     control_start=`date +%s%N`
-    control_output="$(timeout ${TIMEOUT} ${CONTROL_BINARY} /tmp/test.cnf 1>/dev/null 2>&1)"
+    control_output="$(timeout ${TIMEOUT} ${CONTROL_BINARY} ${CONTROL_SEED} /tmp/test.cnf 1>/dev/null 2>&1)"
     control_result="$?"
     control_end=`date +%s%N`
     control_time=$((control_end-control_start))
@@ -97,6 +102,7 @@ for i in {1..20}; do
     experiment_time=$((experiment_end-experiment_start))
     total_time=$((experiment_time-control_time))
     total_secs=$(bc <<<"scale=2;${total_time}/1000000000.0")
+    overall_delta=$(bc <<<"scale=1;${overall_delta}+${total_secs}")
     if [[ "$control_result" -eq 124 ]] && [[ "$experiment_result" -eq 124 ]]; then
         printf $'\u001b[31m\u23f1\u001b[0m\n' # Red stopwatch
         ((NTIMEOUT++))
@@ -107,10 +113,10 @@ for i in {1..20}; do
         printf $'\u001b[32m\u23f1\u001b[0m\n' # Green stopwatch
         ((NTIMEOUT++))
     elif [[ "$control_result" -eq "$SATISFIABLE" ]] && [[ "$experiment_result" -eq "$SATISFIABLE" ]]; then
-        printf $'\u001b[32m\u2714\u001b[0m'" (${total_secs}s)\n" # Green check
+        printf $'\u001b[32m\u2714\u001b[0m'" (\u0394 = ${total_secs}s)\n" # Green check
         ((NSUCCESS++))
     elif [[ "$control_result" -eq "$UNSATISFIABLE" ]] && [[ "$experiment_result" -eq "$UNSATISFIABLE" ]]; then
-        printf $'\u001b[33m\u2714\u001b[0m'" (${total_secs}s)\n" # Yellow check
+        printf $'\u001b[33m\u2714\u001b[0m'" (\u0394 = ${total_secs}s)\n" # Yellow check
         ((NSUCCESS++))
     else
         printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
@@ -122,4 +128,4 @@ echo ""
 end=`date +%s`
 runtime=$((end-start))
 
-echo "${NSUCCESS} succeeded, ${NFAILURE} failed, ${NTIMEOUT} timed out in ${runtime} seconds."
+echo -e "${NSUCCESS} succeeded, ${NFAILURE} failed, ${NTIMEOUT} timed out in ${runtime} seconds." 'Total \u0394' "= ${overall_delta}s"
