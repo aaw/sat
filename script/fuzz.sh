@@ -49,7 +49,7 @@ done
 
 case $DIFFICULTY in
     easy)
-        ARGS="25 50 3"
+        ARGS="20 90 3"
         ;;
     medium)
         ARGS="200 870 3"
