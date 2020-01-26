@@ -4,9 +4,6 @@
 * use clang instead of gcc? seems to be a little faster on most examples.
 * close all timers during SAT_EXIT/UNSAT_EXIT
 
-* clean up script/fuzz.sh
-* debug strongly connected components
-* look.cc: filter out mutual implications during lookahead using strongly connected components
 * look.cc: speed up heuristic iterations by only looking at freevars (Knuth does this, but this slows down my test cases)
 * look.cc: update h scores on the fly during lookahead?
 * look.cc: double lookahead
