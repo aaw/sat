@@ -36,6 +36,11 @@ DEFINE_PARAM(extra_heuristic_iterations, 1,
 DEFINE_PARAM(max_heuristic_level, 128,
              "Max level (d) we'll retain separate heuristic scores.");
 
+DEFINE_PARAM(cluster_during_lookahead, 0,
+             "If 1, compute strongly connected components of the binary "
+             "implications and only explore a single representative of each "
+             "component.");
+
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
 // Near truth
@@ -84,12 +89,24 @@ struct psig_t {
 };
 
 struct dfs_t {
-    dfs_t() : H(0.0), parent(lit_nil), seen(false), cand(false) {}
+    dfs_t() :
+        low(std::numeric_limits<size_t>::max()),
+        num(std::numeric_limits<size_t>::max()),
+        H(0.0),
+        parent(lit_nil),
+        seen(false),
+        cand(false),
+        onstack(false),
+        rep(false) {}
 
+    size_t low;
+    size_t num;
     double H;
     lit_t parent;
     bool seen;
     bool cand;
+    bool onstack;
+    bool rep;
 };
 
 struct lookahead_order_t {
@@ -154,6 +171,8 @@ struct Cnf {
     std::vector<uint32_t> val;  // maps variables -> truth values
 
     std::vector<psig_t> sig;  // to identify participants/newbies
+
+    std::vector<lit_t> sccstack; // used for strongly connected components
 
     Heap cand;  // lookahead candidates
 
@@ -708,6 +727,7 @@ lit_t accept_near_truths(Cnf* c) {
 // DFS helper function.
 void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
     c->dfs[l].seen = true;
+    c->dfs[l].rep = true;
     size_t i = c->lookahead_order.size();
     c->lookahead_order.push_back({lit: l});
     for (lit_t w : c->big[l]) {
@@ -719,12 +739,46 @@ void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
     c->lookahead_order[i].t = count;
 }
 
-// TODO:
-/*void lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
+void lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
     c->dfs[l].seen = true;
     size_t i = c->lookahead_order.size();
     c->lookahead_order.push_back({lit: l});
-    }*/
+    c->dfs[l].num = i;
+    c->dfs[l].low = i;
+    c->sccstack.push_back(l);
+    c->dfs[l].onstack = true;
+    for (lit_t w : c->big[l]) {
+        if (c->dfs[w].seen) {
+            if (c->dfs[w].num < c->dfs[l].num && c->dfs[w].onstack) {
+                c->dfs[l].low = std::min(c->dfs[w].num, c->dfs[l].low);
+            }
+        } else {
+            c->dfs[w].parent = l;
+            lookahead_dfs_scc(c, count, w);
+            c->dfs[l].low = std::min(c->dfs[l].low, c->dfs[w].low);
+        }
+    }
+
+    if (c->dfs[l].low == c->dfs[l].num) {
+        lit_t x = lit_nil;
+        lit_t mx = lit_nil;
+        double mh = std::numeric_limits<double>::min();
+        do {
+            x = c->sccstack.back();
+            if (c->h[x] > mh) {
+                mh = c->h[x];
+                mx = x;
+            }
+            c->dfs[x].onstack = false;
+            c->sccstack.pop_back();
+        } while (x != l);
+        CHECK(mx != lit_nil) << "Couldn't find component representative.";
+        c->dfs[mx].rep = c->dfs[-mx].rep = true;
+    }
+
+    count += 2;
+    c->lookahead_order[i].t = count;
+}
 
 // Main loop of truth value propagation for Algorithm X. (72) in the text.
 // Returns false iff a conflict was detected. If hh is non-null, a score
@@ -854,19 +908,17 @@ bool lookahead(Cnf* c) {
     }
     if (LOG_ENABLED(3)) { LOG(3) << "candidate graph: " << c->dump_big(); }
 
-    // TODO: Knuth computes strongly-connected components here, which can reduce
-    // the number of candidates we need to consider (all literals in the the
-    // same component imply each other) as well as allow us to deduce
-    // contradictions earlier (when l and -l are in the same component). But it
-    // also requires a little more work and bookkeeping so we only run DFS on
-    // all candidates for now.
-
     lit_t count = 0;
     c->lookahead_order.clear();
+    c->sccstack.clear();
     for(lit_t v : c->cand.heap) {
         for (lit_t l : {-v,v}) {
             if (c->dfs[l].seen) continue;
-            lookahead_dfs(c, count, l);
+            if (PARAM_cluster_during_lookahead) {
+                lookahead_dfs_scc(c, count, l);
+            } else {
+                lookahead_dfs(c, count, l);
+            }
         }
     }
     CHECK(static_cast<size_t>(count) == c->cand.heap.size() * 4)
@@ -878,6 +930,28 @@ bool lookahead(Cnf* c) {
             oss << "[" << x.lit << ":" << x.t << "]";
         }
         LOG(3) << oss.str();
+    }
+
+    size_t base_limit = c->lookahead_order.size();
+    if (PARAM_cluster_during_lookahead) {
+        // Remove anything from lookahead_order that isn't a representative
+        // of a strongly connected component (or the complement of a rep).
+        size_t n = 0;
+        for(size_t i = 0; i < base_limit; ++i) {
+            if (!c->dfs[c->lookahead_order[i].lit].rep) continue;
+            c->lookahead_order[n++] = c->lookahead_order[i];
+        }
+        INC(redundant_lookahead_lits, base_limit- n);
+        c->lookahead_order.resize(n);
+
+        // Contract any parent paths that go through non-representatives.
+        for (lookahead_order_t la : c->lookahead_order) {
+            lit_t l = la.lit;
+            while (c->dfs[l].parent != lit_nil &&
+                   !c->dfs[c->dfs[l].parent].rep) {
+                c->dfs[l].parent = c->dfs[c->dfs[l].parent].parent;
+            }
+        }
     }
 
     // X5. [Prepare to explore.]
@@ -949,13 +1023,13 @@ bool lookahead(Cnf* c) {
             LOG(3) << "Lookahead wraparound.";
             INC(lookahead_wraparound);
             j = 0;
-            base += 2 * c->lookahead_order.size();
+            base += 2 * base_limit;
         }
         if (j == jp) {
             LOG(3) << "Bailing on lookahead, no change in j = " << j;
             return true;
         }
-        if (j == 0 && base + 2 * c->lookahead_order.size() >= PT) {
+        if (j == 0 && base + 2 * base_limit >= PT) {
             INC(lookahead_exhausted);
             LOG(3) << "Bailing on lookahead, base counter too high.";
             return true;
