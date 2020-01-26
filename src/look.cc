@@ -24,7 +24,7 @@ DEFINE_PARAM(c1, 1200,
              "Defines maximum number of candidates considered for lookahead. "
              "See also c0, since max(c0, c1/d) is the actual bound.");
 
-DEFINE_PARAM(disable_lookahead, 0.0,
+DEFINE_PARAM(disable_lookahead, 0,
              "If 1, no lookahead (Algorithm X) will be performed.");
 
 DEFINE_PARAM(add_windfalls, 1.0,
@@ -40,6 +40,17 @@ DEFINE_PARAM(cluster_during_lookahead, 0,
              "If 1, compute strongly connected components of the binary "
              "implications and only explore a single representative of each "
              "component.");
+
+DEFINE_PARAM(disable_double_lookahead, 0,
+             "If 1, no double lookahead (Algorithm Y) will be performed.");
+
+DEFINE_PARAM(double_lookahead_frontier, 10,
+             "Max number of variables we'll perform double lookahead on. Knuth "
+             "calls this parameter 'Y'.");
+
+DEFINE_PARAM(double_lookahead_damping_factor, 0.999,
+             "Damping factor that makes double lookahead more attractive the "
+             "the more it's avoided. Knuth calls this parameter beta.");
 
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
@@ -160,6 +171,9 @@ struct Cnf {
     std::vector<uint64_t> istamps_storage;  // maps literals to their istamp;
     uint64_t* istamps;
 
+    std::vector<uint64_t> dfail_storage; // dfail from Algorithm Y
+    uint64_t* dfail;
+
     std::vector<lit_t> dec;  // maps d -> decision literal
 
     std::vector<lit_t> backf;  // maps d -> f at the time decision d was made.
@@ -188,6 +202,8 @@ struct Cnf {
 
     uint32_t t; // current truth level (RT, NT, PT, etc)
 
+    double tau; // trigger for double lookahead
+
     Cnf(lit_t novars, lit_t nsvars) :
         novars(novars),
         bimp_storage(2 * (novars + nsvars) + 1),
@@ -202,8 +218,10 @@ struct Cnf {
         branch(novars + nsvars + 1, -1),
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
-        istamps_storage(2 * (novars + nsvars) + 1),
+        istamps_storage(2 * (novars + nsvars) + 1, 0),
         istamps(&istamps_storage[novars + nsvars]),
+        dfail_storage(2 * (novars + nsvars) + 1, 0),
+        dfail(&dfail_storage[novars + nsvars]),
         dec(novars + nsvars + 1),
         backf(novars + nsvars + 1),
         backi(novars + nsvars + 1),
@@ -215,7 +233,8 @@ struct Cnf {
         f(0),
         g(0),
         istamp(0),
-        t(0) {
+        t(0),
+        tau(0.0) {
         for (lit_t i = 0; i < novars + nsvars; ++i) {
             freevar[i] = i + 1;
             invfree[i + 1] = i;
@@ -836,6 +855,29 @@ bool force_lookahead(Cnf* c, lit_t l) {
     return success;
 }
 
+// Algorithm Y: Double lookahead for Algorithm X.
+// Returns false exactly when a conflict is found.
+bool double_lookahead(Cnf* c, lit_t l, size_t base_limit) {
+    if (PARAM_disable_double_lookahead) return true;
+
+    Timer timer("double_lookahead");
+
+    // Y1. [Filter.]
+    if (c->dfail[l] == c->istamp) return true;
+    if (c->t + 2 * base_limit * (PARAM_double_lookahead_frontier + 1) > PT) {
+        INC(double_lookahead_exhausted);
+        return true;
+    }
+    if (c->dfs[l].H <= c->tau) {
+        c->tau *= PARAM_double_lookahead_damping_factor;
+        return true;
+    }
+
+    // Y2. [Initialize.]
+
+    return true;
+}
+
 // Algorithm X:
 // Returns false exactly when a conflict is found.
 bool lookahead(Cnf* c) {
@@ -846,7 +888,7 @@ bool lookahead(Cnf* c) {
         SAT_EXIT(c);
     }
 
-    if (PARAM_disable_lookahead == 1.0) return true;
+    if (PARAM_disable_lookahead) return true;
 
     // X2. [Compile rough heuristics.]
     c->refine_heuristic_scores();
@@ -997,7 +1039,10 @@ bool lookahead(Cnf* c) {
                 }
             }
             // X10. [Optionally look deeper.] (Algorithm Y)
-            // TODO
+            if (!double_lookahead(c, l, base_limit)) {
+                CHECK(c->t < PT) << "Got stamp >= PT after double lookahead.";
+                if (!force_lookahead(c, -l)) return false;
+            }
             // X11. [Exploit necessary assignments.]
             for (lit_t ll : c->bimp[-l]) {
                 if (!c->fixed_true(ll) || c->fixed_true(ll, PT)) continue;
