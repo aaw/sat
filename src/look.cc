@@ -30,6 +30,9 @@ DEFINE_PARAM(disable_lookahead, 0,
 DEFINE_PARAM(add_windfalls, 1.0,
              "If 1, generate 'windfall' clauses during lookahead (see (72)).");
 
+DEFINE_PARAM(add_double_windfalls, 1.0,
+             "If 1, generate 'windfall' clauses during double lookahead.");
+
 DEFINE_PARAM(extra_heuristic_iterations, 1,
              "Number of iterations to run each time we calculate heuristics.");
 
@@ -463,6 +466,19 @@ struct Cnf {
     }
 };
 
+// Used to temporarily set truth value, then revert when scope ends.
+struct truth_context {
+    truth_context(Cnf* c, uint32_t t) : c_(c), saved_t_(c->t) {
+        c->t = t;
+    }
+    ~truth_context() {
+        c_->t = saved_t_;
+    }
+private:
+    Cnf* c_;
+    uint32_t saved_t_;
+};
+
 // Parse a DIMACS cnf input file. File starts with zero or more comments
 // followed by a line declaring the number of variables and clauses in the file.
 // Each subsequent line is the zero-terminated definition of a disjunction.
@@ -587,7 +603,7 @@ Cnf parse(const char* filename) {
     return c;
 }
 
-// Returns false if a conflict was found.
+// Returns false if a conflict was found. This is (62) in the text.
 bool propagate(Cnf* c, lit_t l) {
     LOG(2) << "Propagating " << l;
     size_t h = c->rstack.size();
@@ -848,34 +864,136 @@ bool force_lookahead(Cnf* c, lit_t l) {
     // X12. [Force l.]
     LOG(3) << "X12 with " << l;
     c->force.push_back(l);
-    uint32_t tsave = c->t;
-    c->t = PT;
-    bool success = propagate_lookahead(c, l, nullptr);
-    c->t = tsave;
-    return success;
+    truth_context tc(c, PT);
+    return propagate_lookahead(c, l, nullptr);
+}
+
+// Returns false iff a conflict is found. This is (73) in the text.
+bool propagate_double_lookahead(Cnf* c, lit_t l) {
+    CHECK(c->rstack.size() >= c->f) << "(73) says set G <- E <- F but E > F.";
+    c->rstack.resize(c->f);
+    c->g = c->f;
+    if (!propagate(c, l)) return false;
+    for (; c->g < c->rstack.size(); ++c->g) {
+        lit_t lp = c->rstack[c->g];
+        for (const timp_t& t : c->timp[lp]) {
+            if (!t.active) continue;
+            if (c->fixed_true(t.u) || c->fixed_true(t.v)) continue;
+            if (!c->fixed(t.u) && !c->fixed(t.v)) continue;
+            if (c->fixed_false(t.u) && c->fixed_false(t.v)) {
+                LOG(3) << "Both " << t.u << " and " << t.v << " fixed false at "
+                       << tval(c->t) << " and in timp[" << lp << "], conflict.";
+                return false;
+            }
+            if (c->fixed_false(t.u)) { // => v not fixed
+                if (!propagate(c, t.v)) return false;
+                continue;
+            }
+            if (c->fixed_false(t.v)) { // => u not fixed
+                if (!propagate(c, t.u)) return false;
+                continue;
+            }
+            CHECK(false) << "Missing case in propagate_double_lookahead.";
+        }
+    }
+    return true;
 }
 
 // Algorithm Y: Double lookahead for Algorithm X.
 // Returns false exactly when a conflict is found.
-bool double_lookahead(Cnf* c, lit_t l, size_t base_limit) {
+bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
     if (PARAM_disable_double_lookahead) return true;
 
     Timer timer("double_lookahead");
 
     // Y1. [Filter.]
-    if (c->dfail[l] == c->istamp) return true;
-    if (c->t + 2 * base_limit * (PARAM_double_lookahead_frontier + 1) > PT) {
+    if (c->dfail[lo.lit] == c->istamp) return true;
+    if (c->t + 2 * bl * (PARAM_double_lookahead_frontier + 1) > PT) {
         INC(double_lookahead_exhausted);
         return true;
     }
-    if (c->dfs[l].H <= c->tau) {
+    if (c->dfs[lo.lit].H <= c->tau) {
         c->tau *= PARAM_double_lookahead_damping_factor;
         return true;
     }
+    LOG(3) << "Doing double lookahead on " << lo.lit;
 
     // Y2. [Initialize.]
+    LOG(3) << "Initializing double lookahead";
+    base = c->t - 2;
+    uint32_t lbase = base + 2 * bl * PARAM_double_lookahead_frontier;
+    lit_t l0 = lo.lit;
+    uint32_t DT = lbase + lo.t;
+    c->windfalls.clear();
+    size_t jp = 0, j = 0;
 
-    return true;
+    {
+        truth_context tc(c, DT);
+        c->rstack.resize(c->f);
+        if (!propagate(c, lo.lit)) {
+            // We can't get to this point unless propagate_lookahead has already
+            // succeeded with lo.lit.
+            CHECK(false) << "Couldn't double-propagate " << lo.lit;
+        }
+    }
+
+    while (true) {
+        // Y3. [Choose l for double look.]
+        lit_t l = c->lookahead_order[j].lit;
+        c->t = base + c->lookahead_order[j].t;
+        LOG(3) << "Considering " << l << " at " << tval(c->t) << " for dlook.";
+        if (c->fixed_false(l) && !c->fixed_false(l, DT)) {
+            LOG(3) << l << " already false, make it double false";
+            // Y7. [Make l false.]
+            jp = j;
+            truth_context tc(c, DT);
+            if (!propagate_double_lookahead(c, -l)) {
+                base = lbase;
+                return false;
+            }
+            if (PARAM_add_double_windfalls) c->windfalls.push_back(-l);
+        }
+
+        if (!c->fixed(l)) {
+            LOG(3) << l << " not fixed, we can look ahead on it";
+            // Y5. [Look ahead.]
+            if (!propagate_double_lookahead(c, l)) {
+                LOG(3) << "Failed double lookahead on " << l;
+                // Y8. [Recover from conflict.]
+                // Y7. [Make lo.lit false.]
+                jp = j;
+                truth_context tc(c, DT);
+                if (!propagate_double_lookahead(c, -l)) {
+                    base = lbase;
+                    return false;
+                }
+                if (PARAM_add_double_windfalls) c->windfalls.push_back(-l);
+            }
+            // -> Y4
+        }
+
+        // Y4. [Move to next.]
+        LOG(3) << "On to next j";
+        ++j;
+        if (j == bl) {
+            j = 0;
+            base += 2 * bl;
+        }
+        if (jp == j || (j == 0 && base == lbase)) {
+            // Y6. [Finish.]
+            LOG(3) << "Successfully finished double lookahead.";
+            if (PARAM_add_double_windfalls) {
+                INC(double_windfalls, c->windfalls.size());
+                for (lit_t w : c->windfalls) { c->add_binary_clause(-l0, w); }
+            }
+            base = lbase;
+            c->t = DT;
+            c->tau = c->dfs[l0].H;
+            c->dfail[l0] = c->istamp;
+            return true;
+        }
+        // -> Y3
+    }
 }
 
 // Algorithm X:
@@ -1004,10 +1122,11 @@ bool lookahead(Cnf* c) {
 
     while (true) {
         // X6. [Choose l for lookahead.]
-        LOG(3) << "X6";
-        lit_t l = c->lookahead_order[j].lit;
+        lookahead_order_t lo = c->lookahead_order[j];
+        LOG(3) << "X6 with " << lo.lit << " at " << tval(lo.t);
+        lit_t l = lo.lit;
         CHECK(c->dfs[l].cand);
-        c->t = base + c->lookahead_order[j].t;
+        c->t = base + lo.t;
         c->dfs[l].H = 0.0;
         if (c->dfs[l].parent != lit_nil) {
             c->dfs[l].H = c->dfs[c->dfs[l].parent].H;
@@ -1017,6 +1136,7 @@ bool lookahead(Cnf* c) {
             LOG(3) << "X8";
             LOG(2) << "Current truths: " << c->dump_truths();
             double w = 0;
+            bool forced = false;
             if (!propagate_lookahead(c, l, &w)) {
                 LOG(3) << "Can't propagate " << l << ", trying to force " << -l;
                 // X13. [Recover from conflict]
@@ -1024,11 +1144,13 @@ bool lookahead(Cnf* c) {
                     LOG(3) << "Can't propagate " << l << " or force " << -l
                            << ", bailing from lookahead";
                     return false;
-                }  // -> X7
+                } // -> X7
+                forced = true;
             } else if (w > 0) {
                 c->dfs[l].H += w;
                 LOG(3) << l << "'s H=" << c->dfs[l].H << ", p="
                        << c->dfs[l].parent;
+                // -> X10
             } else {
                 // X9. [Exploit an autarky]
                 if (c->dfs[l].H == 0) {
@@ -1036,20 +1158,28 @@ bool lookahead(Cnf* c) {
                 } else {
                     CHECK(c->dfs[l].parent != lit_nil) << "no parent for " << l;
                     c->add_binary_clause(l, -c->dfs[l].parent);
+                } // -> X10
+            }
+            if (!forced) {
+                // X10. [Optionally look deeper.] (Algorithm Y)
+                // Note: double lookahead modifies base.
+                if (!double_lookahead(c, base, lo, base_limit)) {
+                    CHECK(c->t < PT) << "Got stamp >= PT after double look.";
+                    // X13. [Recover from conflict.]
+                    if (!force_lookahead(c, -lo.lit)) return false;
+                    LOG(3) << "dlook conflict, base now set to " << base;
+                    // -> X7
+                } else {
+                    // X11. [Exploit necessary assignments.]
+                    for (lit_t ll : c->bimp[-l]) {
+                        if (!c->fixed_true(ll) ||
+                            c->fixed_true(ll, PT)) continue;
+                        if (!force_lookahead(c, ll)) return false;
+                    } // -> X7
                 }
             }
-            // X10. [Optionally look deeper.] (Algorithm Y)
-            if (!double_lookahead(c, l, base_limit)) {
-                CHECK(c->t < PT) << "Got stamp >= PT after double lookahead.";
-                if (!force_lookahead(c, -l)) return false;
-            }
-            // X11. [Exploit necessary assignments.]
-            for (lit_t ll : c->bimp[-l]) {
-                if (!c->fixed_true(ll) || c->fixed_true(ll, PT)) continue;
-                if (!force_lookahead(c, ll)) return false;
-            }
         } else if (c->fixed_false(l) && !c->fixed_false(l, PT)) {
-            // X13. [Recover from conflict]
+            // X13. [Recover from conflict.]
             if (!force_lookahead(c, -l)) {
                 LOG(3) << "Can't force " << -l << ", bailing from lookahead";
                 return false;

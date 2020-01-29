@@ -49,13 +49,13 @@ done
 
 case $DIFFICULTY in
     easy)
-        ARGS="20 90 3"
+        ARGS="8 35 3"
         ;;
     medium)
         ARGS="200 870 3"
         ;;
     hard)
-        ARGS="1000 3500 3"
+        ARGS="500 2000 3"
         ;;
     :)
         echo "Unknown difficulty $DIFFICULTY selected."
