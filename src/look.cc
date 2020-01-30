@@ -1266,8 +1266,9 @@ bool solve(Cnf* c) {
                         c->rstack.resize(c->f);
                         c->f = c->backf[c->d];
                         // (L11 - L15) -> L4
-                        // Note: L15 should jump to L12, but I think jumping to
-                        // L11 is safe here. Verify.
+                        CHECK(c->g >= c->rstack.size())
+                            << "Corner case detected: unsafe to jump to L11, "
+                            << "need to jump to L12 instead from L3.";
                         l = resolve_conflict(c);
                         break;
                     }
