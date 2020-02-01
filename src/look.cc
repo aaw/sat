@@ -55,6 +55,9 @@ DEFINE_PARAM(double_lookahead_damping_factor, 0.999,
              "Damping factor that makes double lookahead more attractive the "
              "the more it's avoided. Knuth calls this parameter beta.");
 
+DEFINE_PARAM(add_compensation_resolvents, 1,
+             "Use resolution to deduce new binary clauses while exploring.");
+
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
 // Near truth
@@ -174,6 +177,9 @@ struct Cnf {
     std::vector<uint64_t> istamps_storage;  // maps literals to their istamp;
     uint64_t* istamps;
 
+    std::vector<uint64_t> bstamps_storage;  // maps literals to their bstamp;
+    uint64_t* bstamps;
+
     std::vector<uint64_t> dfail_storage; // dfail from Algorithm Y
     uint64_t* dfail;
 
@@ -203,6 +209,8 @@ struct Cnf {
 
     uint64_t istamp;
 
+    uint64_t bstamp;
+
     uint32_t t; // current truth level (RT, NT, PT, etc)
 
     double tau; // trigger for double lookahead
@@ -223,6 +231,8 @@ struct Cnf {
         invfree(novars  + nsvars + 1),
         istamps_storage(2 * (novars + nsvars) + 1, 0),
         istamps(&istamps_storage[novars + nsvars]),
+        bstamps_storage(2 * (novars + nsvars) + 1, 0),
+        bstamps(&bstamps_storage[novars + nsvars]),
         dfail_storage(2 * (novars + nsvars) + 1, 0),
         dfail(&dfail_storage[novars + nsvars]),
         dec(novars + nsvars + 1),
@@ -236,6 +246,7 @@ struct Cnf {
         f(0),
         g(0),
         istamp(0),
+        bstamp(0),
         t(0),
         tau(0.0) {
         for (lit_t i = 0; i < novars + nsvars; ++i) {
@@ -695,6 +706,39 @@ lit_t resolve_conflict(Cnf* c) {
     }
 }
 
+// Returns true iff there was no conflict.
+bool resolve_bimps(Cnf* c, lit_t u, lit_t v) {
+    c->bstamp++;
+    c->bstamps[-u] = c->bstamp;
+    for (lit_t w : c->bimp[-u]) { c->bstamps[w] = c->bstamp; }
+
+    if (c->bstamps[-v] == c->bstamp || c->bstamps[v] == c->bstamp) {
+        return true;
+    }
+
+    for (lit_t w : c->bimp[v]) {  // All of these ws are implied by -u
+        if (c->fixed(w, NT)) {
+            CHECK(c->fixed_true(w, NT)) << "Expected " << -w << " => " << -v;
+            continue;
+        }
+        if (c->bstamps[-w] == c->bstamp) {  // -u => (-w and w), conflict.
+            if (!propagate(c, u)) {
+                LOG(3) << "Conflict while computing compensation resolvents.";
+                return false;
+            }
+            break;
+        } else if (c->bstamps[w] != c->bstamp) {  // -u => w, w not seen yet.
+            LOG(3) << "compensation resolvent: (" << u << " " << v
+                   << ") and (" << -v << " " << w  << ") => ("
+                   << u << ", " << w << ")";
+            INC(compensation_resolvents);
+            c->add_binary_clause(u, w);
+        }
+
+    }
+    return true;
+}
+
 // Does L5 - L9
 // Returns lit to try if there was a conflict, lit_nil otherwise
 // TODO: just make a member function of Cnf
@@ -743,6 +787,7 @@ lit_t accept_near_truths(Cnf* c) {
                 c->sigma_stamp(t.u);
                 c->sigma_stamp(t.v);
                 if (c->in_bimp(-t.v, -t.u)) {
+                    LOG(2) << -t.v << " is in bimp[" << -t.u << "]";
                     if (!propagate(c, t.u)) return resolve_conflict(c);
                 } else if (c->in_bimp(t.v, -t.u)) {
                     LOG(3) << "Already know clause (" << t.u << " " << t.v
@@ -751,6 +796,13 @@ lit_t accept_near_truths(Cnf* c) {
                     if (!propagate(c, t.v)) return resolve_conflict(c);
                 } else {
                     c->add_binary_clause(t.u, t.v);
+                    if (PARAM_add_compensation_resolvents) {
+                        LOG(2) << "Adding compensation resolvents";
+                        if (!resolve_bimps(c, t.u, t.v) ||
+                            !resolve_bimps(c, t.v, t.u)) {
+                            return resolve_conflict(c);
+                        }
+                    }
                 }
                 // TODO: deduce compensation resolvents (see ex. 139)
             }

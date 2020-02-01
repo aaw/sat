@@ -4,7 +4,6 @@
 * use clang instead of gcc? seems to be a little faster on most examples.
 * close all timers during SAT_EXIT/UNSAT_EXIT
 
-* look.cc: compensation resolvents
 * look.cc: speed up heuristic iterations by only looking at freevars (Knuth does this, but this slows down my test cases)
 * look.cc: update h scores on the fly during lookahead?
 * write pigeonhole generator
