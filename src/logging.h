@@ -29,7 +29,7 @@ extern int FLAGS_verbosity;
     "Overflow/underflow detected setting variable of type " << #x \
     << ": " << #y << " = " << y << ". "
 #define UNSAT_EXIT UnsatExit()
-#define SAT_EXIT(c) (c)->print_assignment(); SatExit()
+#define SAT_EXIT(c) { (c)->print_assignment(); SatExit(); }
 #define PRINT std::cerr
 
 struct Logger {
