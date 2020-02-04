@@ -305,7 +305,7 @@ struct Cnf {
 
     void make_free(lit_t v) {
         LOG(3) << "make_free(" << v << ")";
-        CHECK(v > 0) << "wanted var in make_free, got lit";
+        CHECK(v > 0) << "wanted var in make_free, got lit " << v;
         freevar.push_back(v);
         invfree[v] = freevar.size()-1;
     }
@@ -1277,13 +1277,14 @@ lit_t choose_branch_lit(Cnf* c) {
         double h = (c->dfs[la.lit].H + 0.001) * (c->dfs[-la.lit].H + 0.001);
         LOG(3) << la.lit << "'s H*-H = " << c->dfs[la.lit].H + 0.001
                << " * " << c->dfs[-la.lit].H + 0.001 << " = " << h;
+        CHECK(!c->fixed(la.lit, RT)) << la.lit << " is fixed during choice.";
         if (h > best_h) {
             LOG(3) << "new winner is " << la.lit;
             best_h = h;
             best_var = la.lit;
         }
     }
-    CHECK(best_var != lit_nil) << "no branch lit found in choose_branch_lit.";
+    CHECK(best_var != lit_nil) << "no branch lit could be found."
     if (c->dfs[best_var].H > c->dfs[-best_var].H) {
         LOG(3) << "swapping winner " << best_var << " for " << -best_var;
         best_var = -best_var;
