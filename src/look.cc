@@ -1284,7 +1284,7 @@ lit_t choose_branch_lit(Cnf* c) {
             best_var = la.lit;
         }
     }
-    CHECK(best_var != lit_nil) << "no branch lit could be found."
+    CHECK(best_var != lit_nil) << "no branch lit could be found.";
     if (c->dfs[best_var].H > c->dfs[-best_var].H) {
         LOG(3) << "swapping winner " << best_var << " for " << -best_var;
         best_var = -best_var;
