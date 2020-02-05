@@ -20,7 +20,7 @@ DEFINE_PARAM(c0, 100,
              "Defines maximum number of candidates considered for lookahead. "
              "See also c1, since max(c0, c1/d) is the actual bound.");
 
-DEFINE_PARAM(c1, 1200,
+DEFINE_PARAM(c1, 600,
              "Defines maximum number of candidates considered for lookahead. "
              "See also c0, since max(c0, c1/d) is the actual bound.");
 
@@ -1095,7 +1095,8 @@ bool lookahead(Cnf* c) {
     }
 
     // Prune candidates
-    size_t cmax = std::max(PARAM_c0, PARAM_c1/(c->d + 1));
+    size_t cmax = c->cand.size();
+    if (c->d > 0) cmax = std::max(PARAM_c0, PARAM_c1/c->d);
     LOG(2) << "cmax = " << cmax << ", d = " << c->d;
     // TODO: verify that we don't need empty check below
     while (!c->cand.empty() && c->cand.size() > cmax) c->cand.delete_max();
