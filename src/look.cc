@@ -51,12 +51,15 @@ DEFINE_PARAM(double_lookahead_frontier, 10,
              "Max number of variables we'll perform double lookahead on. Knuth "
              "calls this parameter 'Y'.");
 
-DEFINE_PARAM(double_lookahead_damping_factor, 0.999,
+DEFINE_PARAM(double_lookahead_damping_factor, 0.9995,
              "Damping factor that makes double lookahead more attractive the "
              "the more it's avoided. Knuth calls this parameter beta.");
 
 DEFINE_PARAM(add_compensation_resolvents, 1,
              "Use resolution to deduce new binary clauses while exploring.");
+
+DEFINE_PARAM(max_heuristic_score, 20,
+             "Maximum heuristic score. Scores above this value are capped.");
 
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
@@ -377,6 +380,7 @@ struct Cnf {
                 timpsum += hold[t.u] * hold[t.v];
             }
             hnew[l] = 0.1 + PARAM_alpha*bimpsum/avg + timpsum/(avg*avg);
+            hnew[l] = std::max(PARAM_max_heuristic_score, hnew[l]);
         }
     }
 
