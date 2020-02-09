@@ -13,53 +13,64 @@
 #include "types.h"
 
 DEFINE_PARAM(alpha, 3.5,
-             "Constant multiplicative factor used in computing heuristic "
-             "literal scores.");
+             "Multiplicative factor applied to binary clause contribution when "
+             "determining lookahead candidates.");
+
+DEFINE_PARAM(extra_heuristic_iterations, 1,
+             "Number of extra iterations to run when refining lookahead "
+             "candidate scores.");
+
+DEFINE_PARAM(max_heuristic_level, 128,
+             "Max search level at which we'll retain a separate set of "
+             "heuristic scores for literal candidates.");
+
+DEFINE_PARAM(max_heuristic_score, 20,
+             "Max heuristic score. Scores above this value are capped.");
 
 DEFINE_PARAM(c0, 100,
-             "Defines maximum number of candidates considered for lookahead. "
-             "See also c1, since max(c0, c1/d) is the actual bound.");
+             "Defines max number of candidates considered for lookahead. See "
+             "also c1: max(c0, c1/d) candidates are chosen at level d > 0.");
 
 DEFINE_PARAM(c1, 600,
-             "Defines maximum number of candidates considered for lookahead. "
-             "See also c0, since max(c0, c1/d) is the actual bound.");
+             "Defines max number of candidates considered for lookahead. See "
+             "also c0: max(c0, c1/d) candidates are chosen at level d > 0.");
 
 DEFINE_PARAM(disable_lookahead, 0,
              "If 1, no lookahead (Algorithm X) will be performed.");
 
 DEFINE_PARAM(add_windfalls, 1.0,
-             "If 1, generate 'windfall' clauses during lookahead (see (72)).");
+             "If 1, generate 'windfall' binary clauses during lookahead that "
+             "are implied by consequences of the current lookahead literal.");
 
 DEFINE_PARAM(add_double_windfalls, 1.0,
-             "If 1, generate 'windfall' clauses during double lookahead.");
-
-DEFINE_PARAM(extra_heuristic_iterations, 1,
-             "Number of iterations to run each time we calculate heuristics.");
-
-DEFINE_PARAM(max_heuristic_level, 128,
-             "Max level (d) we'll retain separate heuristic scores.");
+             "If 1, generate 'windfall' binary clauses during double lookahead "
+             "that are implied by consequences of both the current lookahead "
+             "and double lookahead literal.");
 
 DEFINE_PARAM(cluster_during_lookahead, 0,
-             "If 1, compute strongly connected components of the binary "
-             "implications and only explore a single representative of each "
-             "component.");
+             "If 1, compute strongly connected components of binary "
+             "implications during lookahead and only explore the best "
+             "representative of each component.");
 
 DEFINE_PARAM(disable_double_lookahead, 0,
              "If 1, no double lookahead (Algorithm Y) will be performed.");
 
 DEFINE_PARAM(double_lookahead_frontier, 10,
-             "Max number of variables we'll perform double lookahead on. Knuth "
-             "calls this parameter 'Y'.");
+             "Max number of literals we'll attempt to perform double lookahead "
+             "on during a single double lookahead.");
 
 DEFINE_PARAM(double_lookahead_damping_factor, 0.9995,
              "Damping factor that makes double lookahead more attractive the "
-             "the more it's avoided. Knuth calls this parameter beta.");
+             "the more it's avoided.");
 
 DEFINE_PARAM(add_compensation_resolvents, 1,
              "Use resolution to deduce new binary clauses while exploring.");
 
-DEFINE_PARAM(max_heuristic_score, 20,
-             "Maximum heuristic score. Scores above this value are capped.");
+// TODO: Am I doing participant/newbie comparison correctly? 64 should mabye be
+//       better here but it isn't...
+DEFINE_PARAM(stored_path_length, 8,
+             "Length of the stored decision path used to determine whether a "
+             "literal was set on the current search path. Must be <= 64.");
 
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
@@ -75,7 +86,7 @@ std::string tval(uint32_t t) {
     if (t == RT) return "RT";
     if (t == NT+1) return "NF";
     if (t == NT) return "NT";
-    if (t == PT+1) return "PT";
+    if (t == PT+1) return "PF";
     if (t == PT) return "PT";
     if (t == nil_truth) return "nil";
     std::ostringstream oss;
@@ -84,8 +95,9 @@ std::string tval(uint32_t t) {
     return oss.str();
 }
 
-// Bits in signature of decision path used for identifying participants/newbies.
-constexpr lit_t kPathBits = 64;
+inline lit_t path_bits() {
+    return static_cast<lit_t>(PARAM_stored_path_length);
+}
 
 struct timp_t {
     lit_t u;
@@ -349,7 +361,7 @@ struct Cnf {
     bool participant(lit_t l) {
         psig_t p = sig[var(l)];
         return p.length >= 0 && p.length <= d &&
-            p.path == (sigma & ((1 << std::min(p.length, kPathBits)) - 1));
+            p.path == (sigma & ((1ULL << std::min(p.length, path_bits())) - 1));
     }
 
     void sigma_stamp(lit_t l) {
@@ -1311,7 +1323,9 @@ bool solve(Cnf* c) {
                 LOG(2) << "Current truths: " << c->dump_truths();
                 LOG(2) << "Current rstack: " << c->dump_rstack();
                 LOG(2) << "Choosing a new node.";
-                if (c->d < kPathBits) c->sigma &= (1UL << c->d)-1; // trim sigma
+                if (c->d < path_bits()) {
+                    c->sigma &= (1ULL << c->d) - 1; // trim sigma
+                }
                 c->branch[c->d] = -1;
                 if (c->force.empty()) {
                     LOG(2) << "Calling Algorithm X for lookahead, d=" << c->d;
@@ -1359,8 +1373,8 @@ bool solve(Cnf* c) {
         while (l != lit_nil) {
             // L4. [Try l.]
             LOG(1) << c->val_debug_string();
-            if (c->d < kPathBits && c->branch[c->d] == 1) {
-                c->sigma |= 1UL << c->d;  // append to sigma
+            if (c->d < path_bits() && c->branch[c->d] == 1) {
+                c->sigma |= 1ULL << c->d;  // append to sigma
             }
             if (c->force.empty()) {
                 c->force.push_back(l);
@@ -1388,6 +1402,8 @@ int main(int argc, char** argv) {
     int oidx;
     CHECK(parse_flags(argc, argv, &oidx)) <<
         "Usage: " << argv[0] << " <filename>";
+    CHECK(PARAM_stored_path_length >= 0) << "stored_path_length must be >= 0";
+    CHECK(PARAM_stored_path_length <= 64) << "stored_path_length must be <= 64";
     init_counters();
     init_timers();
     Cnf c = parse(argv[oidx]);
