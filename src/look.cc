@@ -95,10 +95,6 @@ std::string tval(uint32_t t) {
     return oss.str();
 }
 
-inline lit_t path_bits() {
-    return static_cast<lit_t>(PARAM_stored_path_length);
-}
-
 struct timp_t {
     lit_t u;
     lit_t v;
@@ -149,6 +145,8 @@ struct lookahead_order_t {
 // Cycles through timps corresponding to the same clause.
 // c->LINK(c->LINK(c->LINK(t))) == t.
 #define LINK(t) timp[-t.u][t.link]
+
+#define SIGMA_BITS (static_cast<lit_t>(PARAM_stored_path_length))
 
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
@@ -361,7 +359,7 @@ struct Cnf {
     bool participant(lit_t l) {
         psig_t p = sig[var(l)];
         return p.length >= 0 && p.length <= d &&
-            p.path == (sigma & ((1ULL << std::min(p.length, path_bits())) - 1));
+            p.path == (sigma & ((1ULL << std::min(p.length, SIGMA_BITS)) - 1));
     }
 
     void sigma_stamp(lit_t l) {
@@ -1323,7 +1321,7 @@ bool solve(Cnf* c) {
                 LOG(2) << "Current truths: " << c->dump_truths();
                 LOG(2) << "Current rstack: " << c->dump_rstack();
                 LOG(2) << "Choosing a new node.";
-                if (c->d < path_bits()) {
+                if (c->d < SIGMA_BITS) {
                     c->sigma &= (1ULL << c->d) - 1; // trim sigma
                 }
                 c->branch[c->d] = -1;
@@ -1373,7 +1371,7 @@ bool solve(Cnf* c) {
         while (l != lit_nil) {
             // L4. [Try l.]
             LOG(1) << c->val_debug_string();
-            if (c->d < path_bits() && c->branch[c->d] == 1) {
+            if (c->d < SIGMA_BITS && c->branch[c->d] == 1) {
                 c->sigma |= 1ULL << c->d;  // append to sigma
             }
             if (c->force.empty()) {
