@@ -7,3 +7,4 @@
 * randomize freevars order
 * look.cc: update h scores on the fly during lookahead?
 * write pigeonhole generator
+* use scc to find contradictions again

@@ -35,6 +35,10 @@ DEFINE_PARAM(c1, 600,
              "Defines max number of candidates considered for lookahead. See "
              "also c0: max(c0, c1/d) candidates are chosen at level d > 0.");
 
+DEFINE_PARAM(stored_path_length, 8,
+             "Length of the stored decision path used to determine whether a "
+             "literal was set on the current search path. Must be <= 64.");
+
 DEFINE_PARAM(disable_lookahead, 0,
              "If 1, no lookahead (Algorithm X) will be performed.");
 
@@ -65,12 +69,6 @@ DEFINE_PARAM(double_lookahead_damping_factor, 0.9995,
 
 DEFINE_PARAM(add_compensation_resolvents, 1,
              "Use resolution to deduce new binary clauses while exploring.");
-
-// TODO: Am I doing participant/newbie comparison correctly? 64 should mabye be
-//       better here but it isn't...
-DEFINE_PARAM(stored_path_length, 8,
-             "Length of the stored decision path used to determine whether a "
-             "literal was set on the current search path. Must be <= 64.");
 
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
@@ -252,7 +250,7 @@ struct Cnf {
         backf(novars + nsvars + 1),
         backi(novars + nsvars + 1),
         val(novars + nsvars + 1, 0),
-        sig(novars + nsvars + 1, psig_t{path: 0, length: -1}),
+        sig(novars + nsvars + 1, psig_t{path: 0, length: 0}),
         cand(novars + nsvars),
         sigma(0),
         d(0),
@@ -358,13 +356,13 @@ struct Cnf {
 
     bool participant(lit_t l) {
         psig_t p = sig[var(l)];
-        return p.length >= 0 && p.length <= d &&
+        return p.length > 0 && p.length <= d+1 &&
             p.path == (sigma & ((1ULL << std::min(p.length, SIGMA_BITS)) - 1));
     }
 
     void sigma_stamp(lit_t l) {
         if (participant(l)) return;
-        sig[var(l)] = psig_t{path: sigma, length: d};
+        sig[var(l)] = psig_t{path: sigma, length: d+1};
     }
 
     double* h_ptr(size_t level) {
