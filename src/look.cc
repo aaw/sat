@@ -51,7 +51,7 @@ DEFINE_PARAM(add_double_windfalls, 1.0,
              "that are implied by consequences of both the current lookahead "
              "and double lookahead literal.");
 
-DEFINE_PARAM(cluster_during_lookahead, 0,
+DEFINE_PARAM(cluster_during_lookahead, 1,
              "If 1, compute strongly connected components of binary "
              "implications during lookahead and only explore the best "
              "representative of each component.");
@@ -69,6 +69,8 @@ DEFINE_PARAM(double_lookahead_damping_factor, 0.9995,
 
 DEFINE_PARAM(add_compensation_resolvents, 1,
              "Use resolution to deduce new binary clauses while exploring.");
+
+DEFINE_PARAM(exploit_lookahead_autarkies, 1, "");
 
 // Real truth
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
@@ -256,8 +258,8 @@ struct Cnf {
         d(0),
         f(0),
         g(0),
-        istamp(0),
-        bstamp(0),
+        istamp(1),
+        bstamp(1),
         t(0),
         tau(0.0) {
         for (lit_t i = 0; i < novars + nsvars; ++i) {
@@ -838,7 +840,7 @@ void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
     c->lookahead_order[i].t = count;
 }
 
-void lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
+bool lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
     c->dfs[l].seen = true;
     size_t i = c->lookahead_order.size();
     c->lookahead_order.push_back({lit: l});
@@ -853,7 +855,7 @@ void lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
             }
         } else {
             c->dfs[w].parent = l;
-            lookahead_dfs_scc(c, count, w);
+            if (!lookahead_dfs_scc(c, count, w)) return false;
             c->dfs[l].low = std::min(c->dfs[l].low, c->dfs[w].low);
         }
     }
@@ -864,6 +866,13 @@ void lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
         double mh = std::numeric_limits<double>::min();
         do {
             x = c->sccstack.back();
+            // If -l is in the same component as l, there's a contradiciton.
+            if (x == -l) {
+                LOG(2) << "Found a contradiction during strongly connected "
+                       << "component analysis: " << l << " <=> " << -l;
+                INC(connected_components_contradiction);
+                return false;
+            }
             if (c->h[x] > mh) {
                 mh = c->h[x];
                 mx = x;
@@ -877,6 +886,7 @@ void lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
 
     count += 2;
     c->lookahead_order[i].t = count;
+    return true;
 }
 
 // Main loop of truth value propagation for Algorithm X. (72) in the text.
@@ -933,6 +943,8 @@ bool force_lookahead(Cnf* c, lit_t l) {
 }
 
 // Returns false iff a conflict is found. This is (73) in the text.
+// TODO: this can probably be merged with propagate_lookahead, they're both
+// essentially the same function.
 bool propagate_double_lookahead(Cnf* c, lit_t l) {
     CHECK(c->rstack.size() >= c->f) << "(73) says set G <- E <- F but E > F.";
     c->rstack.resize(c->f);
@@ -1039,7 +1051,8 @@ bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
         // Y4. [Move to next.]
         LOG(3) << "On to next j";
         ++j;
-        if (j == bl) {
+        if (j == c->lookahead_order.size()) {
+            LOG(3) << "Double lookahead wraparound";
             j = 0;
             base += 2 * bl;
         }
@@ -1110,8 +1123,9 @@ bool lookahead(Cnf* c) {
     size_t cmax = c->cand.size();
     if (c->d > 0) cmax = std::max(PARAM_c0, PARAM_c1/c->d);
     LOG(2) << "cmax = " << cmax << ", d = " << c->d;
-    // TODO: verify that we don't need empty check below
-    while (!c->cand.empty() && c->cand.size() > cmax) c->cand.delete_max();
+
+    CHECK(!c->cand.empty()) << "Expected candidates but got none.";
+    while (c->cand.size() > cmax) c->cand.delete_max();
 
     // X4. [Nest the candidates.]
     if (LOG_ENABLED(3)) { LOG(3) << "before nesting: " << c->dump_bimp(); }
@@ -1140,7 +1154,7 @@ bool lookahead(Cnf* c) {
         for (lit_t l : {-v,v}) {
             if (c->dfs[l].seen) continue;
             if (PARAM_cluster_during_lookahead) {
-                lookahead_dfs_scc(c, count, l);
+                if (!lookahead_dfs_scc(c, count, l)) return false;
             } else {
                 lookahead_dfs(c, count, l);
             }
@@ -1148,14 +1162,6 @@ bool lookahead(Cnf* c) {
     }
     CHECK(static_cast<size_t>(count) == c->cand.heap.size() * 4)
         << "Inconsistent DFS detected.";  // we 'count += 2' for each vertex.
-    if (LOG_ENABLED(3)) {
-        std::ostringstream oss;
-        oss << "order: ";
-        for(const auto& x : c->lookahead_order) {
-            oss << "[" << x.lit << ":" << x.t << "]";
-        }
-        LOG(3) << oss.str();
-    }
 
     size_t base_limit = c->lookahead_order.size();
     if (PARAM_cluster_during_lookahead) {
@@ -1177,6 +1183,15 @@ bool lookahead(Cnf* c) {
                 c->dfs[l].parent = c->dfs[c->dfs[l].parent].parent;
             }
         }
+    }
+
+    if (LOG_ENABLED(3)) {
+        std::ostringstream oss;
+        oss << "order: ";
+        for(const auto& x : c->lookahead_order) {
+            oss << "[" << x.lit << ":" << x.t << "]";
+        }
+        LOG(3) << oss.str();
     }
 
     // X5. [Prepare to explore.]
@@ -1204,10 +1219,12 @@ bool lookahead(Cnf* c) {
             bool forced = false;
             if (!propagate_lookahead(c, l, &w)) {
                 LOG(3) << "Can't propagate " << l << ", trying to force " << -l;
+                INC(lookahead_propagation_failures);
                 // X13. [Recover from conflict]
                 if (!force_lookahead(c, -l)) {
                     LOG(3) << "Can't propagate " << l << " or force " << -l
                            << ", bailing from lookahead";
+                    INC(lookahead_conflicts);
                     return false;
                 } // -> X7
                 forced = true;
@@ -1218,12 +1235,18 @@ bool lookahead(Cnf* c) {
                 // -> X10
             } else {
                 // X9. [Exploit an autarky]
-                if (c->dfs[l].H == 0) {
-                    if (!force_lookahead(c, l)) return false;
-                } else {
-                    CHECK(c->dfs[l].parent != lit_nil) << "no parent for " << l;
-                    c->add_binary_clause(l, -c->dfs[l].parent);
-                } // -> X10
+                if (PARAM_exploit_lookahead_autarkies) {
+                    if (c->dfs[l].H == 0) {
+                        if (!force_lookahead(c, l)) {
+                            INC(lookahead_autarky_force_failure);
+                            return false;
+                        }
+                    } else {
+                        CHECK(c->dfs[l].parent != lit_nil)
+                            << "no parent for " << l;
+                        c->add_binary_clause(l, -c->dfs[l].parent);
+                    } // -> X10
+                }
             }
             if (!forced) {
                 // X10. [Optionally look deeper.] (Algorithm Y)
@@ -1231,7 +1254,10 @@ bool lookahead(Cnf* c) {
                 if (!double_lookahead(c, base, lo, base_limit)) {
                     CHECK(c->t < PT) << "Got stamp >= PT after double look.";
                     // X13. [Recover from conflict.]
-                    if (!force_lookahead(c, -lo.lit)) return false;
+                    if (!force_lookahead(c, -lo.lit)) {
+                        INC(double_lookahead_conflict_force_failure);
+                        return false;
+                    }
                     LOG(3) << "dlook conflict, base now set to " << base;
                     // -> X7
                 } else {
@@ -1239,7 +1265,10 @@ bool lookahead(Cnf* c) {
                     for (lit_t ll : c->bimp[-l]) {
                         if (!c->fixed_true(ll) ||
                             c->fixed_true(ll, PT)) continue;
-                        if (!force_lookahead(c, ll)) return false;
+                        if (!force_lookahead(c, ll)) {
+                            INC(double_lookahead_force_failure);
+                            return false;
+                        }
                     } // -> X7
                 }
             }

@@ -42,9 +42,8 @@ struct Heap {
 
     // Initialize heap for CDCL by adding all vars and shuffling their order.
     void shuffle_init() {
-        if (FLAGS_seed == 0) {
-            FLAGS_seed = time(NULL);
-        }
+        // TODO: set seed in some central location, not here.
+        if (FLAGS_seed == 0) FLAGS_seed = time(NULL);
         srand(FLAGS_seed);
         // Initialize heap to a random permutation of [1,n]
         heap.resize(hloc.size() - 1, 0);

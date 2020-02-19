@@ -1,4 +1,4 @@
-CPPFLAGS=-g -O2 -Werror -Wall -std=c++11
+CPPFLAGS=-g -O3 -Werror -Wall -mtune=native -march=native -std=c++11
 ifndef OPT
 CPPFLAGS += -DLOGGING -DCOUNTERS -DTIMERS
 endif

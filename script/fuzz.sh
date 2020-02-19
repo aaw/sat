@@ -11,9 +11,10 @@ TIMEOUT=30s
 SEED_ARG=
 EXPERIMENT_PARAMS_ARG=
 CONTROL_SEED=
+COUNT=20
 
 # Process any overrides from command-line flags.
-while getopts ":b:c:d:p:r:t:s:" opt; do
+while getopts ":b:c:d:n:p:r:t:s:" opt; do
     case $opt in
         b)
             EXPERIMENT_BINARY="${OPTARG}"
@@ -23,6 +24,9 @@ while getopts ":b:c:d:p:r:t:s:" opt; do
             ;;
         d)
             DIFFICULTY="${OPTARG}"
+            ;;
+        n)
+            COUNT="${OPTARG}"
             ;;
         p)
             EXPERIMENT_PARAMS_ARG="-p${OPTARG}"
@@ -86,7 +90,7 @@ start=`date +%s`
 overall_delta=0
 
 echo "Testing ${DIFFICULTY} examples:"
-for i in {1..20}; do
+for i in $(seq 1 "$COUNT"); do
     seed="${RANDOM}"
     printf "rand ${ARGS} ${seed} "
     ./gen/rand.py ${ARGS} ${seed} >| /tmp/test.cnf
