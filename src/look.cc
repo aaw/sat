@@ -1,5 +1,18 @@
 // Algorithm L from Knuth's The Art of Computer Programming 7.2.2.2:
 // DPLL with Lookahead.
+//
+// This DPLL variant is modeled after Marijn Heule's March solver. When choosing
+// a variable to branch on, this solver efficiently simulates the choice of many
+// literals that seem appealing and uses that simulation to select a single best
+// candidate for branching. Surprisingly, all of this work actually makes the
+// solver run faster on many problems. Even more surprisingly, sometimes it's a
+// good idea to do additional work and simulate two consecutive choices.
+//
+// This solver implements the full lookahead solver, including Knuth's algorithm
+// L, X, and Y, as well as improvements described in the following exercises:
+//   - Exercise 139: Compensation resolvents
+//   - Exercise 149: Efficiently identify participants
+//   - Exercise 153: Use a heap to identify best candidates
 
 #include <sstream>
 #include <vector>
@@ -70,17 +83,35 @@ DEFINE_PARAM(double_lookahead_damping_factor, 0.9995,
 DEFINE_PARAM(add_compensation_resolvents, 1,
              "Use resolution to deduce new binary clauses while exploring.");
 
-DEFINE_PARAM(exploit_lookahead_autarkies, 1, "");
+DEFINE_PARAM(exploit_lookahead_autarkies, 1,
+             "If 1, detect and exploit autarkies that occur during lookahead, "
+             "resulting in either a forced literal or a new binary clause.");
 
-// Real truth
+// 32-bit truth stamps form the basis of the data structure used to efficiently
+// set and forget truth values during lookahead. The solver always carries a
+// 32-bit truth context t. Any literal with an even truth stamp >= t is true
+// and any literal with an odd truth stamp >= t is false. This scheme allows
+// us to quickly forget scratch work by incrementing t or to promote a truth
+// value we're sure about by giving it a really high value. It also supports
+// some amount of caching while computing heuristic scores by using stamps
+// stamp_a < stamp_b in some cases when a => b so that we see b's heuristic
+// score and truth stamp while considering a.
+
+// Fixed constant truth values follow. Other lower values are used by the
+// solver, including a floating DT (double truth) value used by double
+// lookahead.
+
+// Real truth: highest true/false stamp.
 constexpr uint32_t RT = std::numeric_limits<uint32_t>::max() - 1;  // 2^32 - 2
-// Near truth
+// Near truth: all literals with this stamp will eventually end up at real truth
+// unless a contradiction is found in the original formula.
 constexpr uint32_t NT = std::numeric_limits<uint32_t>::max() - 3;  // 2^32 - 4
-// Proto truth
+// Proto truth: the highest truth value we'll stamp during lookahead.
 constexpr uint32_t PT = std::numeric_limits<uint32_t>::max() - 5;  // 2^32 - 6
-// Nil truth : never used as a truth value
+// Nil truth : never used as a truth value.
 constexpr uint32_t nil_truth = 0;
 
+// Print a string representing the truth stamp.
 std::string tval(uint32_t t) {
     if (t == RT+1) return "RF";
     if (t == RT) return "RT";
