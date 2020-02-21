@@ -52,6 +52,9 @@ DEFINE_PARAM(stored_path_length, 8,
              "Length of the stored decision path used to determine whether a "
              "literal was set on the current search path. Must be <= 64.");
 
+// Convenience macro for using the previous param.
+#define SIGMA_BITS (static_cast<lit_t>(PARAM_stored_path_length))
+
 DEFINE_PARAM(disable_lookahead, 0,
              "If 1, no lookahead (Algorithm X) will be performed.");
 
@@ -111,7 +114,7 @@ constexpr uint32_t PT = std::numeric_limits<uint32_t>::max() - 5;  // 2^32 - 6
 // Nil truth : never used as a truth value.
 constexpr uint32_t nil_truth = 0;
 
-// Print a string representing the truth stamp.
+// Return a string representing the truth stamp.
 std::string tval(uint32_t t) {
     if (t == RT+1) return "RF";
     if (t == RT) return "RT";
@@ -126,6 +129,12 @@ std::string tval(uint32_t t) {
     return oss.str();
 }
 
+// Storage for timps (binary disjunctions implied by a single literal). timps
+// exist in groups of three for every ternary disjunction: (t u v) means
+// -t => (u v), -u => (t v), and -v => (t u) will all exist as timps. timps
+// are stored in an array indexed by literals, so the implicant isn't stored in
+// the timp. Instead we have timp[-t] = timp_t{u: u, v: v, ...}, etc. for
+// (t u v) and use the link field to move to the other two timps in the group.
 struct timp_t {
     lit_t u;
     lit_t v;
@@ -134,6 +143,8 @@ struct timp_t {
     // to the original ternary clause.
     size_t link;
 
+    // True exactly when none of the three literals in the ternary clause
+    // represented by this timp are at RT.
     bool active;
 };
 
@@ -172,12 +183,6 @@ struct lookahead_order_t {
     lit_t lit;
     uint32_t t;
 };
-
-// Cycles through timps corresponding to the same clause.
-// c->LINK(c->LINK(c->LINK(t))) == t.
-#define LINK(t) timp[-t.u][t.link]
-
-#define SIGMA_BITS (static_cast<lit_t>(PARAM_stored_path_length))
 
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
@@ -1463,10 +1468,6 @@ int main(int argc, char** argv) {
     init_counters();
     init_timers();
     Cnf c = parse(argv[oidx]);
-    if (/* TODO: detect no clauses || */ solve(&c)) {
-        SAT_EXIT(&c);
-    } else {
-        std::cout << "s UNSATISFIABLE" << std::endl;
-        return UNSATISFIABLE;
-    }
+    if (solve(&c)) SAT_EXIT(&c);
+    UNSAT_EXIT;
 }
