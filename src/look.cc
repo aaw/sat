@@ -2,11 +2,11 @@
 // DPLL with Lookahead.
 //
 // This DPLL variant is modeled after Marijn Heule's March solver. When choosing
-// a variable to branch on, this solver efficiently simulates the choice of many
-// literals that seem appealing and uses that simulation to select a single best
-// candidate for branching. Surprisingly, all of this work actually makes the
-// solver run faster on many problems. Even more surprisingly, sometimes it's a
-// good idea to do additional work and simulate two consecutive choices.
+// a variable for branching, this solver efficiently simulates the choice of
+// many literals that seem appealing and uses that simulation to select a single
+// best candidate for branching. Surprisingly, all of this work actually makes
+// the solver run faster on many problems. Even more surprisingly, sometimes
+// it's a good idea to do additional work and simulate two consecutive choices.
 //
 // This solver implements the full lookahead solver, including Knuth's algorithm
 // L, X, and Y, as well as improvements described in the following exercises:
@@ -203,6 +203,7 @@ struct psig_t {
     lit_t length;
 };
 
+
 struct dfs_t {
     dfs_t() :
         low(std::numeric_limits<size_t>::max()),
@@ -214,14 +215,14 @@ struct dfs_t {
         onstack(false),
         rep(false) {}
 
-    size_t low;
-    size_t num;
-    double H;
-    lit_t parent;
-    bool seen;
-    bool cand;
-    bool onstack;
-    bool rep;
+    size_t low;    // lowpoint from Tarjan's strongly conn. components (SCC).
+    size_t num;    // DFS preorder stamp.
+    double H;      // Second-order heuristic score, better than h.
+    lit_t parent;  // parent pointer from DFS.
+    bool seen;     // Has this literal been seen by DFS yet?
+    bool cand;     //
+    bool onstack;  // Is this literal currently on the SCC stack?
+    bool rep;      // Is this literal the best choice among literals in the SCC?
 };
 
 struct lookahead_order_t {
