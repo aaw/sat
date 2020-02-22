@@ -238,17 +238,25 @@ struct lookahead_order_t {
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
     // Number of variables in the original problem. These are the first
-    // nvars variables in the value array.
+    // novars variables in the value array. novars <= nvars() since extra
+    // vars can be added during processing to convert to 3-SAT.
     lit_t novars;
 
+    // Storage for bimps. bimp is a pointer into bimp_storage to allow indexing
+    // by both positive and negative literals.
     std::vector<std::vector<lit_t>> bimp_storage;
     std::vector<lit_t>* bimp;
 
+    // Storage for timps. timp is a pointer into bimp_storage to allow indexing
+    // by both positive and negative literals.
     std::vector<std::vector<timp_t>> timp_storage;
     std::vector<timp_t>* timp;
 
+    // Storage for the binary implication graph, a subset of the reverse graph
+    // defined by bimp. Used to create the lookahead ordering for candidates.
+    // big is a pointer that allows indexing by positive and negative literals.
     std::vector<std::vector<lit_t>> big_storage;
-    std::vector<lit_t>* big; // binary implication graph, used for lookahead.
+    std::vector<lit_t>* big;
 
     // heuristic scores, maps lit -> score. h_storage[d][l] is the score for
     // level d, lit l.
