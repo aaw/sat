@@ -81,7 +81,8 @@ DEFINE_PARAM(double_lookahead_frontier, 10,
 
 DEFINE_PARAM(double_lookahead_damping_factor, 0.9995,
              "Damping factor that makes double lookahead more attractive the "
-             "the more it's avoided.");
+             "the more it's avoided. Increase this to decrease the chance of "
+             "double lookahead. Should be betweeen 0 and 1, inclusive.");
 
 DEFINE_PARAM(add_compensation_resolvents, 1,
              "Use resolution to deduce new binary clauses while exploring.");
@@ -114,7 +115,7 @@ constexpr uint32_t PT = std::numeric_limits<uint32_t>::max() - 5;  // 2^32 - 6
 // Nil truth : never used as a truth value.
 constexpr uint32_t nil_truth = 0;
 
-// Return a string representing the truth stamp.
+// Return a string with a human-readable representation of the truth stamp.
 std::string tval(uint32_t t) {
     if (t == RT+1) return "RF";
     if (t == RT) return "RT";
@@ -129,18 +130,48 @@ std::string tval(uint32_t t) {
     return oss.str();
 }
 
-// Storage for timps (binary disjunctions implied by a single literal). timps
-// exist in groups of three for every ternary disjunction: (t u v) means
-// -t => (u v), -u => (t v), and -v => (t u) will all exist as timps. timps
-// are stored in an array indexed by literals, so the implicant isn't stored in
-// the timp. Instead we have timp[-t] = timp_t{u: u, v: v, ...}, etc. for
-// (t u v) and use the link field to move to the other two timps in the group.
-struct timp_t {
-    lit_t u;
-    lit_t v;
+// timps and bimps: our lookahead solver only deals with 3-SAT formulas,
+// converting any clause with more than three literals to a set of equivalent
+// 3-SAT clauses during input processing. So our clause data structures are
+// designed to be as fast as possible for iterating over all clauses that
+// contain a particular literal while allowing for literals to leave/enter
+// clauses as their values are fixed or unfixed. There are three cases:
+//
+//   * Ternary clauses: A clause (x y z) is stored in a timp map as three
+//     different implications: -x => (y z), -y => (x z), and -z => (x y).
+//     The structures holding (y z), (x z), (x y) also have a link field that
+//     forms a circularly linked list among these three entries so that when
+//     any of x, y, or z is fixed, all three clauses can be marked as disabled
+//     in the timp map in constant time (or similarly, re-enabled if x, y, z
+//     all become free later).
+//
+//   * Binary clauses: A clause (x y) is stored in a bimp map as two different
+//     implications: -x => y and -y => x. Unlike timp maps, values in bimp maps
+//     are just simple lists of literals. timps usually become bimps in groups,
+//     as a consequence of fixing a single literal. Whenever this happens, we
+//     push a record on a separate stack, keeping track of the bimp that grew
+//     and its previous size, so that we can undo the bimp changes quickly if we
+//     end up wanting to unfix the literal later. When bimps become unit
+//     clauses, we don't actually remove them or disable them in the bimp map,
+//     we just take care to always check whether a literal is fixed or free when
+//     iterating over the list of bimp values.
+//
+//   * Unit clauses: These get pushed on special "force" list and dealt with
+//     en masse during each iteration of the solver. Since we never actually
+//     remove unit clauses from bimps, we don't need any special handling to
+//     undo if we decide to unfix a unit clause later.
 
-    // Use c.timp[-u][link] to cycle through the other two timps corresponding
-    // to the original ternary clause.
+// Storage for timps (binary disjunctions implied by a single literal). timps
+// exist in groups of three for every ternary disjunction: (x y z) means
+// -x => (y z), -y => (x z), and -z => (x y) will all exist as timps. timps
+// are stored in an array indexed by literals, so the implicant isn't stored in
+// the timp. Instead we have timp[-x] = timp_t{u: y, v: z, ...}, etc. for
+// (x y z) and use the link field to move to the other two timps in the group.
+struct timp_t {
+    lit_t u, v;
+
+    // Use timp[-u][link] to cycle through the other two timps corresponding to
+    // the original ternary clause.
     size_t link;
 
     // True exactly when none of the three literals in the ternary clause
@@ -148,6 +179,10 @@ struct timp_t {
     bool active;
 };
 
+// A record of a literal and the size of its bimp entry at some point in time.
+// These live on a stack which allows us to undo decisions that caused a
+// literal's bimps to grow by popping this off the stack and shrinking that
+// literal's bimp entry to its previous size.
 struct istack_frame_t {
     lit_t l;
     size_t bsize;
@@ -1465,6 +1500,10 @@ int main(int argc, char** argv) {
         "Usage: " << argv[0] << " <filename>";
     CHECK(PARAM_stored_path_length >= 0) << "stored_path_length must be >= 0";
     CHECK(PARAM_stored_path_length <= 64) << "stored_path_length must be <= 64";
+    CHECK(PARAM_double_lookahead_damping_factor >= 0)
+        << "double_lookahead_damping factor must be >= 0";
+    CHECK(PARAM_double_lookahead_damping_factor <= 1)
+        << "double_lookahead_damping factor must be <= 1";
     init_counters();
     init_timers();
     Cnf c = parse(argv[oidx]);
