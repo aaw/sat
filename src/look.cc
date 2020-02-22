@@ -203,28 +203,33 @@ struct psig_t {
     lit_t length;
 };
 
-
+// Storage for the state of a literal according to the depth-first search (DFS)
+// that we run over binary implications during lookahead. Optionally, we compute
+// strongly-connected components (SCC) using Tarjan's algorithm if the
+// cluster_during_lookahead flag is set.
 struct dfs_t {
     dfs_t() :
         low(std::numeric_limits<size_t>::max()),
         num(std::numeric_limits<size_t>::max()),
         H(0.0),
         parent(lit_nil),
-        seen(false),
-        cand(false),
+        seen(true),  // Everything starts seen, then we unset before processing.
         onstack(false),
         rep(false) {}
 
-    size_t low;    // lowpoint from Tarjan's strongly conn. components (SCC).
+    size_t low;    // 'lowpoint' from the SCC algorithm.
     size_t num;    // DFS preorder stamp.
     double H;      // Second-order heuristic score, better than h.
     lit_t parent;  // parent pointer from DFS.
     bool seen;     // Has this literal been seen by DFS yet?
-    bool cand;     //
     bool onstack;  // Is this literal currently on the SCC stack?
     bool rep;      // Is this literal the best choice among literals in the SCC?
 };
 
+// Storage for the truth stamps assigned to candidates after the DFS during
+// lookahead. These truth stamps and their ordering allow us to cache binary
+// implications by arranging literal x before literal y in the ordering and
+// making x's stamp greater than y's stamp in some cases when y => x.
 struct lookahead_order_t {
     lit_t lit;
     uint32_t t;
@@ -1217,13 +1222,14 @@ bool lookahead(Cnf* c) {
         c->big[l].clear();
     }
     for (lit_t v : c->cand.heap) {
-        c->dfs[v].cand = c->dfs[-v].cand = true;
+        c->dfs[v].seen = c->dfs[-v].seen = false;
     }
     // Copy reverse graph induced by candidates into big.
     for (lit_t u = -c->nvars(); u <= c->nvars(); ++u) {
         if (u == 0) continue;
+        if (c->dfs[u].seen) continue;
         for (lit_t v : c->bimp[u]) {
-            if (!c->dfs[u].cand || !c->dfs[v].cand) continue;
+            if (c->dfs[v].seen) continue;
             c->big[v].push_back(u);
         }
     }
@@ -1287,7 +1293,6 @@ bool lookahead(Cnf* c) {
         lookahead_order_t lo = c->lookahead_order[j];
         LOG(3) << "X6 with " << lo.lit << " at " << tval(lo.t);
         lit_t l = lo.lit;
-        CHECK(c->dfs[l].cand);
         c->t = base + lo.t;
         c->dfs[l].H = 0.0;
         if (c->dfs[l].parent != lit_nil) {
