@@ -258,11 +258,13 @@ struct Cnf {
     std::vector<std::vector<lit_t>> big_storage;
     std::vector<lit_t>* big;
 
-    // heuristic scores, maps lit -> score. h_storage[d][l] is the score for
-    // level d, lit l.
+    // Heuristic scores. h[d][l] is the score of literal l at decision level d.
+    // At each new decision level, scores are bootstrapped from the previous
+    // level, up to a final level defined by the flag max_decision_level.
     std::vector<std::vector<double>> h_storage;
     double* h;
 
+    // Storage for values computed during the depth-first search of candidates.
     std::vector<dfs_t> dfs_storage;
     dfs_t* dfs;
 
