@@ -180,14 +180,24 @@ struct timp_t {
 };
 
 // A record of a literal and the size of its bimp entry at some point in time.
-// These live on a stack which allows us to undo decisions that caused a
-// literal's bimps to grow by popping this off the stack and shrinking that
+// These live on a stack which allows us to quickly undo decisions that caused a
+// literal's bimps to grow by popping the stack and shrinking the corresponding
 // literal's bimp entry to its previous size.
 struct istack_frame_t {
     lit_t l;
     size_t bsize;
 };
 
+// A rough signature of the state of the solver. Essentially a bitmap recording
+// up to 64 of the decisions made. We need this to identify whether a literal
+// has been a "participant" in the current search path by stamping each literal
+// with the current solver signature whenever it's considered. This lets us
+// easily focus the search in the early stages by considering only literals
+// whose signatures match a prefix of the current solver signature. This focus
+// becomes less important as more literals get fixed, which is why a 64-bit
+// bitmap is all we keep. The stored_path_length flag can be used to set the
+// effective length of a signature to a value smaller than 64 and widen the
+// solver's focus even earlier.
 struct psig_t {
     uint64_t path;
     lit_t length;
