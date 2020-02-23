@@ -268,19 +268,27 @@ struct Cnf {
     std::vector<dfs_t> dfs_storage;
     dfs_t* dfs;
 
+    // Ordering of literals for lookahead and double lookahead.
     std::vector<lookahead_order_t> lookahead_order;
 
+    // Storage for windfalls (binary clauses deduced during lookahead). This
+    // storage is always temporary and should be cleared before using.
     std::vector<lit_t> windfalls;
 
-    std::vector<lit_t> force; // list of unit literals
+    // List of unit literals forced by the current solver state. These are
+    // propagated and cleared once per iteration of the solver.
+    std::vector<lit_t> force;
 
-     // maps depth -> values of dec[depth] attempted.
-    // -1 = none, 0 = dec[depth], 1 = -dec[depth].
+    // A record of decisions made. Only valid up to index d (the current depth
+    // of the solver). If branch[x] == -1, we haven't made a decision yet. If
+    // branch[x] == 0, we're trying literal dec[x] but haven't tried -dec[x]. If
+    // branch[x] == 1, we're trying literal dec[x] after trying -dec[x].
     std::vector<uint8_t> branch;
 
-    std::vector<lit_t> freevar;  // list of free variables
-    // invfree[freevar[k]] == k, k free if this is a valid index into freevar.
-    std::vector<lit_t> invfree;
+    // List of free variables: variables that we haven't assigned a truth value
+    // to yet. invfree is an index into this list so that
+    // invfree[freevar[k]] == k for all 0 <= k < freevar.size().
+    std::vector<lit_t> freevar, invfree;
 
     std::vector<lit_t> rstack;  // stack of literals. rstack.size() == E.
 
