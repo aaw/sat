@@ -790,8 +790,6 @@ bool propagate(Cnf* c, lit_t l) {
     return true;
 }
 
-//
-// TODO: just make a member function of Cnf
 lit_t resolve_conflict(Cnf* c) {
     LOG(3) << "L11: Current rstack: " << c->dump_rstack();
     // L11. [Unfix near truths.]
@@ -887,7 +885,6 @@ bool resolve_bimps(Cnf* c, lit_t u, lit_t v) {
 
 // Does L5 - L9
 // Returns lit to try if there was a conflict, lit_nil otherwise
-// TODO: just make a member function of Cnf
 lit_t accept_near_truths(Cnf* c) {
     // L5. [Accept near truths.]
     c->t = NT;
@@ -950,7 +947,6 @@ lit_t accept_near_truths(Cnf* c) {
                         }
                     }
                 }
-                // TODO: deduce compensation resolvents (see ex. 139)
             }
         }
     }
