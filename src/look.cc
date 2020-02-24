@@ -285,53 +285,73 @@ struct Cnf {
     // branch[x] == 1, we're trying literal dec[x] after trying -dec[x].
     std::vector<uint8_t> branch;
 
-    // List of free variables: variables that we haven't assigned a truth value
-    // to yet. invfree is an index into this list so that
-    // invfree[freevar[k]] == k for all 0 <= k < freevar.size().
+    // List of free (not fixed) variables: invfree is an index into this list so
+    // that invfree[freevar[k]] == k for all 0 <= k < freevar.size().
     std::vector<lit_t> freevar, invfree;
 
-    std::vector<lit_t> rstack;  // stack of literals. rstack.size() == E.
+    // Stack of fixed literals. When we're propagating the consequences of a
+    // literal, we also keep pointers f and g into this stack to track the
+    // frontiers of RT and NT, respectively. What Knuth calls "E" is just
+    // rstack.size() in our implementation.
+    std::vector<lit_t> rstack;
 
-    std::vector<uint64_t> istamps_storage;  // maps literals to their istamp;
+    // Maps literals to their istamp, the last epoch where their bimps grew.
+    std::vector<uint64_t> istamps_storage;
     uint64_t* istamps;
 
-    std::vector<uint64_t> bstamps_storage;  // maps literals to their bstamp;
+    // Maps literals to their bstamp, a counter used for computing compensation
+    // resolvents.
+    std::vector<uint64_t> bstamps_storage;
     uint64_t* bstamps;
 
-    std::vector<uint64_t> dfail_storage; // dfail from Algorithm Y
+    // Maps literals to the dfail value, the last istamp when they were
+    // successfully considered for double lookahead.
+    std::vector<uint64_t> dfail_storage;
     uint64_t* dfail;
 
-    std::vector<lit_t> dec;  // maps d -> decision literal
+    // Maps decision level d to the literal choice made at that level.
+    std::vector<lit_t> dec;
 
-    std::vector<lit_t> backf;  // maps d -> f at the time decision d was made.
+    // Maps decision level d to the f rstack pointer when the decision was made.
+    std::vector<lit_t> backf;
 
-    std::vector<uint64_t> backi;  // maps d -> istack size when dec. d was made.
+    // Maps decision level d to the istack value when the decision was made.
+    std::vector<uint64_t> backi;
 
+    // A stack of literals and their bimp sizes, used to quickly undo choices
+    // that caused bimps to grow.
     std::vector<istack_frame_t> istack;
 
-    std::vector<uint32_t> val;  // maps variables -> truth values
+    // Maps variables to their truth stamps.
+    std::vector<uint32_t> val;
 
-    std::vector<psig_t> sig;  // to identify participants/newbies
+    // Maps variables to their bit signatures used to identify participants.
+    std::vector<psig_t> sig;
 
-    std::vector<lit_t> sccstack; // used for strongly connected components
+    // A stack used only in strongly connected components algorithm.
+    std::vector<lit_t> sccstack;
 
-    Heap cand;  // lookahead candidates
+    // Heap-ordered lookahead candidates.
+    Heap cand;
 
-    uint64_t sigma; // branch signature, to compare against sig[var(l)] above
+    // The bit signature of the current decision choices of the algorithm. Used
+    // for comparing against sig[v] to see if v was considered on the current
+    // search path.
+    uint64_t sigma;
 
-    lit_t d;  // current search depth
+    lit_t d;  // Current search depth.
 
-    size_t f;  // index into rstack, number of fixed variables.
+    size_t f;  // Index into rstack, number of RT vars from previous iterations.
 
-    size_t g;  // really true stacked literals.
+    size_t g;  // Index into rstack, number of RT vars from all iterations.
 
-    uint64_t istamp;
+    uint64_t istamp;  // Epoch counter, incremented each major solver iteration.
 
-    uint64_t bstamp;
+    uint64_t bstamp;  // Compensation resolvent counter.
 
-    uint32_t t; // current truth level (RT, NT, PT, etc)
+    uint32_t t; // Current truth level (RT, NT, PT, etc.)
 
-    double tau; // trigger for double lookahead
+    double tau; // Trigger value for double lookahead.
 
     Cnf(lit_t novars, lit_t nsvars) :
         novars(novars),
