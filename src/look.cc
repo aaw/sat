@@ -243,12 +243,14 @@ struct Cnf {
     lit_t novars;
 
     // Storage for bimps. bimp is a pointer into bimp_storage to allow indexing
-    // by both positive and negative literals.
+    // by both positive and negative literals. bimp maps literals to their bimp
+    // list.
     std::vector<std::vector<lit_t>> bimp_storage;
     std::vector<lit_t>* bimp;
 
     // Storage for timps. timp is a pointer into bimp_storage to allow indexing
-    // by both positive and negative literals.
+    // by both positive and negative literals. timp maps literals to the timp
+    // list.
     std::vector<std::vector<timp_t>> timp_storage;
     std::vector<timp_t>* timp;
 
@@ -400,6 +402,8 @@ struct Cnf {
         h = h_ptr(0);
     }
 
+    // Number of variables solver is working with. Different than the number of
+    // variables in the original problem because of conversion to 3-SAT.
     inline lit_t nvars() const {
         return val.size() - 1;
     }
@@ -412,11 +416,13 @@ struct Cnf {
         val[var(l)] = context + (l < 0 ? 0 : 1);
     }
 
+    // Is literal l fixed (true or false) in a particular truth context?
     bool fixed(lit_t l, uint32_t T=nil_truth) {
         if (T == nil_truth) T = t;
         return val[var(l)] >= T;
     }
 
+    // Is literal l fixed true in a particular truth context?
     bool fixed_true(lit_t l, uint32_t T=nil_truth) {
         if (T == nil_truth) T = t;
         uint32_t v = val[var(l)];
@@ -424,6 +430,7 @@ struct Cnf {
         return (l > 0) != (v % 2 == 1);
    }
 
+    // Is literal l fixed false in a particular truth context?
     bool fixed_false(lit_t l, uint32_t T=nil_truth) {
         if (T == nil_truth) T = t;
         uint32_t v = val[var(l)];
