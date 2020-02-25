@@ -289,7 +289,8 @@ struct Cnf {
 
     // List of free (not fixed) variables: invfree is an index into this list so
     // that invfree[freevar[k]] == k for all 0 <= k < freevar.size().
-    std::vector<lit_t> freevar, invfree;
+    std::vector<lit_t> freevar;
+    std::vector<size_t> invfree;
 
     // Stack of fixed literals. When we're propagating the consequences of a
     // literal, we also keep pointers f and g into this stack to track the
@@ -438,32 +439,36 @@ struct Cnf {
         return (l > 0) != (v % 2 == 0);
     }
 
+    // Remove var v from the free list.
     void make_unfree(lit_t v) {
         LOG(3) << "make_unfree(" << v << ")";
         CHECK(v > 0) << "wanted var in make_unfree, got lit";
         CHECK(!freevar.empty()) << "make_unfree called on empty freevar array.";
+        CHECK(invfree[v] < freevar.size())
+            << "make_unfree called on already unfree var: " << v;
         lit_t s = freevar[freevar.size()-1];
         std::swap(freevar[invfree[v]], freevar[freevar.size()-1]);
         freevar.pop_back();
         std::swap(invfree[v], invfree[s]);
     }
 
+    // Add var v back to the free list.
     void make_free(lit_t v) {
         LOG(3) << "make_free(" << v << ")";
         CHECK(v > 0) << "wanted var in make_free, got lit " << v;
+        CHECK(invfree[v] >= freevar.size())
+            << "make_free called on already free var: " << v;
         freevar.push_back(v);
         invfree[v] = freevar.size()-1;
     }
 
     // Returns true exactly when u is in bimp[v].
     bool in_bimp(lit_t u, lit_t v) {
-        for (const lit_t x : bimp[v]) {
-            if (x == u) return true;
-        }
+        for (const lit_t x : bimp[v]) { if (x == u) return true; }
         return false;
     }
 
-    // Append v to bimp[u].
+    // Helper function: append v to bimp[u].
     void bimp_append(lit_t u, lit_t v) {
         if (istamps[u] != istamp) {
             istamps[u] = istamp;
@@ -472,15 +477,19 @@ struct Cnf {
         bimp[u].push_back(v);
     }
 
+    // Add the binary clause (u v), properly stamped and on the istack so that
+    // it can be removed during backtracking.
     void add_binary_clause(lit_t u, lit_t v) {
         LOG(3) << "Adding binary clause (" << u << " " << v << ")";
         bimp_append(-u, v);
         bimp_append(-v, u);
     }
 
-    void timp_set_active(lit_t l, bool active) {
-        for (lit_t x : {l, -l}) {
-            for (timp_t& t : timp[x]) {
+    // Adjust timps so that var v appears as either not active or active. This
+    // should be done whenever a var is promoted to RT or demoted from RT, resp.
+    void timp_set_active(lit_t v, bool active) {
+        for (lit_t l : {v, -v}) {
+            for (timp_t& t : timp[l]) {
                 timp_t &u = timp[-t.u][t.link];
                 u.active = active;
                 timp[-u.u][u.link].active = active;
@@ -488,21 +497,22 @@ struct Cnf {
         }
     }
 
+    // Has sigma_stamp been called on l on the current search path? Returns
+    // false if we don't know because all bits in sigma have been exhausted.
     bool participant(lit_t l) {
         psig_t p = sig[var(l)];
         return p.length > 0 && p.length <= d+1 &&
             p.path == (sigma & ((1ULL << std::min(p.length, SIGMA_BITS)) - 1));
     }
 
+    // Mark l as a participant on the current search path.
     void sigma_stamp(lit_t l) {
         if (participant(l)) return;
         sig[var(l)] = psig_t{path: sigma, length: d+1};
     }
 
-    double* h_ptr(size_t level) {
-        return &h_storage[level][nvars()];
-    }
-
+    // Use heuristic scores in hold to compute another iteration of heuristic
+    // scores, storing them in hnew.
     void cascade_heuristic_scores(double* hold, double* hnew) {
         double avg = 0.0;
         for (lit_t l = 1; l <= nvars(); ++l) {
@@ -526,6 +536,14 @@ struct Cnf {
         }
     }
 
+    // Helper function, returns pointer to set of heuristic scores for a level.
+    double* h_ptr(size_t level) {
+        return &h_storage[level][nvars()];
+    }
+
+    // Calculate heuristic scores for the current level. This should be called
+    // once per decision level, and in most cases uses heuristic scores from the
+    // previous level to bootstrap scores.
     void refine_heuristic_scores() {
         if (d <= 1) {
             cascade_heuristic_scores(h_ptr(0), h_ptr(1));
@@ -807,7 +825,7 @@ lit_t resolve_conflict(Cnf* c) {
             LOG(2) << "L12: unsetting " << var(x) << " ("
                    << tval(c->val[var(x)]) << ")";
             c->rstack.pop_back();
-            c->timp_set_active(x, true);
+            c->timp_set_active(var(x), true);
             c->make_free(var(x));
             c->val[var(x)] = 0;
         }
@@ -911,7 +929,7 @@ lit_t accept_near_truths(Cnf* c) {
         LOG(2) << "Promoting " << l << " to RT";
         c->set_true(l, RT);
         c->make_unfree(var(l));
-        c->timp_set_active(l, false);
+        c->timp_set_active(var(l), false);
 
         LOG(2) << "considering timps of " << l;
         for (const timp_t& t : c->timp[l]) {
