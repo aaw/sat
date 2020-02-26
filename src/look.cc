@@ -58,6 +58,10 @@ DEFINE_PARAM(stored_path_length, 8,
 DEFINE_PARAM(disable_lookahead, 0,
              "If 1, no lookahead (Algorithm X) will be performed.");
 
+DEFINE_PARAM(disable_lookahead_wraparound, 0,
+             "If 1, during lookahead, don't wait until propagation stops, only "
+             "iterate through lookahead candidates at most once.");
+
 DEFINE_PARAM(add_windfalls, 1.0,
              "If 1, generate 'windfall' binary clauses during lookahead that "
              "are implied by consequences of the current lookahead literal.");
@@ -74,6 +78,11 @@ DEFINE_PARAM(cluster_during_lookahead, 1,
 
 DEFINE_PARAM(disable_double_lookahead, 0,
              "If 1, no double lookahead (Algorithm Y) will be performed.");
+
+DEFINE_PARAM(disable_double_lookahead_wraparound, 0,
+             "If 1, during double lookahead, don't wait until propagation "
+             "stops, only iterate through double lookahead candidates at most "
+             "once.");
 
 DEFINE_PARAM(double_lookahead_frontier, 10,
              "Max number of literals we'll attempt to perform double lookahead "
@@ -1202,7 +1211,9 @@ bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
             j = 0;
             base += 2 * bl;
         }
-        if (jp == j || (j == 0 && base == lbase)) {
+        bool badwrap =
+            base == lbase || PARAM_disable_double_lookahead_wraparound;
+        if (jp == j || (j == 0 && badwrap)) {
             // Y6. [Finish.]
             LOG(3) << "Successfully finished double lookahead.";
             if (PARAM_add_double_windfalls) {
@@ -1439,14 +1450,17 @@ bool lookahead(Cnf* c) {
             INC(lookahead_wraparound);
             j = 0;
             base += 2 * base_limit;
+            if (PARAM_disable_lookahead_wraparound) {
+                INC(lookahead_aborted);
+                return true;
+            }
+            if (base + 2 * base_limit >= PT) {
+                INC(lookahead_exhausted);
+                return true;
+            }
         }
         if (j == jp) {
             LOG(3) << "Bailing on lookahead, no change in j = " << j;
-            return true;
-        }
-        if (j == 0 && base + 2 * base_limit >= PT) {
-            INC(lookahead_exhausted);
-            LOG(3) << "Bailing on lookahead, base counter too high.";
             return true;
         }
         // -> X6
