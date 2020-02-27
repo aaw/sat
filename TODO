@@ -4,8 +4,6 @@
 * use clang instead of gcc? seems to be a little faster on most examples.
 * close all timers during SAT_EXIT/UNSAT_EXIT
 
-* test cluster_during_lookahead, figure out if faster now that it works
 * randomize freevars order
 * look.cc: update h scores on the fly during lookahead?
 * write pigeonhole generator
-* use scc to find contradictions again
