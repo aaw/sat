@@ -84,7 +84,7 @@ DEFINE_PARAM(disable_double_lookahead_wraparound, 0,
              "stops, only iterate through double lookahead candidates at most "
              "once.");
 
-DEFINE_PARAM(double_lookahead_frontier, 10,
+DEFINE_PARAM(double_lookahead_frontier, 7,
              "Max number of literals we'll attempt to perform double lookahead "
              "on during a single double lookahead.");
 
@@ -437,7 +437,7 @@ struct Cnf {
         if (T == nil_truth) T = t;
         uint32_t v = val[var(l)];
         if (v < T) return false;
-        return (l > 0) != (v % 2 == 1);
+        return (l > 0) != ((v & 1) == 1);
    }
 
     // Is literal l fixed false in a particular truth context?
@@ -445,7 +445,7 @@ struct Cnf {
         if (T == nil_truth) T = t;
         uint32_t v = val[var(l)];
         if (v < T) return false;
-        return (l > 0) != (v % 2 == 0);
+        return (l > 0) != ((v & 1) == 0);
     }
 
     // Remove var v from the free list.
@@ -581,7 +581,18 @@ struct Cnf {
         }
     }
 
-    std::string val_debug_string() const {
+    void print_assignment() {
+        for (int i = 1, j = 0; i <= novars; ++i) {
+            if (!fixed(i)) { set_false(i, t); }
+            if (j % 10 == 0) PRINT << "v";
+            PRINT << (fixed_false(i) ? " -" : " ") << i;
+            ++j;
+            if (i == novars) PRINT << " 0" << std::endl;
+            else if (j > 0 && j % 10 == 0) PRINT << std::endl;
+        }
+    }
+
+    std::string dump_vals() const {
         std::ostringstream oss;
         for(int i = 0; i < d; ++i) {
             oss << (branch[i] == 0 ? "+" : "") << dec[i];
@@ -606,17 +617,6 @@ struct Cnf {
     std::string dump_bimp() const { return dump_graph(bimp); }
 
     std::string dump_big() const { return dump_graph(big); }
-
-    void print_assignment() {
-        for (int i = 1, j = 0; i <= novars; ++i) {
-            if (!fixed(i)) { set_false(i, t); }
-            if (j % 10 == 0) PRINT << "v";
-            PRINT << (fixed_false(i) ? " -" : " ") << i;
-            ++j;
-            if (i == novars) PRINT << " 0" << std::endl;
-            else if (j > 0 && j % 10 == 0) PRINT << std::endl;
-        }
-    }
 
     std::string dump_h_scores() const {
         std::ostringstream oss;
@@ -721,7 +721,7 @@ Cnf parse(const char* filename) {
             clauses.emplace_back(std::move(clause));
         } else {
             // Convert any clause of length > 3 to an equivalent conjunction of
-            // 3-clauses. Example: (x1 x2 x3 x4 x5) becomes
+            // 3-clauses by adding variables. Example: (x1 x2 x3 x4 x5) becomes
             // (x1 x2 z1) (-z1 x3 z2) (-z2 x4 z3) (-z3 x4 x5).
             std::ostringstream oss;
             for(const auto& x : clause) { oss << x << " "; }
@@ -770,7 +770,7 @@ Cnf parse(const char* filename) {
             c.bimp[-cl[0]].push_back(cl[1]);
             c.bimp[-cl[1]].push_back(cl[0]);
         } else /* cl.size() == 3 */ {
-            CHECK(cl.size() == 3) << "Unexpected long clause.";
+            CHECK(cl.size() == 3) << "Unexpected clause of size " << cl.size();
             size_t link = c.timp[-cl[1]].size();
             c.timp[-cl[0]].push_back({
                 u: cl[1], v: cl[2], link: link, active: true});
@@ -1082,9 +1082,7 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
     }
     if (PARAM_add_windfalls) INC(windfalls, c->windfalls.size());
     LOG(2) << "Adding " << c->windfalls.size() << " windfalls";
-    for (lit_t w : c->windfalls) {
-        c->add_binary_clause(-l, w);
-    }
+    for (lit_t w : c->windfalls) { c->add_binary_clause(-l, w); }
     return true;
 }
 
@@ -1098,8 +1096,6 @@ bool force_lookahead(Cnf* c, lit_t l) {
 }
 
 // Returns false iff a conflict is found. This is (73) in the text.
-// TODO: this can probably be merged with propagate_lookahead, they're both
-// essentially the same function.
 bool propagate_double_lookahead(Cnf* c, lit_t l) {
     CHECK(c->rstack.size() >= c->f) << "(73) says set G <- E <- F but E > F.";
     c->rstack.resize(c->f);
@@ -1557,7 +1553,7 @@ bool solve(Cnf* c) {
 
         while (l != lit_nil) {
             // L4. [Try l.]
-            LOG(1) << c->val_debug_string();
+            LOG(1) << c->dump_vals();
             if (c->d < SIGMA_BITS && c->branch[c->d] == 1) {
                 c->sigma |= 1ULL << c->d;  // append to sigma
             }
