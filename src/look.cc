@@ -592,7 +592,7 @@ struct Cnf {
         }
     }
 
-    std::string dump_vals() const {
+    std::string decisions_debug_string() const {
         std::ostringstream oss;
         for(int i = 0; i < d; ++i) {
             oss << (branch[i] == 0 ? "+" : "") << dec[i];
@@ -600,7 +600,7 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string dump_graph(std::vector<lit_t>* g) const {
+    std::string graph_debug_string(std::vector<lit_t>* g) const {
         std::ostringstream oss;
         for(lit_t l = -nvars(); l <= nvars(); ++l) {
             if (l == 0) continue;
@@ -614,11 +614,11 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string dump_bimp() const { return dump_graph(bimp); }
+    std::string bimp_debug_string() const { return graph_debug_string(bimp); }
 
-    std::string dump_big() const { return dump_graph(big); }
+    std::string big_debug_string() const { return graph_debug_string(big); }
 
-    std::string dump_h_scores() const {
+    std::string h_scores_debug_string() const {
         std::ostringstream oss;
         for (lit_t l = 1; l <= nvars(); ++l) {
             oss << "[" << l << ":" << h[l] << "*" << h[-l] << "=" << h[l]*h[-l]
@@ -627,7 +627,7 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string dump_truths() const {
+    std::string stamps_debug_string() const {
         std::ostringstream oss;
         for (lit_t l = 1; l <= nvars(); ++l) {
             if (val[l] != nil_truth) {
@@ -637,7 +637,7 @@ struct Cnf {
         return oss.str();
     }
 
-    std::string dump_rstack() const {
+    std::string rstack_debug_string() const {
         std::ostringstream oss;
         for (size_t i = 0; i < rstack.size(); ++i) {
             if (i == g) oss << "{G}";
@@ -783,7 +783,7 @@ Cnf parse(const char* filename) {
         }
     }
 
-    if (LOG_ENABLED(3)) { LOG(3) << "bimp: " << c.dump_bimp(); }
+    if (LOG_ENABLED(3)) { LOG(3) << "bimp: " << c.bimp_debug_string(); }
     return c;
 }
 
@@ -818,7 +818,7 @@ bool propagate(Cnf* c, lit_t l) {
 }
 
 lit_t resolve_conflict(Cnf* c) {
-    LOG(3) << "L11: Current rstack: " << c->dump_rstack();
+    LOG(3) << "L11: Current rstack: " << c->rstack_debug_string();
     // L11. [Unfix near truths.]
     while (c->g < c->rstack.size()) {
         LOG(2) << "L11: unsetting " << var(c->rstack.back())
@@ -827,7 +827,7 @@ lit_t resolve_conflict(Cnf* c) {
         c->rstack.pop_back();
     }
     while (true) {
-        LOG(3) << "L12: Current rstack: " << c->dump_rstack();
+        LOG(3) << "L12: Current rstack: " << c->rstack_debug_string();
         // L12. [Unfix real truths.]
         while (c->f < c->rstack.size()) {
             lit_t x = c->rstack.back();
@@ -839,7 +839,7 @@ lit_t resolve_conflict(Cnf* c) {
             c->val[var(x)] = 0;
         }
 
-        LOG(3) << "L13: Current rstack: " << c->dump_rstack();
+        LOG(3) << "L13: Current rstack: " << c->rstack_debug_string();
         // L13. [Downdate BIMPs.]
         if (c->branch[c->d] >= 0) {
             while (c->istack.size() > c->backi[c->d]) {
@@ -1018,7 +1018,7 @@ bool lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
     if (c->dfs[l].low == c->dfs[l].num) {
         lit_t x = lit_nil;
         lit_t mx = lit_nil;
-        double mh = std::numeric_limits<double>::min();
+        double mh = std::numeric_limits<double>::lowest();
         do {
             x = c->sccstack.back();
             // If -l is in the same component as l, there's a contradiciton.
@@ -1240,7 +1240,7 @@ bool lookahead(Cnf* c) {
 
     // X2. [Compile rough heuristics.]
     c->refine_heuristic_scores();
-    if (LOG_ENABLED(3)) LOG(3) << "h: " << c->dump_h_scores();
+    if (LOG_ENABLED(3)) LOG(3) << "h: " << c->h_scores_debug_string();
 
     // X3. [Preselect candidates.]
     c->cand.clear();
@@ -1281,7 +1281,6 @@ bool lookahead(Cnf* c) {
     while (c->cand.size() > cmax) c->cand.delete_max();
 
     // X4. [Nest the candidates.]
-    if (LOG_ENABLED(3)) { LOG(3) << "before nesting: " << c->dump_bimp(); }
     for (lit_t l = -c->nvars(); l <= c->nvars(); ++l) {
         if (l == 0) continue;
         c->dfs[l] = dfs_t();
@@ -1299,7 +1298,10 @@ bool lookahead(Cnf* c) {
             c->big[v].push_back(u);
         }
     }
-    if (LOG_ENABLED(3)) { LOG(3) << "candidate graph: " << c->dump_big(); }
+
+    if (LOG_ENABLED(3)) {
+        LOG(3) << "candidate graph: " << c->big_debug_string();
+    }
 
     lit_t count = 0;
     c->lookahead_order.clear();
@@ -1367,7 +1369,7 @@ bool lookahead(Cnf* c) {
         if (!c->fixed(l)) {
             // X8. [Compute sharper heuristic.]
             LOG(3) << "X8";
-            LOG(2) << "Current truths: " << c->dump_truths();
+            LOG(2) << "Current truths: " << c->stamps_debug_string();
             double w = 0;
             bool forced = false;
             if (!propagate_lookahead(c, l, &w)) {
@@ -1435,7 +1437,7 @@ bool lookahead(Cnf* c) {
 
         // X7. [Move to next.]
         LOG(3) << "X7";
-        LOG(3) << "X7: Current rstack: " << c->dump_rstack();
+        LOG(3) << "X7: Current rstack: " << c->rstack_debug_string();
         if (c->force.size() > nf) {
             nf = c->force.size();
             jp = j;
@@ -1468,7 +1470,7 @@ bool lookahead(Cnf* c) {
 lit_t choose_branch_lit(Cnf* c) {
     CHECK(!c->freevar.empty()) << "choose_best_lit called with no free vars.";
     if (PARAM_disable_lookahead) return c->freevar[0];
-    double best_h = std::numeric_limits<double>::min();
+    double best_h = std::numeric_limits<double>::lowest();
     lit_t best_var = lit_nil;
     for (lookahead_order_t la : c->lookahead_order) {
         if (la.lit < 0) continue;
@@ -1477,7 +1479,6 @@ lit_t choose_branch_lit(Cnf* c) {
                << " * " << c->dfs[-la.lit].H + 0.001 << " = " << h;
         CHECK(!c->fixed(la.lit, RT)) << la.lit << " is fixed during choice.";
         if (h > best_h) {
-            LOG(3) << "new winner is " << la.lit;
             best_h = h;
             best_var = la.lit;
         }
@@ -1501,8 +1502,8 @@ bool solve(Cnf* c) {
             INC(decision_level, c->d);
             // L2. [New node.]
             if (choose_new_node) {
-                LOG(2) << "Current truths: " << c->dump_truths();
-                LOG(2) << "Current rstack: " << c->dump_rstack();
+                LOG(3) << "stamps: " << c->stamps_debug_string();
+                LOG(3) << "rstack: " << c->rstack_debug_string();
                 LOG(2) << "Choosing a new node.";
                 if (c->d < SIGMA_BITS) {
                     c->sigma &= (1ULL << c->d) - 1; // trim sigma
@@ -1553,7 +1554,7 @@ bool solve(Cnf* c) {
 
         while (l != lit_nil) {
             // L4. [Try l.]
-            LOG(1) << c->dump_vals();
+            LOG(1) << c->decisions_debug_string();
             if (c->d < SIGMA_BITS && c->branch[c->d] == 1) {
                 c->sigma |= 1ULL << c->d;  // append to sigma
             }
