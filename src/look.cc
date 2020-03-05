@@ -139,6 +139,14 @@ std::string tval(uint32_t t) {
     return oss.str();
 }
 
+// Branching states for the solver at a decision level.
+enum branch_t {
+    NEED_LOOKAHEAD = 0,  // Need to perform lookahead to find best lit.
+    SKIP_LOOKAHEAD= 1,   // Lookahead can be skipped for this level.
+    FIRST_TRY = 2,       // Currently trying best polarity of best lit.
+    SECOND_TRY = 3,      // Currently trying other polarity of best lit.
+};
+
 // timps and bimps: our lookahead solver only deals with 3-SAT formulas,
 // converting any clause with more than three literals to a set of equivalent
 // 3-SAT clauses during input processing. So our clause data structures are
@@ -290,11 +298,9 @@ struct Cnf {
     // propagated and cleared once per iteration of the solver.
     std::vector<lit_t> force;
 
-    // A record of decisions made. Only valid up to index d (the current depth
-    // of the solver). If branch[x] == -1, we haven't made a decision yet. If
-    // branch[x] == 0, we're trying literal dec[x] but haven't tried -dec[x]. If
-    // branch[x] == 1, we're trying literal dec[x] after trying -dec[x].
-    std::vector<uint8_t> branch;
+    // A record of decision state. Only valid up to index d (the current depth
+    // of the solver).
+    std::vector<branch_t> branch;
 
     // List of free (not fixed) variables: invfree is an index into this list so
     // that invfree[freevar[k]] == k for all 0 <= k < freevar.size().
@@ -376,7 +382,7 @@ struct Cnf {
         dfs_storage(2 * (novars + nsvars) + 1),
         dfs(&dfs_storage[novars + nsvars]),
         lookahead_order(novars + nsvars),
-        branch(novars + nsvars + 1, -1),
+        branch(novars + nsvars + 1, NEED_LOOKAHEAD),
         freevar(novars + nsvars),
         invfree(novars  + nsvars + 1),
         istamps_storage(2 * (novars + nsvars) + 1, 0),
@@ -590,14 +596,6 @@ struct Cnf {
             if (i == novars) PRINT << " 0" << std::endl;
             else if (j > 0 && j % 10 == 0) PRINT << std::endl;
         }
-    }
-
-    std::string decisions_debug_string() const {
-        std::ostringstream oss;
-        for(int i = 0; i < d; ++i) {
-            oss << (branch[i] == 0 ? "+" : "") << dec[i];
-        }
-        return oss.str();
     }
 
     std::string graph_debug_string(std::vector<lit_t>* g) const {
@@ -841,7 +839,7 @@ lit_t resolve_conflict(Cnf* c) {
 
         LOG(3) << "L13: Current rstack: " << c->rstack_debug_string();
         // L13. [Downdate BIMPs.]
-        if (c->branch[c->d] >= 0) {
+        if (c->branch[c->d] == FIRST_TRY || c->branch[c->d] == SECOND_TRY) {
             while (c->istack.size() > c->backi[c->d]) {
                 istack_frame_t f = c->istack.back();
                 c->istack.pop_back();
@@ -857,9 +855,9 @@ lit_t resolve_conflict(Cnf* c) {
         }
 
         // L14. [Try again?]
-        if (c->branch[c->d] == 0) {
+        if (c->branch[c->d] == FIRST_TRY) {
             LOG(2) << "Trying again at " << c->d << " with " << -c->dec[c->d];
-            c->branch[c->d] = 1;
+            c->branch[c->d] = SECOND_TRY;
             c->dec[c->d] = -c->dec[c->d];
             // TODO: this force->clear is inserted so that L4 will actually
             // notice the new decision. There's probably a way to communicate
@@ -1467,6 +1465,8 @@ bool lookahead(Cnf* c) {
     return true;
 }
 
+// Choose the best literal candidate for branching using the H scores computed
+// by traversing the lookahead forest.
 lit_t choose_branch_lit(Cnf* c) {
     CHECK(!c->freevar.empty()) << "choose_best_lit called with no free vars.";
     if (PARAM_disable_lookahead) return c->freevar[0];
@@ -1475,19 +1475,15 @@ lit_t choose_branch_lit(Cnf* c) {
     for (lookahead_order_t la : c->lookahead_order) {
         if (la.lit < 0) continue;
         double h = (c->dfs[la.lit].H + 0.001) * (c->dfs[-la.lit].H + 0.001);
-        LOG(3) << la.lit << "'s H*-H = " << c->dfs[la.lit].H + 0.001
-               << " * " << c->dfs[-la.lit].H + 0.001 << " = " << h;
         CHECK(!c->fixed(la.lit, RT)) << la.lit << " is fixed during choice.";
         if (h > best_h) {
             best_h = h;
             best_var = la.lit;
         }
     }
-    CHECK(best_var != lit_nil) << "no branch lit could be found.";
-    if (c->dfs[best_var].H > c->dfs[-best_var].H) {
-        LOG(3) << "swapping winner " << best_var << " for " << -best_var;
-        best_var = -best_var;
-    }
+    CHECK(best_var != lit_nil) << "No branch lit could be found.";
+    // Using the best variable candidate, choose the least reduced literal.
+    if (c->dfs[best_var].H > c->dfs[-best_var].H) { best_var = -best_var; }
     return best_var;
 }
 
@@ -1495,23 +1491,21 @@ lit_t choose_branch_lit(Cnf* c) {
 bool solve(Cnf* c) {
     Timer timer("solve");
 
-    bool choose_new_node = true;
     while (true) {
         lit_t l = lit_nil;
         while (l == lit_nil) {
             INC(decision_level, c->d);
             // L2. [New node.]
-            if (choose_new_node) {
+            if (c->branch[c->d] != SKIP_LOOKAHEAD) {
                 LOG(3) << "stamps: " << c->stamps_debug_string();
                 LOG(3) << "rstack: " << c->rstack_debug_string();
                 LOG(2) << "Choosing a new node.";
                 if (c->d < SIGMA_BITS) {
                     c->sigma &= (1ULL << c->d) - 1; // trim sigma
                 }
-                c->branch[c->d] = -1;
+                c->branch[c->d] = NEED_LOOKAHEAD;
                 if (c->force.empty()) {
                     LOG(2) << "Calling Algorithm X for lookahead, d=" << c->d;
-                    // L3.
                     if (!lookahead(c)) {
                         INC(lookahead_failure);
                         // L15. [Backtrack.]
@@ -1548,14 +1542,12 @@ bool solve(Cnf* c) {
             c->dec[c->d] = l;
             c->backf[c->d] = c->f;
             c->backi[c->d] = c->istack.size();
-            c->branch[c->d] = 0;
-            choose_new_node = true;
+            c->branch[c->d] = FIRST_TRY;
         }
 
         while (l != lit_nil) {
             // L4. [Try l.]
-            LOG(1) << c->decisions_debug_string();
-            if (c->d < SIGMA_BITS && c->branch[c->d] == 1) {
+            if (c->d < SIGMA_BITS && c->branch[c->d] == SECOND_TRY) {
                 c->sigma |= 1ULL << c->d;  // append to sigma
             }
             if (c->force.empty()) {
@@ -1570,10 +1562,11 @@ bool solve(Cnf* c) {
         // L10. [Accept real truths.]
         LOG(2) << "Accepting real truths.";
         c->f = c->rstack.size();
-        if (c->branch[c->d] >= 0) {
+        if (c->branch[c->d] == FIRST_TRY || c->branch[c->d] == SECOND_TRY) {
             ++c->d;
         } else if (c->d > 0) {
-            choose_new_node = false;
+            c->branch[c->d] = SKIP_LOOKAHEAD;
+            // -> L3
         }
     }  // main while loop
 
