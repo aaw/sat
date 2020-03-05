@@ -424,11 +424,11 @@ struct Cnf {
         return val.size() - 1;
     }
 
-    inline void set_true(lit_t l, uint32_t context) {
+    inline void stamp_true(lit_t l, uint32_t context) {
         val[var(l)] = context + (l < 0 ? 1 : 0);
     }
 
-    inline void set_false(lit_t l, uint32_t context) {
+    inline void stamp_false(lit_t l, uint32_t context) {
         val[var(l)] = context + (l < 0 ? 0 : 1);
     }
 
@@ -589,7 +589,7 @@ struct Cnf {
 
     void print_assignment() {
         for (int i = 1, j = 0; i <= novars; ++i) {
-            if (!fixed(i)) { set_false(i, t); }
+            if (!fixed(i)) { stamp_false(i, t); }
             if (j % 10 == 0) PRINT << "v";
             PRINT << (fixed_false(i) ? " -" : " ") << i;
             ++j;
@@ -648,7 +648,7 @@ struct Cnf {
     }
 };
 
-// Used to temporarily set truth value, then revert when scope ends.
+// Used to temporarily set truth value of solver during lifetime of this class.
 struct truth_context {
     truth_context(Cnf* c, uint32_t t) : c_(c), saved_t_(c->t) { c->t = t; }
     ~truth_context() { c_->t = saved_t_; }
@@ -790,7 +790,7 @@ bool propagate(Cnf* c, lit_t l) {
         return false;
     } else if (!c->fixed_true(l)) {
         LOG(2) << "fixing " << l << " true at " << tval(c->t);
-        c->val[var(l)] = c->t + (l > 0 ? 0 : 1);
+        c->stamp_true(l, c->t);
         c->rstack.push_back(l);
     }
     for(; h < c->rstack.size(); ++h) {
@@ -802,7 +802,7 @@ bool propagate(Cnf* c, lit_t l) {
                 return false;
             } else if (!c->fixed_true(lp)) {
                 LOG(2) << "  fixing " << lp << " true at " << tval(c->t);
-                c->val[var(lp)] = c->t + (lp > 0 ? 0 : 1);
+                c->stamp_true(lp, c->t);
                 c->rstack.push_back(lp);
             }
         }
@@ -817,7 +817,7 @@ lit_t resolve_conflict(Cnf* c) {
     while (c->g < c->rstack.size()) {
         LOG(2) << "L11: unsetting " << var(c->rstack.back())
                << " (" << tval(c->val[var(c->rstack.back())]) << ")";
-        c->val[var(c->rstack.back())] = 0;
+        c->val[var(c->rstack.back())] = nil_truth;
         c->rstack.pop_back();
     }
     while (true) {
@@ -930,7 +930,7 @@ lit_t accept_near_truths(Cnf* c) {
 
         // L7. [Promote l to real truth.]
         LOG(2) << "Promoting " << l << " to RT";
-        c->set_true(l, RT);
+        c->stamp_true(l, RT);
         c->make_unfree(var(l));
         c->timp_set_active(var(l), false);
 
