@@ -650,12 +650,8 @@ struct Cnf {
 
 // Used to temporarily set truth value, then revert when scope ends.
 struct truth_context {
-    truth_context(Cnf* c, uint32_t t) : c_(c), saved_t_(c->t) {
-        c->t = t;
-    }
-    ~truth_context() {
-        c_->t = saved_t_;
-    }
+    truth_context(Cnf* c, uint32_t t) : c_(c), saved_t_(c->t) { c->t = t; }
+    ~truth_context() { c_->t = saved_t_; }
 private:
     Cnf* c_;
     uint32_t saved_t_;
