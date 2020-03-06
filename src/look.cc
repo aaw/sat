@@ -830,7 +830,7 @@ lit_t resolve_conflict(Cnf* c) {
             c->rstack.pop_back();
             c->timp_set_active(var(x), true);
             c->make_free(var(x));
-            c->val[var(x)] = 0;
+            c->val[var(x)] = nil_truth;
         }
 
         LOG(3) << "L13: Current rstack: " << c->rstack_debug_string();
@@ -855,10 +855,6 @@ lit_t resolve_conflict(Cnf* c) {
             LOG(2) << "Trying again at " << c->d << " with " << -c->dec[c->d];
             c->branch[c->d] = SECOND_TRY;
             c->dec[c->d] = -c->dec[c->d];
-            // TODO: this force->clear is inserted so that L4 will actually
-            // notice the new decision. There's probably a way to communicate
-            // between this stage and L4 better. Fix once everything's working.
-            c->force.clear();
             return c->dec[c->d];
         }
 
@@ -1546,9 +1542,8 @@ bool solve(Cnf* c) {
             if (c->d < SIGMA_BITS && c->branch[c->d] == SECOND_TRY) {
                 c->sigma |= 1ULL << c->d;  // append to sigma
             }
-            if (c->force.empty()) {
-                c->force.push_back(l);
-            }
+            c->force.clear();
+            c->force.push_back(l);
 
             // L5 - L9. [Accept near truths.]
             LOG(2) << "Accepting near truths";
