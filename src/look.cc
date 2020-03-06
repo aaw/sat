@@ -781,85 +781,67 @@ Cnf parse(const char* filename) {
     return c;
 }
 
-// Returns false if a conflict was found. This is (62) in the text.
+// Propagate the binary consequences of a literal l. Returns false if a conflict
+// is found during propagation. This is (62) in the text.
 bool propagate(Cnf* c, lit_t l) {
-    LOG(2) << "Propagating " << l;
     size_t h = c->rstack.size();
     if (c->fixed_false(l)) {
-        LOG(2) << l << " fixed false at " << tval(c->t);
         return false;
     } else if (!c->fixed_true(l)) {
-        LOG(2) << "fixing " << l << " true at " << tval(c->t);
         c->stamp_true(l, c->t);
         c->rstack.push_back(l);
     }
     for(; h < c->rstack.size(); ++h) {
         l = c->rstack[h];
         for (lit_t lp : c->bimp[l]) {
-            LOG(2) << "taking account of " << l << "'s bimp " << lp;
             if (c->fixed_false(lp)) {
-                LOG(2) << "  " << lp << " fixed false at " << tval(c->t);
                 return false;
             } else if (!c->fixed_true(lp)) {
-                LOG(2) << "  fixing " << lp << " true at " << tval(c->t);
                 c->stamp_true(lp, c->t);
                 c->rstack.push_back(lp);
             }
         }
     }
-    LOG(2) << "Successful propagation of " << l;
     return true;
 }
 
+// Reset after a conflict has been detected. If we're trying a literal and
+// haven't tried its negation yet, we'll negate and proceed. Otherwise, we'll
+// backtrack. This is steps L11 - L15 in the text.
 lit_t resolve_conflict(Cnf* c) {
-    LOG(3) << "L11: Current rstack: " << c->rstack_debug_string();
     // L11. [Unfix near truths.]
     while (c->g < c->rstack.size()) {
-        LOG(2) << "L11: unsetting " << var(c->rstack.back())
-               << " (" << tval(c->val[var(c->rstack.back())]) << ")";
         c->val[var(c->rstack.back())] = nil_truth;
         c->rstack.pop_back();
     }
+
     while (true) {
-        LOG(3) << "L12: Current rstack: " << c->rstack_debug_string();
         // L12. [Unfix real truths.]
         while (c->f < c->rstack.size()) {
             lit_t x = c->rstack.back();
-            LOG(2) << "L12: unsetting " << var(x) << " ("
-                   << tval(c->val[var(x)]) << ")";
             c->rstack.pop_back();
             c->timp_set_active(var(x), true);
             c->make_free(var(x));
             c->val[var(x)] = nil_truth;
         }
 
-        LOG(3) << "L13: Current rstack: " << c->rstack_debug_string();
         // L13. [Downdate BIMPs.]
         if (c->branch[c->d] == FIRST_TRY || c->branch[c->d] == SECOND_TRY) {
             while (c->istack.size() > c->backi[c->d]) {
                 istack_frame_t f = c->istack.back();
                 c->istack.pop_back();
-                // debug only loop
-                if (LOG_ENABLED(3)) {
-                    for (size_t i = f.bsize; i < c->bimp[f.l].size(); ++i) {
-                        LOG(3) << "forgetting bimp " << f.l << " -> "
-                               << c->bimp[f.l][i];
-                    }
-                }
                 c->bimp[f.l].resize(f.bsize);
             }
         }
 
         // L14. [Try again?]
         if (c->branch[c->d] == FIRST_TRY) {
-            LOG(2) << "Trying again at " << c->d << " with " << -c->dec[c->d];
             c->branch[c->d] = SECOND_TRY;
             c->dec[c->d] = -c->dec[c->d];
             return c->dec[c->d];
         }
 
         // L15. [Backtrack.]
-        LOG(2) << "Entering L15 with d = " << c->d;
         if (c->d == 0) UNSAT_EXIT;
         --c->d;
         c->rstack.resize(c->f);
