@@ -14,7 +14,6 @@
 //   - Exercise 149: Efficiently identify participants
 //   - Exercise 153: Use a heap to identify best candidates
 
-#include <sstream>
 #include <vector>
 
 #include "counters.h"
@@ -123,21 +122,6 @@ constexpr uint32_t NT = std::numeric_limits<uint32_t>::max() - 3;  // 2^32 - 4
 constexpr uint32_t PT = std::numeric_limits<uint32_t>::max() - 5;  // 2^32 - 6
 // Nil truth : never used as a truth value.
 constexpr uint32_t nil_truth = 0;
-
-// Return a string with a human-readable representation of the truth stamp.
-std::string tval(uint32_t t) {
-    if (t == RT+1) return "RF";
-    if (t == RT) return "RT";
-    if (t == NT+1) return "NF";
-    if (t == NT) return "NT";
-    if (t == PT+1) return "PF";
-    if (t == PT) return "PT";
-    if (t == nil_truth) return "nil";
-    std::ostringstream oss;
-    oss << t;
-    oss << ((t % 2) == 0 ? "T" : "F");
-    return oss.str();
-}
 
 // Branching states for the solver at a decision level.
 enum branch_t {
@@ -597,55 +581,6 @@ struct Cnf {
             else if (j > 0 && j % 10 == 0) PRINT << std::endl;
         }
     }
-
-    std::string graph_debug_string(std::vector<lit_t>* g) const {
-        std::ostringstream oss;
-        for(lit_t l = -nvars(); l <= nvars(); ++l) {
-            if (l == 0) continue;
-            if (g[l].empty()) continue;
-            oss << "[" << l << "] -> ";
-            for (lit_t x : g[l]) {
-                oss << x << ", ";
-            }
-            oss << std::endl;
-        }
-        return oss.str();
-    }
-
-    std::string bimp_debug_string() const { return graph_debug_string(bimp); }
-
-    std::string big_debug_string() const { return graph_debug_string(big); }
-
-    std::string h_scores_debug_string() const {
-        std::ostringstream oss;
-        for (lit_t l = 1; l <= nvars(); ++l) {
-            oss << "[" << l << ":" << h[l] << "*" << h[-l] << "=" << h[l]*h[-l]
-                << "]";
-        }
-        return oss.str();
-    }
-
-    std::string stamps_debug_string() const {
-        std::ostringstream oss;
-        for (lit_t l = 1; l <= nvars(); ++l) {
-            if (val[l] != nil_truth) {
-                oss << "[" << l << ":" << tval(val[l]) << "]";
-            }
-        }
-        return oss.str();
-    }
-
-    std::string rstack_debug_string() const {
-        std::ostringstream oss;
-        for (size_t i = 0; i < rstack.size(); ++i) {
-            if (i == g) oss << "{G}";
-            if (i == f) oss << "{F}";
-            oss << "[" << rstack[i] << ":" << tval(val[var(rstack[i])]) << "]";
-        }
-        if (rstack.size() == g) oss << "{G}";
-        if (rstack.size() == f) oss << "{F}";
-        return oss.str();
-    }
 };
 
 // Used to temporarily set truth value of solver during lifetime of this class.
@@ -717,9 +652,7 @@ Cnf parse(const char* filename) {
             // Convert any clause of length > 3 to an equivalent conjunction of
             // 3-clauses by adding variables. Example: (x1 x2 x3 x4 x5) becomes
             // (x1 x2 z1) (-z1 x3 z2) (-z2 x4 z3) (-z3 x4 x5).
-            std::ostringstream oss;
-            for(const auto& x : clause) { oss << x << " "; }
-            LOG(3) << "Converting clause to 3-clauses: (" << oss.str() << ")";
+            LOG(3) << "Converting clause to 3-clauses.";
             clauses.push_back({});
             clauses.back().push_back(clause[0]);
             clauses.back().push_back(clause[1]);
@@ -777,7 +710,6 @@ Cnf parse(const char* filename) {
         }
     }
 
-    if (LOG_ENABLED(3)) { LOG(3) << "bimp: " << c.bimp_debug_string(); }
     return c;
 }
 
