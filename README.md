@@ -10,7 +10,7 @@ Solvers currently implemented are:
   * 7.2.2.2 Algorithm B: Backtracking with watched literals
   * 7.2.2.2 Algorithm D: Cyclic [DPLL](https://en.wikipedia.org/wiki/DPLL_algorithm)
   * 7.2.2.2 Algorithm C: [CDCL](https://en.wikipedia.org/wiki/Conflict-driven_clause_learning)
-  * 7.2.2.2 Algorithm L: DPLL with lookahead (In Progress)
+  * 7.2.2.2 Algorithm L: DPLL with lookahead
 
 These solvers are all built to accept
 DIMACS input files and follow the
