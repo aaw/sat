@@ -938,7 +938,10 @@ lit_t propagate_forced_lits(Cnf* c) {
     return lit_nil;
 }
 
-// DFS helper function.
+// Perform depth-first search on the reversed binary implication graph to
+// determine the lookahead order. Starts at the subtree rooted at l, so can
+// be called on all literals in sequence, passing a reference to a running
+// postorder count.
 void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
     c->dfs[l].seen = true;
     c->dfs[l].rep = true;
@@ -953,6 +956,12 @@ void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
     c->lookahead_order[i].t = count;
 }
 
+// Perform depth-first search on the reversed binary implication graph to
+// determine the lookahead order. While doing so, compute the strongly-connected
+// components (SCC) of the graph and choose the best representative of each
+// component. Returns false exactly when a contradiction is discovered among any
+// SCC. Like lookahead_dfs, expects to be called on all literals l in sequence
+// using a running postorder count.
 bool lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
     c->dfs[l].seen = true;
     size_t i = c->lookahead_order.size();
@@ -981,8 +990,6 @@ bool lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
             x = c->sccstack.back();
             // If -l is in the same component as l, there's a contradiciton.
             if (x == -l) {
-                LOG(2) << "Found a contradiction during strongly connected "
-                       << "component analysis: " << l << " <=> " << -l;
                 INC(connected_components_contradiction);
                 return false;
             }
