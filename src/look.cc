@@ -807,7 +807,7 @@ bool propagate(Cnf* c, lit_t l) {
 
 // Reset after a conflict has been detected. If we're trying a literal and
 // haven't tried its negation yet, we'll negate and proceed. Otherwise, we'll
-// backtrack. This is steps L11 - L15 in the text.
+// backtrack. Returns next literal we should try. This is L11 - L15 in the text.
 lit_t resolve_conflict(Cnf* c) {
     // L11. [Unfix near truths.]
     while (c->g < c->rstack.size()) {
@@ -877,21 +877,19 @@ bool resolve_bimps(Cnf* c, lit_t u, lit_t v) {
     return true;
 }
 
-// Does L5 - L9
-// Returns lit to try if there was a conflict, lit_nil otherwise
-lit_t accept_near_truths(Cnf* c) {
+// Promote all forced lits and their binary implications to NT, then promote all
+// NT lits to RT by considering their ternary implications. Returns lit_nil if
+// successful, otherwise backtracks and returns the literal we should try to
+// propagate next. This is L5 - L9 in the text.
+lit_t propagate_forced_lits(Cnf* c) {
     // L5. [Accept near truths.]
     c->t = NT;
     c->rstack.resize(c->f);
     c->g = c->f;
     ++c->istamp;
 
-    for(const lit_t f : c->force) {
-        LOG(2) << "Taking account of forced lit " << f;
-        if (!propagate(c, f)) {
-            LOG(2) << "conflict with forced lit " << f;
-            return resolve_conflict(c);
-        }
+    for (lit_t f : c->force) {
+        if (!propagate(c, f)) { return resolve_conflict(c); }
     }
     c->force.clear();
 
@@ -902,18 +900,14 @@ lit_t accept_near_truths(Cnf* c) {
         ++c->g;
 
         // L7. [Promote l to real truth.]
-        LOG(2) << "Promoting " << l << " to RT";
         c->stamp_true(l, RT);
         c->make_unfree(var(l));
         c->timp_set_active(var(l), false);
 
-        LOG(2) << "considering timps of " << l;
         for (const timp_t& t : c->timp[l]) {
             if (!t.active) continue;
-            LOG(2) << "  considering (" << t.u << ", " << t.v << ")";
             // L8. [Consider u OR v.]
             if (c->fixed_false(t.u) && c->fixed_false(t.v)) {
-                LOG(2) << "  " << t.u << " and " << t.v << " -> conflict";
                 return resolve_conflict(c);
             } else if (c->fixed_false(t.u) && !c->fixed(t.v)) {
                 if (!propagate(c, t.v)) return resolve_conflict(c);
@@ -924,17 +918,14 @@ lit_t accept_near_truths(Cnf* c) {
                 c->sigma_stamp(t.u);
                 c->sigma_stamp(t.v);
                 if (c->in_bimp(-t.v, -t.u)) {
-                    LOG(2) << -t.v << " is in bimp[" << -t.u << "]";
                     if (!propagate(c, t.u)) return resolve_conflict(c);
                 } else if (c->in_bimp(t.v, -t.u)) {
-                    LOG(3) << "Already know clause (" << t.u << " " << t.v
-                           << "). No need to update bimp.";
+                    continue;  // Already know (t.u t.v)
                 } else if (c->in_bimp(-t.u, -t.v)) {
                     if (!propagate(c, t.v)) return resolve_conflict(c);
                 } else {
                     c->add_binary_clause(t.u, t.v);
                     if (PARAM_add_compensation_resolvents) {
-                        LOG(2) << "Adding compensation resolvents";
                         if (!resolve_bimps(c, t.u, t.v) ||
                             !resolve_bimps(c, t.v, t.u)) {
                             return resolve_conflict(c);
@@ -1491,8 +1482,7 @@ bool solve(Cnf* c) {
                     }
                     INC(lookahead_success);
                 } else /* !c->force.empty() */ {
-                    // L5 - L9. [Accept near truths.]
-                    l = accept_near_truths(c);
+                    l = propagate_forced_lits(c);  // L5 - L9.
                     break; // -> L10 if l == lit_nil, otherwise L4
                 }
             }
@@ -1522,9 +1512,8 @@ bool solve(Cnf* c) {
             c->force.clear();
             c->force.push_back(l);
 
-            // L5 - L9. [Accept near truths.]
-            LOG(2) << "Accepting near truths";
-            l = accept_near_truths(c);
+            // L5 - L9.
+            l = propagate_forced_lits(c);
         }
 
         // L10. [Accept real truths.]
