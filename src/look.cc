@@ -1015,7 +1015,7 @@ bool lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
 // by the heuristic score update intended for the literal l's H score. This
 // function is (72) in the text.
 bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
-    CHECK(c->rstack.size() >= c->f) << "Expected f < rstack size";
+    CHECK(c->rstack.size() >= c->f) << "Expected f <= rstack size";
     c->rstack.resize(c->f);
     c->g = c->f;
     c->windfalls.clear();
@@ -1047,18 +1047,19 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
     return true;
 }
 
-// Returns false iff a conflict is found.
+// Force a literal to be true at PT during lookahead. Returns true exactly when
+// the literal could be forced without a conflict.
 bool force_lookahead(Cnf* c, lit_t l) {
     // X12. [Force l.]
-    LOG(3) << "X12 with " << l;
     c->force.push_back(l);
     truth_context tc(c, PT);
     return propagate_lookahead(c, l, nullptr);
 }
 
-// Returns false iff a conflict is found. This is (73) in the text.
+// Propagate the consequences of a literal l fixed during double lookahead.
+// Returns true exactly when there was no conflict. This is (73) in the text.
 bool propagate_double_lookahead(Cnf* c, lit_t l) {
-    CHECK(c->rstack.size() >= c->f) << "(73) says set G <- E <- F but E > F.";
+    CHECK(c->rstack.size() >= c->f) << "Expected f <= rstack size";
     c->rstack.resize(c->f);
     c->g = c->f;
     if (!propagate(c, l)) return false;
@@ -1069,8 +1070,6 @@ bool propagate_double_lookahead(Cnf* c, lit_t l) {
             if (c->fixed_true(t.u) || c->fixed_true(t.v)) continue;
             if (!c->fixed(t.u) && !c->fixed(t.v)) continue;
             if (c->fixed_false(t.u) && c->fixed_false(t.v)) {
-                LOG(3) << "Both " << t.u << " and " << t.v << " fixed false at "
-                       << tval(c->t) << " and in timp[" << lp << "], conflict.";
                 return false;
             }
             if (c->fixed_false(t.u)) { // => v not fixed
@@ -1087,8 +1086,10 @@ bool propagate_double_lookahead(Cnf* c, lit_t l) {
     return true;
 }
 
-// Algorithm Y: Double lookahead for Algorithm X.
-// Returns false exactly when a conflict is found.
+// Algorithm Y: Double lookahead for Algorithm X. Returns false exactly when a
+// conflict is found. base is the base truth value (incremented during double
+// lookahead) and bl is the size of the increment to the base truth value during
+// each iteration.
 bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
     if (PARAM_disable_double_lookahead) return true;
 
@@ -1104,10 +1105,8 @@ bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
         c->tau *= PARAM_double_lookahead_damping_factor;
         return true;
     }
-    LOG(3) << "Doing double lookahead on " << lo.lit;
 
     // Y2. [Initialize.]
-    LOG(3) << "Initializing double lookahead";
     base = c->t - 2;
     uint32_t lbase = base + 2 * bl * PARAM_double_lookahead_frontier;
     lit_t l0 = lo.lit;
@@ -1129,9 +1128,7 @@ bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
         // Y3. [Choose l for double look.]
         lit_t l = c->lookahead_order[j].lit;
         c->t = base + c->lookahead_order[j].t;
-        LOG(3) << "Considering " << l << " at " << tval(c->t) << " for dlook.";
         if (c->fixed_false(l) && !c->fixed_false(l, DT)) {
-            LOG(3) << l << " already false, make it double false";
             // Y7. [Make l false.]
             jp = j;
             truth_context tc(c, DT);
@@ -1143,10 +1140,8 @@ bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
         }
 
         if (!c->fixed(l)) {
-            LOG(3) << l << " not fixed, we can look ahead on it";
             // Y5. [Look ahead.]
             if (!propagate_double_lookahead(c, l)) {
-                LOG(3) << "Failed double lookahead on " << l;
                 // Y8. [Recover from conflict.]
                 // Y7. [Make lo.lit false.]
                 jp = j;
@@ -1161,10 +1156,7 @@ bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
         }
 
         // Y4. [Move to next.]
-        LOG(3) << "On to next j";
-        ++j;
-        if (j == c->lookahead_order.size()) {
-            LOG(3) << "Double lookahead wraparound";
+        if (++j == c->lookahead_order.size()) {
             j = 0;
             base += 2 * bl;
         }
@@ -1172,7 +1164,6 @@ bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
             base == lbase || PARAM_disable_double_lookahead_wraparound;
         if (jp == j || (j == 0 && badwrap)) {
             // Y6. [Finish.]
-            LOG(3) << "Successfully finished double lookahead.";
             if (PARAM_add_double_windfalls) {
                 INC(double_windfalls, c->windfalls.size());
                 for (lit_t w : c->windfalls) { c->add_binary_clause(-l0, w); }
@@ -1187,8 +1178,8 @@ bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
     }
 }
 
-// Algorithm X:
-// Returns false exactly when a conflict is found.
+// Algorithm X: Lookahead for Algorithm L. Returns false exactly when a conflict
+// is found.
 bool lookahead(Cnf* c) {
     Timer timer("lookahead");
 
@@ -1201,7 +1192,6 @@ bool lookahead(Cnf* c) {
 
     // X2. [Compile rough heuristics.]
     c->refine_heuristic_scores();
-    if (LOG_ENABLED(3)) LOG(3) << "h: " << c->h_scores_debug_string();
 
     // X3. [Preselect candidates.]
     c->cand.clear();
@@ -1226,17 +1216,13 @@ bool lookahead(Cnf* c) {
     if (ts && bs) { SAT_EXIT(c); }
 
     if (c->cand.empty()) {
-        LOG(2) << "No participants, flagging all vars as candidates.";
         INC(no_candidates_during_lookahead);
-        for (lit_t v : c->freevar) {
-            c->cand.insert(v, -c->h[v]*c->h[-v]);
-        }
+        for (lit_t v : c->freevar) { c->cand.insert(v, -c->h[v]*c->h[-v]); }
     }
 
     // Prune candidates
     size_t cmax = c->cand.size();
     if (c->d > 0) cmax = std::max(PARAM_c0, PARAM_c1/c->d);
-    LOG(2) << "cmax = " << cmax << ", d = " << c->d;
 
     CHECK(!c->cand.empty()) << "Expected candidates but got none.";
     while (c->cand.size() > cmax) c->cand.delete_max();
@@ -1258,10 +1244,6 @@ bool lookahead(Cnf* c) {
             if (c->dfs[v].seen) continue;
             c->big[v].push_back(u);
         }
-    }
-
-    if (LOG_ENABLED(3)) {
-        LOG(3) << "candidate graph: " << c->big_debug_string();
     }
 
     lit_t count = 0;
@@ -1302,15 +1284,6 @@ bool lookahead(Cnf* c) {
         }
     }
 
-    if (LOG_ENABLED(3)) {
-        std::ostringstream oss;
-        oss << "order: ";
-        for(const auto& x : c->lookahead_order) {
-            oss << "[" << x.lit << ":" << x.t << "]";
-        }
-        LOG(3) << oss.str();
-    }
-
     // X5. [Prepare to explore.]
     size_t j = 0, jp = 0;
     uint32_t base = 0;
@@ -1320,7 +1293,6 @@ bool lookahead(Cnf* c) {
     while (true) {
         // X6. [Choose l for lookahead.]
         lookahead_order_t lo = c->lookahead_order[j];
-        LOG(3) << "X6 with " << lo.lit << " at " << tval(lo.t);
         lit_t l = lo.lit;
         c->t = base + lo.t;
         c->dfs[l].H = 0.0;
@@ -1329,25 +1301,18 @@ bool lookahead(Cnf* c) {
         }
         if (!c->fixed(l)) {
             // X8. [Compute sharper heuristic.]
-            LOG(3) << "X8";
-            LOG(2) << "Current truths: " << c->stamps_debug_string();
             double w = 0;
             bool forced = false;
             if (!propagate_lookahead(c, l, &w)) {
-                LOG(3) << "Can't propagate " << l << ", trying to force " << -l;
                 INC(lookahead_propagation_failures);
                 // X13. [Recover from conflict]
                 if (!force_lookahead(c, -l)) {
-                    LOG(3) << "Can't propagate " << l << " or force " << -l
-                           << ", bailing from lookahead";
                     INC(lookahead_conflicts);
                     return false;
                 } // -> X7
                 forced = true;
             } else if (w > 0) {
                 c->dfs[l].H += w;
-                LOG(3) << l << "'s H=" << c->dfs[l].H << ", p="
-                       << c->dfs[l].parent;
                 // -> X10
             } else {
                 // X9. [Exploit an autarky]
@@ -1374,7 +1339,6 @@ bool lookahead(Cnf* c) {
                         INC(double_lookahead_conflict_force_failure);
                         return false;
                     }
-                    LOG(3) << "dlook conflict, base now set to " << base;
                     // -> X7
                 } else {
                     // X11. [Exploit necessary assignments.]
@@ -1390,22 +1354,15 @@ bool lookahead(Cnf* c) {
             }
         } else if (c->fixed_false(l) && !c->fixed_false(l, PT)) {
             // X13. [Recover from conflict.]
-            if (!force_lookahead(c, -l)) {
-                LOG(3) << "Can't force " << -l << ", bailing from lookahead";
-                return false;
-            }
+            if (!force_lookahead(c, -l)) { return false; }
         }
 
         // X7. [Move to next.]
-        LOG(3) << "X7";
-        LOG(3) << "X7: Current rstack: " << c->rstack_debug_string();
         if (c->force.size() > nf) {
             nf = c->force.size();
             jp = j;
         }
-        ++j;
-        if (j == c->lookahead_order.size()) {
-            LOG(3) << "Lookahead wraparound.";
+        if (++j == c->lookahead_order.size()) {
             INC(lookahead_wraparound);
             j = 0;
             base += 2 * base_limit;
@@ -1418,10 +1375,7 @@ bool lookahead(Cnf* c) {
                 return true;
             }
         }
-        if (j == jp) {
-            LOG(3) << "Bailing on lookahead, no change in j = " << j;
-            return true;
-        }
+        if (j == jp) { return true; }
         // -> X6
     }
 
@@ -1450,6 +1404,7 @@ lit_t choose_branch_lit(Cnf* c) {
     return best_var;
 }
 
+// Entry point to the solver, performs most of Algorithm L from the text.
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer timer("solve");
@@ -1460,15 +1415,11 @@ bool solve(Cnf* c) {
             INC(decision_level, c->d);
             // L2. [New node.]
             if (c->branch[c->d] != SKIP_LOOKAHEAD) {
-                LOG(3) << "stamps: " << c->stamps_debug_string();
-                LOG(3) << "rstack: " << c->rstack_debug_string();
-                LOG(2) << "Choosing a new node.";
                 if (c->d < SIGMA_BITS) {
                     c->sigma &= (1ULL << c->d) - 1; // trim sigma
                 }
                 c->branch[c->d] = NEED_LOOKAHEAD;
                 if (c->force.empty()) {
-                    LOG(2) << "Calling Algorithm X for lookahead, d=" << c->d;
                     if (!lookahead(c)) {
                         INC(lookahead_failure);
                         // L15. [Backtrack.]
@@ -1494,13 +1445,11 @@ bool solve(Cnf* c) {
             if (!c->freevar.empty()) {
                 l = choose_branch_lit(c);
                 INC(decisions);
-                LOG(2) << "Chose " << l;
             } else {
                 c->d++;
                 continue;
             }
 
-            LOG(2) << "dec[" << c->d << "] = " << l;
             c->dec[c->d] = l;
             c->backf[c->d] = c->f;
             c->backi[c->d] = c->istack.size();
@@ -1520,7 +1469,6 @@ bool solve(Cnf* c) {
         }
 
         // L10. [Accept real truths.]
-        LOG(2) << "Accepting real truths.";
         c->f = c->rstack.size();
         if (c->branch[c->d] == FIRST_TRY || c->branch[c->d] == SECOND_TRY) {
             ++c->d;
