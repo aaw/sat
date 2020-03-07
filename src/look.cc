@@ -849,35 +849,30 @@ lit_t resolve_conflict(Cnf* c) {
     }
 }
 
-// Returns true iff there was no conflict.
+// Determine "compensation resolvents" for a learned binary clause (u v).
+// Explained in Exercise 139 in the text, when (u v) is learned and w is
+// in bimp[v], (u w) is also implied. All such clauses (u w) are determined
+// here and added. Returns true exactly when no conflict was detected.
 bool resolve_bimps(Cnf* c, lit_t u, lit_t v) {
-    c->bstamp++;
-    c->bstamps[-u] = c->bstamp;
+    c->bstamps[-u] = ++c->bstamp;
     for (lit_t w : c->bimp[-u]) { c->bstamps[w] = c->bstamp; }
 
     if (c->bstamps[-v] == c->bstamp || c->bstamps[v] == c->bstamp) {
         return true;
     }
 
-    for (lit_t w : c->bimp[v]) {  // All of these ws are implied by -u
+    for (lit_t w : c->bimp[v]) {
         if (c->fixed(w, NT)) {
             CHECK(c->fixed_true(w, NT)) << "Expected " << -w << " => " << -v;
             continue;
         }
-        if (c->bstamps[-w] == c->bstamp) {  // -u => (-w and w), conflict.
-            if (!propagate(c, u)) {
-                LOG(3) << "Conflict while computing compensation resolvents.";
-                return false;
-            }
+        if (c->bstamps[-w] == c->bstamp) {  // -v => (-w and w), conflict.
+            if (!propagate(c, u)) { return false; }
             break;
-        } else if (c->bstamps[w] != c->bstamp) {  // -u => w, w not seen yet.
-            LOG(3) << "compensation resolvent: (" << u << " " << v
-                   << ") and (" << -v << " " << w  << ") => ("
-                   << u << ", " << w << ")";
+        } else if (c->bstamps[w] != c->bstamp) {  // -v => w, w not seen yet.
             INC(compensation_resolvents);
             c->add_binary_clause(u, w);
         }
-
     }
     return true;
 }
