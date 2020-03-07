@@ -982,6 +982,7 @@ bool lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
         }
     }
 
+    // Process a strongly-connected component.
     if (c->dfs[l].low == c->dfs[l].num) {
         lit_t x = lit_nil;
         lit_t mx = lit_nil;
@@ -1009,12 +1010,12 @@ bool lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
     return true;
 }
 
-// Main loop of truth value propagation for Algorithm X. (72) in the text.
-// Returns false iff a conflict was detected. If hh is non-null, a score
-// bump is added to it.
+// Propagate the consequences of a literal l fixed during lookahead. Returns
+// true exactly when there was no conflict. If hh is not null, it's incremented
+// by the heuristic score update intended for the literal l's H score. This
+// function is (72) in the text.
 bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
-    // Set l0 <- l, i <- w <- 0, and G <- E <- F; perform (62)
-    CHECK(c->rstack.size() >= c->f) << "(72) says set G <- E <- F but E > F.";
+    CHECK(c->rstack.size() >= c->f) << "Expected f < rstack size";
     c->rstack.resize(c->f);
     c->g = c->f;
     c->windfalls.clear();
@@ -1024,11 +1025,7 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
         for (const timp_t& t : c->timp[lp]) {
             if (!t.active) continue;
             if (c->fixed_true(t.u) || c->fixed_true(t.v)) continue;
-            if (c->fixed_false(t.u) && c->fixed_false(t.v)) {
-                LOG(3) << "Both " << t.u << " and " << t.v << " fixed false at "
-                       << tval(c->t) << " and in timp[" << lp << "], conflict.";
-                return false;
-            }
+            if (c->fixed_false(t.u) && c->fixed_false(t.v)) { return false; }
             if (c->fixed_false(t.u)) { // => v not fixed
                 if (PARAM_add_windfalls) c->windfalls.push_back(t.v);
                 if (!propagate(c, t.v)) return false;
@@ -1046,7 +1043,6 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
         }
     }
     if (PARAM_add_windfalls) INC(windfalls, c->windfalls.size());
-    LOG(2) << "Adding " << c->windfalls.size() << " windfalls";
     for (lit_t w : c->windfalls) { c->add_binary_clause(-l, w); }
     return true;
 }
