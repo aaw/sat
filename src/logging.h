@@ -22,6 +22,15 @@ extern int FLAGS_verbosity;
     if (LOG_ENABLED(i) && VARNAME(__c, __LINE__)-- > 0) \
         Logger(__FILE__,__LINE__)
 #define LOG_ONCE(i) LOG_N_TIMES(i, 1)
+#define LOG_EVERY_N_SECS(i, n) \
+    static clock_t VARNAME(__c, __LINE__) = 0; \
+    bool VARNAME(__log, __LINE__) = false; \
+    if (LOG_ENABLED(i) &&                                   \
+        static_cast<double>(clock()-VARNAME(__c, __LINE__)) \
+        /CLOCKS_PER_SEC > n) { \
+        VARNAME(__log, __LINE__) = true; \
+        VARNAME(__c, __LINE__) = clock(); } \
+    if (VARNAME(__log, __LINE__)) Logger(__FILE__,__LINE__)
 #define CHECK(expr) if (!(expr)) AbortLogger(__FILE__,__LINE__)
 #define CHECK_NO_OVERFLOW(x, y) \
     CHECK(std::numeric_limits<x>::min() <= (y) &&  \

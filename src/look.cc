@@ -14,6 +14,7 @@
 //   - Exercise 149: Efficiently identify participants
 //   - Exercise 153: Use a heap to identify best candidates
 
+#include <sstream>
 #include <vector>
 
 #include "counters.h"
@@ -320,6 +321,9 @@ struct Cnf {
     // Maps decision level d to the istack value when the decision was made.
     std::vector<uint64_t> backi;
 
+    // Maps
+    std::vector<lit_t> backl;
+
     // A stack of literals and their bimp sizes, used to quickly undo choices
     // that caused bimps to grow.
     std::vector<istack_frame_t> istack;
@@ -378,6 +382,7 @@ struct Cnf {
         dec(novars + nsvars + 1),
         backf(novars + nsvars + 1),
         backi(novars + nsvars + 1),
+        backl(novars + nsvars + 1),
         val(novars + nsvars + 1, 0),
         sig(novars + nsvars + 1, psig_t{path: 0, length: 0}),
         cand(novars + nsvars),
@@ -571,6 +576,7 @@ struct Cnf {
         }
     }
 
+    // Print the satifsying assigment.
     void print_assignment() {
         for (int i = 1, j = 0; i <= novars; ++i) {
             if (!fixed(i)) { stamp_false(i, t); }
@@ -580,6 +586,21 @@ struct Cnf {
             if (i == novars) PRINT << " 0" << std::endl;
             else if (j > 0 && j % 10 == 0) PRINT << std::endl;
         }
+    }
+
+    std::string progress_debug_string() {
+        std::ostringstream oss;
+        int w = static_cast<int>(log10(nvars()) + 1);
+        int rt = 0, rf = 0;
+        for (lit_t v = 0; v < nvars(); ++v) {
+            if (val[v] == RT) rt++;
+            else if (val[v] == RT+1) rf++;
+        }
+        oss << "d=" << std::setw(w) << d
+            << ",free=" << std::setw(w) << freevar.size()
+            << ",rt=" << std::setw(w) << rt
+            << ",rf=" << std::setw(w) << rf;
+        return oss.str();
     }
 };
 
@@ -1052,7 +1073,7 @@ bool double_lookahead(Cnf* c, uint32_t& base, lookahead_order_t lo, size_t bl) {
         if (!propagate(c, lo.lit)) {
             // We can't get to this point unless propagate_lookahead has already
             // succeeded with lo.lit.
-            CHECK(false) << "Couldn't double-propagate " << lo.lit;
+            CHECK(false) << "Couldn't propagate " << lo.lit << " again.";
         }
     }
 
@@ -1346,11 +1367,13 @@ bool solve(Cnf* c) {
         while (l == lit_nil) {
             INC(decision_level, c->d);
             // L2. [New node.]
+            LOG_EVERY_N_SECS(1, 1) << c->progress_debug_string();
             if (c->branch[c->d] != SKIP_LOOKAHEAD) {
                 if (c->d < SIGMA_BITS) {
                     c->sigma &= (1ULL << c->d) - 1; // trim sigma
                 }
                 c->branch[c->d] = NEED_LOOKAHEAD;
+                c->backl[c->d] = c->f;
                 if (c->force.empty()) {
                     if (!lookahead(c)) {
                         INC(lookahead_failure);
