@@ -20,9 +20,23 @@ extern bool FLAGS_time;
 
 class Timers {
 public:
-    void inc(const char* name, double count) {
-        sums_[name] += count;
+    void start(const char* name) {
+        start_[name] = clock();
+    }
+
+    void stop(const char* name) {
+        clock_t start = start_[name];
+        clock_t end = clock();
+        sums_[name] += static_cast<double>(end - start) / CLOCKS_PER_SEC;
         counts_[name]++;
+    }
+
+    void reset(const char* name) {
+        start_.erase(name);
+    }
+
+    void stop_all() {
+        for (const auto& kv : start_) { stop(kv.first); }
     }
 
     void print() {
@@ -38,7 +52,9 @@ public:
     }
 
     void dump() {
+        stop_all();
         print();
+        start_.clear();
         sums_.clear();
         counts_.clear();
     }
@@ -58,6 +74,7 @@ public:
         return oss.str();
     }
 private:
+    std::map<const char*, clock_t, cstrcmp> start_;
     std::map<const char*, double, cstrcmp> sums_;
     std::map<const char*, uint64_t, cstrcmp> counts_;
 };
@@ -70,16 +87,15 @@ public:
         if (!TIMERS) return;
         if (!FLAGS_time) return;
         name_ = name;
-        begin_ = clock();
+        _timers.start(name_);
     }
     ~Timer() {
         if (!TIMERS) return;
         if (!FLAGS_time) return;
-        clock_t end = clock();
-        _timers.inc(name_, static_cast<double>(end - begin_) / CLOCKS_PER_SEC);
+        _timers.stop(name_);
+        _timers.reset(name_);
     }
 private:
-    clock_t begin_=0;  // 0-initialized to avoid gcc warning.
     const char* name_;
 };
 
