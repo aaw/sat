@@ -11,6 +11,7 @@ Solvers currently implemented are:
   * 7.2.2.2 Algorithm D: Cyclic [DPLL](https://en.wikipedia.org/wiki/DPLL_algorithm)
   * 7.2.2.2 Algorithm C: [CDCL](https://en.wikipedia.org/wiki/Conflict-driven_clause_learning)
   * 7.2.2.2 Algorithm L: DPLL with lookahead
+  * 7.2.2.2 Algorithm W: [WalkSAT](https://en.wikipedia.org/wiki/WalkSAT) (In progress)
 
 These solvers are all built to accept
 DIMACS input files and follow the
@@ -39,6 +40,7 @@ builds. This should build four binaries and put them in the bin/ subdirectory:
    * bin/dpll (Algorithm D)
    * bin/cdcl (Algorithm C)
    * bin/look (Algorithm L)
+   * bin/walk (Algorithm W)
 
 To create the fastest binaries, compile out any logging, counters, or timers by adding
 `OPT=1`:
