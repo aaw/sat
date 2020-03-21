@@ -11,6 +11,15 @@
 #include "timer.h"
 #include "types.h"
 
+DEFINE_PARAM(initial_bias, 0.5,
+             "Probability that true is selected for each variable during "
+             "initial random assignment.");
+
+// Flips a coin that lands on heads with probability p. Return true iff heads.
+static bool flip(float p) {
+    return static_cast<float>(rand())/RAND_MAX <= p;
+}
+
 struct Cnf {
     // Clauses are stored as a sequential list of literals in memory with no
     // terminator between clauses. Example: (1 OR 2) AND (3 OR -2 OR -1) would
@@ -29,18 +38,42 @@ struct Cnf {
     // One-indexed values of variables in the satisfying assignment.
     std::vector<bool> val;
 
+    // One-indexed costs of variables.
+    std::vector<clause_t> cost;
+
+    // Stack of unsatisfied clauses.
+    std::vector<lit_t> f;
+
+    // Number of true literals in clause
+    std::vector<lit_t> k;
+
+    // Reverse lookup into unsatisfied clauses. if f[i] = j, w[j] = i.
+    std::vector<clause_t> w;
+
     // Number of variables in the formula. Valid variables range from 1 to
     // nvars, inclusive.
     lit_t nvars;
 
+    clause_t nclauses;
+
     Cnf(lit_t nvars, clause_t nclauses) :
-        nvars(nvars) {}
+        val(nvars+1),
+        cost(nvars+1, 0),
+        k(nclauses, 0),
+        w(nclauses, 0),
+        nvars(nvars),
+        nclauses(nclauses) {}
 
     // These two methods give the begin/end index of the kth clause in the
     // clauses vector. Used for iterating over all literals in the kth clause.
     inline clause_t clause_begin(clause_t c) const { return start[c]; }
     inline clause_t clause_end(clause_t c) const {
         return (c == start.size() - 1) ? clauses.size() : start[c + 1];
+    }
+
+    inline bool is_true(lit_t l) {
+        bool tv = val[var(l)];
+        return (tv && l > 0) || (!tv && l < 0);
     }
 
     void print_assignment() {
@@ -116,7 +149,42 @@ Cnf parse(const char* filename) {
 // Returns true exactly when a satisfying assignment exists for c.
 bool solve(Cnf* c) {
     Timer t("solve");
-    return true;
+
+    // W1. [Initialize.]
+    for (lit_t i = 1; i <= c->nvars; ++i) {
+        c->val[i] = flip(PARAM_initial_bias);
+    }
+    for (clause_t i = 0; i < c->nclauses; ++i) {
+        clause_t end = c->clause_end(i);
+        lit_t tl = lit_nil;
+        for (clause_t j = c->clause_begin(i); j < end; ++j) {
+            if (c->is_true(c->clauses[j])) {
+                ++c->k[i];
+                tl = var(c->clauses[j]);
+            }
+        }
+        if (c->k[i] == 0) {
+            c->w[i] = c->f.size();
+            c->f.push_back(i);
+        } else if (c->k[i] == 1) {
+            ++c->cost[tl];
+        }
+    }
+
+    while (true) {
+        // W2. [Done?]
+        if (c->f.empty()) return true;
+        // TODO: terminate with UNKNOWN if num iterations is too large?
+
+        // W3. [Choose j.]
+        // TODO
+
+        // W4. [Choose l.]
+        // TODO
+
+        // W5. [Flip l.]
+        // TODO
+    }
 }
 
 int main(int argc, char** argv) {
@@ -126,7 +194,7 @@ int main(int argc, char** argv) {
     init_counters();
     init_timers();
     Cnf c = parse(argv[oidx]);
-    if (/* TODO: detect no clauses || */ solve(&c)) {
+    if (c.clauses.empty() || solve(&c)) {
         SAT_EXIT(&c);
     }
 }
