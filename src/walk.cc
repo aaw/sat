@@ -21,6 +21,12 @@ DEFINE_PARAM(non_greedy_choice, 0.65,
              "Probability that we will choose a flip literal from all literals "
              "in a clause instead of from all minimum cost literals.");
 
+DEFINE_PARAM(cutoff_multiplier, 10,
+             "");
+
+DEFINE_PARAM(quadratic_cutoff, 1,
+             "");
+
 // Flips a coin that lands on heads with probability p. Return true iff heads.
 static bool flip(float p) {
     return static_cast<float>(rand())/RAND_MAX <= p;
@@ -111,14 +117,6 @@ struct Cnf {
         if (w[c] != clause_nil) return;
         w[c] = f.size();
         f.push_back(c);
-    }
-
-    std::string dump_raw() {
-        std::ostringstream oss;
-        for (lit_t c : clauses) {
-            oss << c << " ";
-        }
-        return oss.str();
     }
 
     std::string dump_clause(clause_t c) {
@@ -216,27 +214,37 @@ Cnf parse(const char* filename) {
         c.start.push_back(start);
     } while (nc != EOF);
     CHECK(c.start.size() == c.nclauses) << "Expected nclauses == start.size()";
-
     fclose(f);
+
+    for (clause_t i = 0; i < nclauses; ++i) {
+        clause_t end = c.clause_end(i);
+        for (clause_t j = c.clause_begin(i); j < end; ++j) {
+            // Note: if a literal appears twice in a clause, the clause index
+            // will appear twice in invclause.
+            c.invclause[c.clauses[j]].push_back(i);
+        }
+    }
+
     return c;
 }
 
-// Returns true exactly when a satisfying assignment exists for c.
-// TODO: call solve repeatedly with reluctant doubling sequence.
-bool solve(Cnf* c) {
-    Timer t("solve");
+// Returns true exactly when a satisfying assignment exists for c after
+// n iterations of WalkSAT.
+bool walk(Cnf* c, int n) {
 
     // W1. [Initialize.]
+    c->f.clear();
     for (lit_t i = 1; i <= c->nvars; ++i) {
         c->val[i] = flip(PARAM_initial_bias);
+        c->cost[i] = 0;
     }
+
     for (clause_t i = 0; i < c->nclauses; ++i) {
+        c->numtrue[i] = 0;
+        c->w[i] = clause_nil;
         clause_t end = c->clause_end(i);
         lit_t tl = lit_nil;
         for (clause_t j = c->clause_begin(i); j < end; ++j) {
-            // Note: if a literal appears twice in a clause, the clause index
-            // will appear twice in invclause.
-            c->invclause[c->clauses[j]].push_back(i);
             if (c->is_true(c->clauses[j])) {
                 ++c->numtrue[i];
                 tl = var(c->clauses[j]);
@@ -250,13 +258,11 @@ bool solve(Cnf* c) {
         }
     }
 
-    while (true) {
-        LOG(3) << c->dump_raw();
+    for (int nn = 0; nn < n; ++nn) {
         LOG(2) << c->dump_clauses();
 
         // W2. [Done?]
         if (c->f.empty()) return true;
-        // TODO: terminate with UNKNOWN if num iterations is too large?
 
         // W3. [Choose j.]
         LOG(3) << "Unsat clauses: " << c->dump_unsat();
@@ -271,9 +277,11 @@ bool solve(Cnf* c) {
         clause_t end = c->clause_end(c->f[q]);
         lit_t choice = lit_nil;
         int k = 1;
-        lit_t min_cost = std::numeric_limits<lit_t>::max();
+        clause_t min_cost = std::numeric_limits<clause_t>::max();
         for (clause_t itr = c->clause_begin(c->f[q]); itr < end; ++itr) {
-            lit_t cost = c->cost[var(c->clauses[itr])];
+            clause_t cost = c->cost[var(c->clauses[itr])];
+            CHECK(c->cost[var(c->clauses[itr])] >= 0)
+                << "Cost of " << var(c->clauses[itr]) << " is negative.";
             LOG(3) << var(c->clauses[itr]) << " has cost " << cost;
             if (cost < min_cost) {
                 min_cost = cost;
@@ -334,6 +342,24 @@ bool solve(Cnf* c) {
                     }
                 }
             }
+        }
+    }
+    return false;
+}
+
+bool solve(Cnf* c) {
+    int u = 1, v = 1;
+    int base = c->nvars;
+    if (PARAM_quadratic_cutoff) base *= c->nvars;
+    while (true) {
+        int iters = v * base * PARAM_cutoff_multiplier;
+        LOG(1) << "Restarting for " << iters << " iterations.";
+        if (walk(c, iters)) return true;
+        if ((u & -u) == v) {
+            ++u;
+            v = 1;
+        } else {
+            v *= 2;
         }
     }
 }
