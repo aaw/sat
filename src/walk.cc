@@ -21,11 +21,18 @@ DEFINE_PARAM(non_greedy_choice, 0.65,
              "Probability that we will choose a flip literal from all literals "
              "in a clause instead of from all minimum cost literals.");
 
-DEFINE_PARAM(cutoff_multiplier, 10, "");
+DEFINE_PARAM(cutoff_multiplier, 10,
+             "Multiplier applied to the number of iterations before restart.");
 
-DEFINE_PARAM(quadratic_cutoff, 1, "");
+DEFINE_PARAM(quadratic_cutoff, 1,
+             "If 0, length of an epoch will be linear in the number of "
+             "variables. If non-zero, an epoch is quadratic in the number of "
+             "variables.");
 
-DEFINE_PARAM(move_to_front, 1, "");
+DEFINE_PARAM(move_to_front, 1,
+             "If non-zero, enables a heuristic that moves some true literals "
+             "to the front of clauses in hopes that they'll be quicker to find "
+             "when we need to turn them off.");
 
 // Flips a coin that lands on heads with probability p. Return true iff heads.
 static bool flip(float p) {
@@ -44,32 +51,37 @@ struct Cnf {
     // Zero-indexed map of clauses. Literals in clause i run from
     // clauses[start[i]] to clauses[start[i+1]] - 1 except for the final
     // clause, where the endpoint is just clauses.size() - 1. start.size() is
-    // the number of clauses.
+    // the number of clauses. "Clause indexes" refer to entries in this array.
     std::vector<clause_t> start;
 
     // One-indexed values of variables in the satisfying assignment.
     std::vector<bool> val;
 
-    // One-indexed costs of variables.
+    // Maps variables to the number of clauses that will become unsatisfied if
+    // that variable's value is flipped.
     std::vector<clause_t> cost;
 
-    // Maps literals -> list of clauses the literal is in.
+    // Maps literals to a list of clauses (by index) the literal is in.
     std::vector<std::vector<clause_t>> invclause_storage;
     std::vector<clause_t>* invclause;
 
-    // Stack of unsatisfied clauses.
+    // Stack of unsatisfied clause indexes.
     std::vector<lit_t> unsat;
 
-    // Number of true literals in clause
-    std::vector<lit_t> numtrue;
-
-    // Reverse lookup into unsatisfied clauses. if f[i] = j, w[j] = i.
+    // Reverse lookup into unsatisfied clauses. If the clause at index i is
+    // satisfied (and therefore not on the unsat stack), unsat_index[i] =
+    // clause_nil. Otherwise, if unsat[j] = i, then unsat_index[i] = j.
     std::vector<clause_t> unsat_index;
+
+    // Maps clause indexes to number of true literals in clause
+    std::vector<lit_t> numtrue;
 
     // Number of variables in the formula. Valid variables range from 1 to
     // nvars, inclusive.
     lit_t nvars;
 
+    // Number of clauses in the formula. Valid clause indexes range from 0 to
+    // nclauses - 1.
     clause_t nclauses;
 
     Cnf(lit_t nvars, clause_t nclauses) :
@@ -77,8 +89,8 @@ struct Cnf {
         cost(nvars+1, 0),
         invclause_storage(2 * nvars + 1),
         invclause(&invclause_storage[nvars]),
-        numtrue(nclauses, 0),
         unsat_index(nclauses, clause_nil),
+        numtrue(nclauses, 0),
         nvars(nvars),
         nclauses(nclauses) {
         if (FLAGS_seed == 0) FLAGS_seed = time(NULL);
@@ -89,20 +101,12 @@ struct Cnf {
     // clauses vector. Used for iterating over all literals in the kth clause.
     inline clause_t clause_begin(clause_t c) const { return start[c]; }
     inline clause_t clause_end(clause_t c) const {
-        return (c == start.size() - 1) ? clauses.size() : start[c + 1];
+        return (c == nclauses - 1) ? clauses.size() : start[c + 1];
     }
 
     inline bool is_true(lit_t l) {
         bool tv = val[var(l)];
         return (tv && l > 0) || (!tv && l < 0);
-    }
-
-    bool is_satisfied(clause_t c) {
-        clause_t end = clause_end(c);
-        for (clause_t itr = clause_begin(c); itr < end; ++itr) {
-            if (is_true(clauses[itr])) return true;
-        }
-        return false;
     }
 
     void register_satisfied(clause_t c) {
