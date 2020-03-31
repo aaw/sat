@@ -21,11 +21,11 @@ DEFINE_PARAM(non_greedy_choice, 0.65,
              "Probability that we will choose a flip literal from all literals "
              "in a clause instead of from all minimum cost literals.");
 
-DEFINE_PARAM(cutoff_multiplier, 10,
-             "");
+DEFINE_PARAM(cutoff_multiplier, 10, "");
 
-DEFINE_PARAM(quadratic_cutoff, 1,
-             "");
+DEFINE_PARAM(quadratic_cutoff, 1, "");
+
+DEFINE_PARAM(move_to_front, 1, "");
 
 // Flips a coin that lands on heads with probability p. Return true iff heads.
 static bool flip(float p) {
@@ -58,13 +58,13 @@ struct Cnf {
     std::vector<clause_t>* invclause;
 
     // Stack of unsatisfied clauses.
-    std::vector<lit_t> f;
+    std::vector<lit_t> unsat;
 
     // Number of true literals in clause
     std::vector<lit_t> numtrue;
 
     // Reverse lookup into unsatisfied clauses. if f[i] = j, w[j] = i.
-    std::vector<clause_t> w;
+    std::vector<clause_t> unsat_index;
 
     // Number of variables in the formula. Valid variables range from 1 to
     // nvars, inclusive.
@@ -78,7 +78,7 @@ struct Cnf {
         invclause_storage(2 * nvars + 1),
         invclause(&invclause_storage[nvars]),
         numtrue(nclauses, 0),
-        w(nclauses, clause_nil),
+        unsat_index(nclauses, clause_nil),
         nvars(nvars),
         nclauses(nclauses) {
         if (FLAGS_seed == 0) FLAGS_seed = time(NULL);
@@ -106,17 +106,17 @@ struct Cnf {
     }
 
     void register_satisfied(clause_t c) {
-        if (w[c] == clause_nil) return;
-        w[f[f.size()-1]] = w[c];
-        std::swap(f[w[c]], f[f.size()-1]);
-        w[c] = clause_nil;
-        f.resize(f.size()-1);
+        if (unsat_index[c] == clause_nil) return;
+        unsat_index[unsat[unsat.size()-1]] = unsat_index[c];
+        std::swap(unsat[unsat_index[c]], unsat[unsat.size()-1]);
+        unsat_index[c] = clause_nil;
+        unsat.resize(unsat.size()-1);
     }
 
     void register_unsatisfied(clause_t c) {
-        if (w[c] != clause_nil) return;
-        w[c] = f.size();
-        f.push_back(c);
+        if (unsat_index[c] != clause_nil) return;
+        unsat_index[c] = unsat.size();
+        unsat.push_back(c);
     }
 
     std::string dump_clause(clause_t c) {
@@ -142,8 +142,8 @@ struct Cnf {
 
     std::string dump_unsat() {
         std::ostringstream oss;
-        for (clause_t fi : f) {
-            oss << "[" << fi << "] " << dump_clause(fi) << ", ";
+        for (clause_t u : unsat) {
+            oss << "[" << u << "] " << dump_clause(u) << ", ";
         }
         return oss.str();
     }
@@ -229,11 +229,11 @@ Cnf parse(const char* filename) {
 }
 
 // Returns true exactly when a satisfying assignment exists for c after
-// n iterations of WalkSAT.
+// random initialization and n iterations of WalkSAT.
 bool walk(Cnf* c, int n) {
 
     // W1. [Initialize.]
-    c->f.clear();
+    c->unsat.clear();
     for (lit_t i = 1; i <= c->nvars; ++i) {
         c->val[i] = flip(PARAM_initial_bias);
         c->cost[i] = 0;
@@ -241,7 +241,7 @@ bool walk(Cnf* c, int n) {
 
     for (clause_t i = 0; i < c->nclauses; ++i) {
         c->numtrue[i] = 0;
-        c->w[i] = clause_nil;
+        c->unsat_index[i] = clause_nil;
         clause_t end = c->clause_end(i);
         lit_t tl = lit_nil;
         for (clause_t j = c->clause_begin(i); j < end; ++j) {
@@ -251,8 +251,8 @@ bool walk(Cnf* c, int n) {
             }
         }
         if (c->numtrue[i] == 0) {
-            c->w[i] = c->f.size();
-            c->f.push_back(i);
+            c->unsat_index[i] = c->unsat.size();
+            c->unsat.push_back(i);
         } else if (c->numtrue[i] == 1) {
             ++c->cost[tl];
         }
@@ -262,23 +262,24 @@ bool walk(Cnf* c, int n) {
         LOG(2) << c->dump_clauses();
 
         // W2. [Done?]
-        if (c->f.empty()) return true;
+        if (c->unsat.empty()) return true;
 
         // W3. [Choose j.]
         LOG(3) << "Unsat clauses: " << c->dump_unsat();
         CHECK_NO_OVERFLOW(clause_t, RAND_MAX);
-        clause_t divisor = (static_cast<clause_t>(RAND_MAX) + 1)/c->f.size();
+        clause_t divisor =
+            (static_cast<clause_t>(RAND_MAX) + 1)/c->unsat.size();
         clause_t q;
-        do { q = std::rand() / divisor; } while (q >= c->f.size());
-        LOG(2) << "Chose clause " << q << ": " << c->dump_clause(c->f[q]);
+        do { q = std::rand() / divisor; } while (q >= c->unsat.size());
+        LOG(2) << "Chose clause " << q << ": " << c->dump_clause(c->unsat[q]);
 
         // W4. [Choose l.]
         bool all = flip(PARAM_non_greedy_choice);
-        clause_t end = c->clause_end(c->f[q]);
+        clause_t end = c->clause_end(c->unsat[q]);
         lit_t choice = lit_nil;
         int k = 1;
         clause_t min_cost = std::numeric_limits<clause_t>::max();
-        for (clause_t itr = c->clause_begin(c->f[q]); itr < end; ++itr) {
+        for (clause_t itr = c->clause_begin(c->unsat[q]); itr < end; ++itr) {
             clause_t cost = c->cost[var(c->clauses[itr])];
             CHECK(c->cost[var(c->clauses[itr])] >= 0)
                 << "Cost of " << var(c->clauses[itr]) << " is negative.";
@@ -303,9 +304,6 @@ bool walk(Cnf* c, int n) {
 
         c->val[var(choice)] = !c->val[var(choice)];
 
-        // TODO: during updates below, move literals to front of clause if they
-        // might hit the second loop (some other variable ...) later.
-
         // Iterate over all clauses where choice was true but is now false.
         for (clause_t i : c->invclause[pos]) {
             --c->numtrue[i];
@@ -316,9 +314,13 @@ bool walk(Cnf* c, int n) {
             } else if (c->numtrue[i] == 1) {
                 // Some other variable in the clause needs its cost incremented.
                 clause_t end = c->clause_end(i);
-                for (clause_t itr = c->clause_begin(i); itr < end; ++itr) {
+                clause_t begin = c->clause_begin(i);
+                for (clause_t itr = begin; itr < end; ++itr) {
                     if (c->is_true(c->clauses[itr])) {
                         ++c->cost[var(c->clauses[itr])];
+                        if (PARAM_move_to_front) {
+                            std::swap(c->clauses[begin], c->clauses[itr]);
+                        }
                         break;
                     }
                 }
@@ -347,20 +349,21 @@ bool walk(Cnf* c, int n) {
     return false;
 }
 
+void reluctant_double_inc(int& u, int& v) {
+    if ((u & -u) == v) { ++u; v = 1; }
+    else { v *= 2; }
+}
+
 bool solve(Cnf* c) {
     int u = 1, v = 1;
     int base = c->nvars;
     if (PARAM_quadratic_cutoff) base *= c->nvars;
     while (true) {
         int iters = v * base * PARAM_cutoff_multiplier;
-        LOG(1) << "Restarting for " << iters << " iterations.";
+        LOG(1) << "Running for " << iters << " iterations.";
         if (walk(c, iters)) return true;
-        if ((u & -u) == v) {
-            ++u;
-            v = 1;
-        } else {
-            v *= 2;
-        }
+        reluctant_double_inc(u, v);
+        INC(restarts);
     }
 }
 
