@@ -353,20 +353,19 @@ bool walk(Cnf* c, int n) {
     return false;
 }
 
-void reluctant_double_inc(int& u, int& v) {
+
+void reluctant_double(int& u, int& v) {
     if ((u & -u) == v) { ++u; v = 1; }
     else { v *= 2; }
 }
 
 bool solve(Cnf* c) {
-    int u = 1, v = 1;
     int base = c->nvars;
     if (PARAM_quadratic_cutoff) base *= c->nvars;
-    while (true) {
+    for (int u = 1, v = 1; true; reluctant_double(u, v)) {
         int iters = v * base * PARAM_cutoff_multiplier;
         LOG(1) << "Running for " << iters << " iterations.";
         if (walk(c, iters)) return true;
-        reluctant_double_inc(u, v);
         INC(restarts);
     }
 }
