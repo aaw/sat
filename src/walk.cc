@@ -314,7 +314,9 @@ bool walk(Cnf* c, int n) {
     return false;
 }
 
-
+// Produces the "reluctant doubling" sequence of Luby, Sinclair, and Zuckerman
+// discussed in the text in Exercise 293 and defined in (131). Starting with
+// u=1 and v=1, calls to this function return v=1,1,2,1,1,2,4,1,1,...
 void reluctant_double(int& u, int& v) {
     if ((u & -u) == v) { ++u; v = 1; }
     else { v *= 2; }
