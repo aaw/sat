@@ -16,7 +16,7 @@ bin/btwl: src/btwl.cc src/logging.h src/types.h src/flags.h src/timer.h src/coun
 bin/cdcl: src/cdcl.cc src/logging.h src/types.h src/flags.h src/heap.h src/timer.h src/counters.h src/params.h
 	g++ $(CPPFLAGS) -o bin/cdcl src/cdcl.cc $(LDLIBS)
 
-bin/dpll: src/dpll.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h src/params.h
+bin/dpll: src/dpll.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h src/params.h src/parse.h
 	g++ $(CPPFLAGS) -o bin/dpll src/dpll.cc $(LDLIBS)
 
 bin/look: src/look.cc src/logging.h src/types.h src/flags.h src/heap.h src/timer.h src/counters.h src/params.h
