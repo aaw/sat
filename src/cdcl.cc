@@ -29,6 +29,7 @@
 #include "timer.h"
 #include "types.h"
 #include "params.h"
+#include "parse.h"
 
 // All clauses are stored linearly in one big array using elements of this union
 // type. The layout for each clause is:
@@ -698,62 +699,23 @@ struct Cnf {
     }
 };
 
-// Parse a DIMACS cnf input file. File starts with zero or more comments
-// followed by a line declaring the number of variables and clauses in the file.
-// Each subsequent line is the zero-terminated definition of a disjunction.
-// Clauses are specified by integers representing literals, starting at 1.
-// Negated literals are represented with a leading minus.
-//
-// Example: The following CNF formula:
-//
-//   (x_1 OR x_2) AND (x_3) AND (NOT x_2 OR NOT x_3 OR x_4)
-//
-// Can be represented with the following file:
-//
-// c Header comment
-// p cnf 4 3
-// 1 2 0
-// 3 0
-// -2 -3 4 0
 Cnf parse(const char* filename) {
     Timer t("parse");
-    int nc;
-    FILE* f = fopen(filename, "r");
-    CHECK(f) << "Failed to open file: " << filename;
-
-    // Read comment lines until we see the problem line.
-    size_t nvars = 0, nclauses = 0;
-    do {
-        nc = fscanf(f, " p cnf %lu %lu \n", &nvars, &nclauses);
-        if (nc > 0 && nc != EOF) break;
-        nc = fscanf(f, "%*s\n");
-    } while (nc != 2 && nc != EOF);
-    LOG(3) << "nvars = " << nvars << ", nclauses = " << nclauses;
-    CHECK(nvars >= 0);
-    CHECK(nclauses >= 0);
-    CHECK_NO_OVERFLOW(lit_t, static_cast<long long>(nvars));
-    CHECK_NO_OVERFLOW(clause_t, nclauses);
-    Cnf c(nvars);
-
-    // Read clauses until EOF.
-    int lit;
-    do {
-        bool read_lit = false;
+    DIMACS d(filename);
+    Cnf c(d.nvars);
+    while (!d.eof()) {
         c.clauses.push_back({.ptr = clause_nil});  // watch ptr for second lit.
         c.clauses.push_back({.ptr = clause_nil});  // watch ptr for first lit.
         c.clauses.push_back({.size = 0});          // size of clause. set below.
         std::size_t start = c.clauses.size();
-        while (true) {
-            nc = fscanf(f, " %i ", &lit);
-            if (nc == EOF || lit == 0) break;
-            c.clauses.push_back({lit});
-            read_lit = true;
+        for (d.advance(); !d.eoc(); d.advance()) {
+            c.clauses.push_back({d.curr});
         }
         int cs = c.clauses.size() - start;
-        if (cs == 0 && nc != EOF) {
+        if (!d.eof() && cs == 0) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
-        } else if (cs == 0 && nc == EOF) {
+        } else if (d.eof() && cs == 0) {
             // Clean up from (now unnecessary) c.clauses.push_backs above.
             for(clause_t i = 0; i < kHeaderSize; ++i) { c.clauses.pop_back(); }
         } else if (cs == 1) {
@@ -773,7 +735,7 @@ Cnf parse(const char* filename) {
                 LOG(1) << "Duplicate unit (" << x << "). Skipping from now on.";
             }
         }
-        if (!read_lit) break;
+        if (d.eof()) break;
         CHECK(cs > 0);
         // Record the size of the clause in offset -1.
         c.clauses[start - 1].size = cs;
@@ -782,9 +744,8 @@ Cnf parse(const char* filename) {
             c.add_to_watchlist(start, c.clauses[start].lit);
             c.add_to_watchlist(start, c.clauses[start+1].lit);
         }
-    } while (nc != EOF);
+    }
 
-    fclose(f);
     c.lemma_start = c.clauses.size() + kHeaderSize;
     return c;
 }
