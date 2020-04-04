@@ -22,7 +22,7 @@ bin/dpll: src/dpll.cc src/logging.h src/types.h src/flags.h src/timer.h src/coun
 bin/look: src/look.cc src/logging.h src/types.h src/flags.h src/heap.h src/timer.h src/counters.h src/params.h
 	g++ $(CPPFLAGS) -o bin/look src/look.cc $(LDLIBS)
 
-bin/walk: src/walk.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h src/params.h
+bin/walk: src/walk.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h src/params.h src/parse.h
 	g++ $(CPPFLAGS) -o bin/walk src/walk.cc $(LDLIBS)
 
 tbin/heap_test: src/heap_test.cc src/heap.h

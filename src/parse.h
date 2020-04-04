@@ -24,7 +24,7 @@
 // while (!d.eof()) {
 //   /* start new clause */
 //   for (d.advance(); !d.eoc(); d.advance()) {
-//     /* add literal to current clause */
+//     /* add d.curr to current clause */
 //   }
 // }
 struct DIMACS {
