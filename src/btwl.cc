@@ -9,6 +9,7 @@
 #include "logging.h"
 #include "timer.h"
 #include "types.h"
+#include "parse.h"
 
 // States used by both the search algorithm and the final assignment. If the
 // formula is satisfiable, all variables will end up in a state > UNEXAMINED.
@@ -114,65 +115,24 @@ struct Cnf {
     }
 };
 
-// Parse a DIMACS cnf input file. File starts with zero or more comments
-// followed by a line declaring the number of variables and clauses in the file.
-// Each subsequent line is the zero-terminated definition of a disjunction.
-// Clauses are specified by integers representing literals, starting at 1.
-// Negated literals are represented with a leading minus.
-//
-// Example: The following CNF formula:
-//
-//   (x_1 OR x_2) AND (x_3) AND (NOT x_2 OR NOT x_3 OR x_4)
-//
-// Can be represented with the following file:
-//
-// c Header comment
-// p cnf 4 3
-// 1 2 0
-// 3 0
-// -2 -3 4 0
 Cnf parse(const char* filename) {
-    int nc;
-    FILE* f = fopen(filename, "r");
-    CHECK(f) << "Failed to open file: " << filename;
-
-    // Read comment lines until we see the problem line.
-    long long nvars = 0, nclauses = 0;
-    do {
-        nc = fscanf(f, " p cnf %lld %lld \n", &nvars, &nclauses);
-        if (nc > 0 && nc != EOF) break;
-        nc = fscanf(f, "%*s\n");
-    } while (nc != 2 && nc != EOF);
-    CHECK(nvars >= 0);
-    CHECK(nclauses >= 0);
-    CHECK_NO_OVERFLOW(lit_t, nvars);
-    CHECK_NO_OVERFLOW(clause_t, nclauses);
-
-    Cnf c(static_cast<lit_t>(nvars), static_cast<clause_t>(nclauses));
-
-    // Read clauses until EOF.
-    int lit;
-    do {
-        bool read_lit = false;
+    DIMACS d(filename);
+    Cnf c(static_cast<lit_t>(d.nvars), static_cast<clause_t>(d.nclauses));
+    while (!d.eof()) {
         std::size_t start = c.clauses.size();
-        while (true) {
-            nc = fscanf(f, " %i ", &lit);
-            if (nc == EOF || lit == 0) break;
-            c.clauses.push_back(lit);
-            read_lit = true;
+        for (d.advance(); !d.eoc(); d.advance()) {
+            c.clauses.push_back(d.curr);
         }
-        if (nc != EOF && start == c.clauses.size()) {
+        if (d.eof()) break;
+        if (!d.eof() && start == c.clauses.size()) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
         }
-        if (!read_lit) break;
         c.start.push_back(start);
         clause_t old = c.watch[c.clauses[c.start.back()]];
         c.watch[c.clauses[c.start.back()]] = c.start.size() - 1;
         c.link[c.start.size() - 1] = old;
-    } while (nc != EOF);
-
-    fclose(f);
+    }
     return c;
 }
 

@@ -10,7 +10,7 @@ all: bin/btwl bin/dpll bin/cdcl bin/look bin/walk
 
 test: tbin/heap_test
 
-bin/btwl: src/btwl.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h src/params.h
+bin/btwl: src/btwl.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h src/params.h src/parse.h
 	g++ $(CPPFLAGS) -o bin/btwl src/btwl.cc $(LDLIBS)
 
 bin/cdcl: src/cdcl.cc src/logging.h src/types.h src/flags.h src/heap.h src/timer.h src/counters.h src/params.h
