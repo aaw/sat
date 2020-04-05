@@ -4,4 +4,3 @@
 * use clang instead of gcc? seems to be a little faster on most examples.
 
 * look.cc: update h scores on the fly during lookahead?
-* write pigeonhole generator
