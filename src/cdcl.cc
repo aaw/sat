@@ -31,6 +31,8 @@
 #include "params.h"
 #include "parse.h"
 
+extern std::string FLAGS_dratfile;
+
 // All clauses are stored linearly in one big array using elements of this union
 // type. The layout for each clause is:
 //
@@ -302,6 +304,8 @@ struct Cnf {
     // The number of database purges/reductions we've performed.
     size_t npurges;
 
+    FILE* prooflog;
+
     Cnf(size_t nvars) :
         val(nvars + 1, UNSET),
         lev(nvars + 1, -1),
@@ -326,10 +330,14 @@ struct Cnf {
         confp(0),
         seen_conflict(false),
         agility(PARAM_restart_sensitivity),
-        npurges(0) {
+        npurges(0),
+        prooflog(0) {
         trail.reserve(nvars + 1);
         heap.shuffle_init();
+        if (FLAGS_dratfile != "") prooflog = fopen(FLAGS_dratfile.c_str(), "w");
     }
+
+    ~Cnf() { if (prooflog != 0) fclose(prooflog); }
 
     // Is the literal x false under the current assignment?
     inline bool is_false(lit_t x) const {
@@ -558,6 +566,13 @@ struct Cnf {
         }
         CHECK(r == 0 || found_watch) << "Didn't find watched lit in new clause";
         CHECK_NO_OVERFLOW(clause_t, clauses.size());
+
+        if (prooflog) {
+            for(size_t j = 0; j < r+1; ++j) {
+                fprintf(prooflog, "%d ", clauses[lc+j].lit);
+            }
+            fprintf(prooflog, "0\n");
+        }
 
         ++nlemmas;
         LOG(2) << "Learned clause: " << clause_debug_string(lc);
@@ -1038,6 +1053,13 @@ bool solve(Cnf* c) {
                             c->clauses[rc-1].size--;
                             c->clauses[rc-2].ptr = c->watch[c->clauses[rc].lit];
                             c->watch[c->clauses[rc].lit] = rc;
+                            if (c->prooflog) {
+                                for(size_t j = 0; j < c->SIZE(rc); ++j) {
+                                    fprintf(c->prooflog, "%d ",
+                                            c->clauses[rc+j].lit);
+                                }
+                                fprintf(c->prooflog, "0\n");
+                            }
                             INC(on_the_fly_subsumptions);
                         }
                     }

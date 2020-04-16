@@ -21,6 +21,9 @@ unsigned long FLAGS_seed = 0;
 bool FLAGS_time = false;
 bool FLAGS_counters = false;
 std::string FLAGS_params = "";
+#ifdef PROOFLOG
+std::string FLAGS_dratfile = "";
+#endif // PROOFLOG
 
 bool parse_flags(int argc, char* argv[], int* option_index) {
     *option_index = 0;
@@ -33,10 +36,17 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
         { "counters",       no_argument,        NULL, 'c' },
         { "help",           no_argument,        NULL, 'h' },
         { "params",         required_argument,  NULL, 'p' },
+#ifdef PROOFLOG
+        { "drat",           required_argument,  NULL, 'd' },
+#endif // PROOFLOG
         { 0, 0, 0, 0}
     };
 
+#ifdef PROOFLOG
+    char optstring[] = "v:s:p:d:tch";
+#else
     char optstring[] = "v:s:p:tch";
+#endif // PROOFLOG
 
     while (1) {
         c = getopt_long(argc, argv, optstring, long_options, nullptr);
@@ -63,6 +73,9 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
                   << std::endl << std::endl;
             PRINT << "  -c     Collect and print counters" << std::endl
                   << std::endl;
+#ifdef PROOFLOG
+            PRINT << "  -dF    Output DRAT proof to file F." << std::endl;
+#endif // PROOFLOG
             PRINT << "  -h     Display this message" << std::endl << std::endl;
             if (!Params::singleton().empty()) {
                 PRINT << "  -p     Set various double-valued params. Param "
@@ -100,6 +113,12 @@ bool parse_flags(int argc, char* argv[], int* option_index) {
             PRINT << "c Counters enabled" << std::endl;
             FLAGS_counters = true;
             break;
+#ifdef PROOFLOG
+        case 'd':
+            PRINT << "c DRAT proof will be output to " << optarg << std::endl;
+            FLAGS_dratfile = optarg;
+            break;
+#endif // PROOFLOG
         default:
             return false;
         }
