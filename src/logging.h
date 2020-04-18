@@ -39,7 +39,7 @@ extern int FLAGS_verbosity;
     << ": " << #y << " = " << y << ". "
 #define UNSAT_EXIT UnsatExit()
 #define SAT_EXIT(c) { (c)->print_assignment(); SatExit(); }
-#define PRINT std::cerr
+#define PRINT std::cout
 
 struct Logger {
     Logger(const std::string& filename, int line) {

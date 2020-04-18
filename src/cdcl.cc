@@ -1162,7 +1162,7 @@ int main(int argc, char** argv) {
     if (c.clauses.empty() || solve(&c)) {
         SAT_EXIT(&c);
     } else {
-        std::cout << "s UNSATISFIABLE" << std::endl;
+        PRINT << "s UNSATISFIABLE" << std::endl;
         return UNSATISFIABLE;
     }
 }
