@@ -9,15 +9,20 @@ DIFFICULTY=easy
 TIMEOUT=30s
 SEED_ARG=
 PARAMS_ARG=
+LABEL_ARG=
+VERIFY=0
 
 # Process any overrides from command-line flags.
-while getopts ":b:d:p:t:s:" opt; do
+while getopts ":b:d:l:p:t:s:v" opt; do
     case $opt in
         b)
             BINARY="${OPTARG}"
             ;;
         d)
             DIFFICULTY="${OPTARG}"
+            ;;
+        l)
+            LABEL_ARG="${OPTARG}"
             ;;
         p)
             PARAMS_ARG="-p${OPTARG}"
@@ -27,6 +32,9 @@ while getopts ":b:d:p:t:s:" opt; do
             ;;
         t)
             TIMEOUT="${OPTARG}"
+            ;;
+        v)
+            VERIFY=1
             ;;
         \?)
             echo "Invalid option: -$OPTARG" >&2
@@ -52,41 +60,59 @@ NTIMEOUT=0
 
 start=`date +%s`
 
-echo "Testing label:satisfiable, ${LABEL}:"
-for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:satisfiable'); do
-    printf "${filename} "
-    output="$(timeout ${TIMEOUT} ${BINARY} ${SEED_ARG} ${PARAMS_ARG} ${filename} 1>/dev/null 2>&1)"
-    result="$?"
-    if [ "$result" -eq "124" ]; then
-        printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
-        ((NTIMEOUT++))
-    elif [ "$result" -eq "$SATISFIABLE" ]; then
-        printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
-        ((NSUCCESS++))
-    else
-        printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
-        ((NFAILURE++))
-    fi
-done
-echo ""
+if [[ satisfiable == "${LABEL_ARG}"* ]]; then
+    VERIFY_BIN=
+    [ "${VERIFY}" -eq "1" ] && VERIFY_BIN="script/verify_sat.py"
+    echo "Testing label:satisfiable, ${LABEL}: ${VERIFY_BIN}"
+    for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:satisfiable'); do
+        printf "${filename} "
+        output="$(timeout ${TIMEOUT} ${VERIFY_BIN} ${BINARY} ${SEED_ARG} ${PARAMS_ARG} ${filename} 1>/dev/null 2>&1)"
+        result="$?"
+        if [ "${VERIFY}" -eq "1" ] && [ "$result" -eq "0" ]; then
+            printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
+            ((NSUCCESS++))
+        elif [ "$result" -eq "124" ]; then
+            printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
+            ((NTIMEOUT++))
+        elif [ "$result" -eq "$SATISFIABLE" ]; then
+            printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
+            ((NSUCCESS++))
+        else
+            printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
+            ((NFAILURE++))
+        fi
+    done
+    echo ""
+fi
 
-echo "Testing label:unsatisfiable, ${LABEL}:"
-for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:unsatisfiable'); do
-    printf "${filename} "
-    output="$(timeout ${TIMEOUT} ${BINARY} ${SEED_ARG} ${PARAMS_ARG} ${filename} 1>/dev/null 2>&1)"
-    result="$?"
-    if [ "$result" -eq "124" ]; then
-        printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
-        ((NTIMEOUT++))
-    elif [ "$result" -eq "$UNSATISFIABLE" ]; then
-        printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
-        ((NSUCCESS++))
-    else
-        printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
-        ((NFAILURE++))
+if [[ unsatisfiable == "${LABEL_ARG}"* ]]; then
+    VERIFY_BIN=
+    PROOF_ARG=
+    if [ "${VERIFY}" -eq "1" ]; then
+        VERIFY_BIN="script/verify_unsat.py"
+        PROOF_ARG="-d/tmp/proof"
     fi
-done
-echo ""
+    echo "Testing label:unsatisfiable, ${LABEL}:"
+    for filename in $(grep -l "${LABEL}" test/*.cnf | xargs grep -l 'label:unsatisfiable'); do
+        printf "${filename} "
+        output="$(timeout ${TIMEOUT} ${VERIFY_BIN} ${BINARY} ${SEED_ARG} ${PROOF_ARG} ${PARAMS_ARG} ${filename} 1>/dev/null 2>&1)"
+        result="$?"
+        if [ "${VERIFY}" -eq "1" ] && [ "$result" -eq "0" ]; then
+            printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
+            ((NSUCCESS++))
+        elif [ "$result" -eq "124" ]; then
+            printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
+            ((NTIMEOUT++))
+        elif [ "$result" -eq "$UNSATISFIABLE" ]; then
+            printf $'\u001b[32m\u2714\u001b[0m\n' # Green check
+            ((NSUCCESS++))
+        else
+            printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
+            ((NFAILURE++))
+        fi
+    done
+    echo ""
+fi
 
 end=`date +%s`
 runtime=$((end-start))
