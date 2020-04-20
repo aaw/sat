@@ -6,6 +6,7 @@
 # that satisifes the input formula.
 
 import os
+import re
 import subprocess
 import sys
 
@@ -44,10 +45,10 @@ def run(argv):
 def verify(litvals, fname):
     with open(fname) as f:
         for line in f:
-            if line.startswith('c') or line.startswith('p'):
+            if line.startswith('c') or line.startswith('p') or line.isspace():
                 continue
-            cleaned = [l.strip() for l in line.split(' ')]
-            clause = [int(l) for l in cleaned if l not in (' ', '0')]
+            cleaned = [l.strip() for l in re.split(' |\t|\n', line)]
+            clause = [int(l) for l in cleaned if l not in ('', ' ', '0')]
             if not any(litvals[l] for l in clause):
                 raise RuntimeError("Clause %s not satisfied." % clause)
 
