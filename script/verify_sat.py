@@ -50,9 +50,9 @@ def verify(litvals, fname):
                 continue
             cleaned = [l.strip() for l in re.split(' |\t|\n', line)]
             clause += [int(l) for l in cleaned if l not in ('', ' ', '0')]
-            if not any(litvals[l] for l in clause):
-                raise RuntimeError("Clause %s not satisfied." % clause)
             if cleaned[-1] == '0':
+                if not any(litvals[l] for l in clause):
+                    raise RuntimeError("Clause %s not satisfied." % clause)
                 clause = []
 
 if __name__ == '__main__':
