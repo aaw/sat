@@ -156,7 +156,7 @@ struct Cnf {
     void print_assignment() {
         for (int i = 1, j = 0; i <= nvars; ++i) {
             if (j % 10 == 0) PRINT << "v";
-            PRINT << (val[i] ? " -" : " ") << i;
+            PRINT << (val[i] ? " " : " -") << i;
             ++j;
             if (i == nvars) PRINT << " 0" << std::endl;
             else if (j > 0 && j % 10 == 0) PRINT << std::endl;
