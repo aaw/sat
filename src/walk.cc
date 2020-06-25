@@ -242,20 +242,20 @@ bool walk(Cnf* c, int n) {
         bool all = flip(PARAM_non_greedy_choice);
         clause_t end = c->clause_end(c->unsat[q]);
         lit_t choice = lit_nil;
-        int k = 1;
+        int k = 0;
         clause_t min_cost = std::numeric_limits<clause_t>::max();
         for (clause_t itr = c->clause_begin(c->unsat[q]); itr < end; ++itr) {
             clause_t cost = c->cost[var(c->clauses[itr])];
             CHECK(c->cost[var(c->clauses[itr])] >= 0)
                 << "Cost of " << var(c->clauses[itr]) << " is negative.";
             LOG(3) << var(c->clauses[itr]) << " has cost " << cost;
-            if (cost < min_cost) {
+            if (cost < min_cost && (cost == 0 || all)) {
                 min_cost = cost;
-                if (!all || min_cost == 0) k = 1;
+                k = 0;
             }
-            if ((all && min_cost > 0) || cost == min_cost) {
-                if (flip(1.0/k)) { choice = c->clauses[itr]; }
+            if (cost <= min_cost) {
                 ++k;
+                if (flip(1.0/k)) { choice = c->clauses[itr]; }
             }
         }
         CHECK(choice != lit_nil) << "No flip literal chosen.";
