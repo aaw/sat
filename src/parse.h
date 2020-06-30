@@ -24,42 +24,47 @@
 // while (!d.eof()) {
 //   /* start new clause */
 //   for (d.advance(); !d.eoc(); d.advance()) {
-//     /* add d.curr to current clause */
+//     /* add d.curr() to current clause */
 //   }
 // }
 struct DIMACS {
     DIMACS(const char* filename) {
-        f = fopen(filename, "r");
-        CHECK(f) << "Failed to open file: " << filename;
+        f_ = fopen(filename, "r");
+        CHECK(f_) << "Failed to open file: " << filename;
 
         // Read comment lines until we see the problem line.
         long long nv = 0, nc = 0;
         do {
-            read = fscanf(f, " p cnf %lld %lld \n", &nv, &nc);
-            if (read > 0 && read != EOF) break;
-            read = fscanf(f, "%*s\n");
-        } while (read != 2 && read != EOF);
+            read_ = fscanf(f_, " p cnf %lld %lld \n", &nv, &nc);
+            if (read_ > 0 && read_ != EOF) break;
+            read_ = fscanf(f_, "%*s\n");
+        } while (read_ != 2 && read_ != EOF);
         CHECK(nv >= 0) << "Variable count must be non-negative.";
         CHECK(nc >= 0) << "Clause count must be non-negative.";
         CHECK_NO_OVERFLOW(lit_t, nv);
         CHECK_NO_OVERFLOW(clause_t, nc);
-        nvars = nv;
-        nclauses = nc;
+        nvars_ = nv;
+        nclauses_ = nc;
     }
 
-    ~DIMACS() { fclose(f); }
+    ~DIMACS() { fclose(f_); }
 
-    inline void advance() { read = fscanf(f, " %i ", &curr); }
+    inline void advance() { read_ = fscanf(f_, " %i ", &curr_); }
 
-    inline bool eof() { return read == EOF; }
+    inline bool eof() { return read_ == EOF; }
 
-    inline bool eoc() { return eof() || curr == lit_nil; }
+    inline bool eoc() { return eof() || curr_ == lit_nil; }
 
-    lit_t nvars;
-    clause_t nclauses;
-    lit_t curr = lit_nil;
+    inline lit_t curr() { return curr_; }
+
+    inline lit_t nvars() { return nvars_; }
+
+    inline lit_t nclauses() { return nclauses_; }
 
 private:
-    FILE* f;
-    int read = 0;
+    FILE* f_;
+    int read_ = 0;
+    lit_t curr_ = lit_nil;
+    lit_t nvars_;
+    clause_t nclauses_;
 };

@@ -622,7 +622,7 @@ Cnf parse(const char* filename) {
     while (!d.eof()) {
         clause.clear();
         for (d.advance(); !d.eoc(); d.advance()) {
-            clause.push_back(d.curr);
+            clause.push_back(d.curr());
         }
         if (d.eof()) break;
         if (!d.eof() && clause.empty()) {
@@ -640,20 +640,20 @@ Cnf parse(const char* filename) {
             clauses.back().push_back(clause[0]);
             clauses.back().push_back(clause[1]);
             ++nsvars;
-            clauses.back().push_back(d.nvars + nsvars);
+            clauses.back().push_back(d.nvars() + nsvars);
             LOG(3) << "  Added (" << clauses.back()[0] << " "
                    << clauses.back()[1] << " " << clauses.back()[2] << ")";
             for (size_t i = 0; i < clause.size() - 4; ++i) {
                 clauses.push_back({});
-                clauses.back().push_back(-d.nvars - nsvars);
+                clauses.back().push_back(-d.nvars() - nsvars);
                 clauses.back().push_back(clause[i + 2]);
                 ++nsvars;
-                clauses.back().push_back(d.nvars + nsvars);
+                clauses.back().push_back(d.nvars() + nsvars);
                 LOG(3) << "  Added (" << clauses.back()[0] << " "
                        << clauses.back()[1] << " " << clauses.back()[2] << ")";
             }
             clauses.push_back({});
-            clauses.back().push_back(-d.nvars - nsvars);
+            clauses.back().push_back(-d.nvars() - nsvars);
             clauses.back().push_back(clause[clause.size()-2]);
             clauses.back().push_back(clause[clause.size()-1]);
             LOG(3) << "  Added (" << clauses.back()[0] << " "
@@ -661,11 +661,11 @@ Cnf parse(const char* filename) {
         }
     }
 
-    Cnf c(d.nvars, nsvars);
+    Cnf c(d.nvars(), nsvars);
 
     // L1. [Initialize.]
-    std::vector<uint8_t> forced_storage(2 * d.nvars + 1, 0);
-    uint8_t* forced = &forced_storage[d.nvars];
+    std::vector<uint8_t> forced_storage(2 * d.nvars() + 1, 0);
+    uint8_t* forced = &forced_storage[d.nvars()];
     for (const auto& cl : clauses) {
         if (cl.size() == 1) {
             if (forced[-cl[0]]) {

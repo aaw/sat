@@ -717,14 +717,14 @@ struct Cnf {
 Cnf parse(const char* filename) {
     Timer t("parse");
     DIMACS d(filename);
-    Cnf c(d.nvars);
+    Cnf c(d.nvars());
     while (!d.eof()) {
         c.clauses.push_back({.ptr = clause_nil});  // watch ptr for second lit.
         c.clauses.push_back({.ptr = clause_nil});  // watch ptr for first lit.
         c.clauses.push_back({.size = 0});          // size of clause. set below.
         std::size_t start = c.clauses.size();
         for (d.advance(); !d.eoc(); d.advance()) {
-            c.clauses.push_back({d.curr});
+            c.clauses.push_back({d.curr()});
         }
         int cs = c.clauses.size() - start;
         if (!d.eof() && cs == 0) {

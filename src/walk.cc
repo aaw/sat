@@ -166,11 +166,11 @@ struct Cnf {
 
 Cnf parse(const char* filename) {
     DIMACS d(filename);
-    Cnf c(static_cast<lit_t>(d.nvars), static_cast<clause_t>(d.nclauses));
+    Cnf c(static_cast<lit_t>(d.nvars()), static_cast<clause_t>(d.nclauses()));
     while (!d.eof()) {
         std::size_t start = c.clauses.size();
         for (d.advance(); !d.eoc(); d.advance()) {
-            c.clauses.push_back(d.curr);
+            c.clauses.push_back(d.curr());
         }
         if (d.eof()) break;
         if (!d.eof() && start == c.clauses.size()) {
