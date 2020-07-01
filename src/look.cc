@@ -24,7 +24,7 @@
 #include "params.h"
 #include "timer.h"
 #include "types.h"
-#include "parse.h"
+#include "process.h"
 
 DEFINE_PARAM(alpha, 3.5,
              "Multiplicative factor applied to binary clause contribution when "
@@ -615,17 +615,18 @@ private:
 };
 
 Cnf parse(const char* filename) {
-    DIMACS d(filename);
+    Processor p(filename);
+    p.reset();
     lit_t nsvars = 0;
     std::vector<std::vector<lit_t>> clauses;
     std::vector<lit_t> clause;
-    while (!d.eof()) {
+    while (!p.eof()) {
         clause.clear();
-        for (d.advance(); !d.eoc(); d.advance()) {
-            clause.push_back(d.curr());
+        for (p.advance(); !p.eoc(); p.advance()) {
+            clause.push_back(p.curr());
         }
-        if (d.eof()) break;
-        if (!d.eof() && clause.empty()) {
+        if (p.eof() && clause.empty()) break;
+        if (!p.eof() && clause.empty()) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
         }
@@ -640,20 +641,20 @@ Cnf parse(const char* filename) {
             clauses.back().push_back(clause[0]);
             clauses.back().push_back(clause[1]);
             ++nsvars;
-            clauses.back().push_back(d.nvars() + nsvars);
+            clauses.back().push_back(p.nvars() + nsvars);
             LOG(3) << "  Added (" << clauses.back()[0] << " "
                    << clauses.back()[1] << " " << clauses.back()[2] << ")";
             for (size_t i = 0; i < clause.size() - 4; ++i) {
                 clauses.push_back({});
-                clauses.back().push_back(-d.nvars() - nsvars);
+                clauses.back().push_back(-p.nvars() - nsvars);
                 clauses.back().push_back(clause[i + 2]);
                 ++nsvars;
-                clauses.back().push_back(d.nvars() + nsvars);
+                clauses.back().push_back(p.nvars() + nsvars);
                 LOG(3) << "  Added (" << clauses.back()[0] << " "
                        << clauses.back()[1] << " " << clauses.back()[2] << ")";
             }
             clauses.push_back({});
-            clauses.back().push_back(-d.nvars() - nsvars);
+            clauses.back().push_back(-p.nvars() - nsvars);
             clauses.back().push_back(clause[clause.size()-2]);
             clauses.back().push_back(clause[clause.size()-1]);
             LOG(3) << "  Added (" << clauses.back()[0] << " "
@@ -661,11 +662,11 @@ Cnf parse(const char* filename) {
         }
     }
 
-    Cnf c(d.nvars(), nsvars);
+    Cnf c(p.nvars(), nsvars);
 
     // L1. [Initialize.]
-    std::vector<uint8_t> forced_storage(2 * d.nvars() + 1, 0);
-    uint8_t* forced = &forced_storage[d.nvars()];
+    std::vector<uint8_t> forced_storage(2 * p.nvars() + 1, 0);
+    uint8_t* forced = &forced_storage[p.nvars()];
     for (const auto& cl : clauses) {
         if (cl.size() == 1) {
             if (forced[-cl[0]]) {

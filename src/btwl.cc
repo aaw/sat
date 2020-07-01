@@ -9,7 +9,7 @@
 #include "logging.h"
 #include "timer.h"
 #include "types.h"
-#include "parse.h"
+#include "process.h"
 
 // States used by both the search algorithm and the final assignment. If the
 // formula is satisfiable, all variables will end up in a state > UNEXAMINED.
@@ -116,15 +116,17 @@ struct Cnf {
 };
 
 Cnf parse(const char* filename) {
-    DIMACS d(filename);
-    Cnf c(static_cast<lit_t>(d.nvars()), static_cast<clause_t>(d.nclauses()));
-    while (!d.eof()) {
+    Processor p(filename);
+    p.reset();
+    Cnf c(static_cast<lit_t>(p.nvars()), static_cast<clause_t>(p.nclauses()));
+    while (!p.eof()) {
         std::size_t start = c.clauses.size();
-        for (d.advance(); !d.eoc(); d.advance()) {
-            c.clauses.push_back(d.curr());
+        for (p.advance(); !p.eoc(); p.advance()) {
+            LOG(0) << "push " << p.curr();
+            c.clauses.push_back(p.curr());
         }
-        if (d.eof()) break;
-        if (!d.eof() && start == c.clauses.size()) {
+        if (p.eof() && start == c.clauses.size()) break;
+        if (!p.eof() && start == c.clauses.size()) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
         }

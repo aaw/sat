@@ -29,7 +29,7 @@
 #include "timer.h"
 #include "types.h"
 #include "params.h"
-#include "parse.h"
+#include "process.h"
 
 extern std::string FLAGS_dratfile;
 
@@ -716,23 +716,25 @@ struct Cnf {
 
 Cnf parse(const char* filename) {
     Timer t("parse");
-    DIMACS d(filename);
-    Cnf c(d.nvars());
-    while (!d.eof()) {
+    Processor p(filename);
+    p.reset();
+    Cnf c(p.nvars());
+    while (!p.eof()) {
         c.clauses.push_back({.ptr = clause_nil});  // watch ptr for second lit.
         c.clauses.push_back({.ptr = clause_nil});  // watch ptr for first lit.
         c.clauses.push_back({.size = 0});          // size of clause. set below.
         std::size_t start = c.clauses.size();
-        for (d.advance(); !d.eoc(); d.advance()) {
-            c.clauses.push_back({d.curr()});
+        for (p.advance(); !p.eoc(); p.advance()) {
+            c.clauses.push_back({p.curr()});
         }
         int cs = c.clauses.size() - start;
-        if (!d.eof() && cs == 0) {
+        if (!p.eof() && cs == 0) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
-        } else if (d.eof() && cs == 0) {
+        } else if (p.eof() && cs == 0) {
             // Clean up from (now unnecessary) c.clauses.push_backs above.
             for(clause_t i = 0; i < kHeaderSize; ++i) { c.clauses.pop_back(); }
+            break;
         } else if (cs == 1) {
             lit_t x = c.clauses[c.clauses.size() - 1].lit;
             LOG(3) << "Found unit clause " << x;
@@ -750,7 +752,6 @@ Cnf parse(const char* filename) {
                 LOG(1) << "Duplicate unit (" << x << "). Skipping from now on.";
             }
         }
-        if (d.eof()) break;
         CHECK(cs > 0);
         // Record the size of the clause in offset -1.
         c.clauses[start - 1].size = cs;

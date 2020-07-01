@@ -21,6 +21,7 @@
 // Here's an example of how to use this parser to process a DIMACS input file:
 //
 // DIMACS d(filename);
+// d.reset();
 // while (!d.eof()) {
 //   /* start new clause */
 //   for (d.advance(); !d.eoc(); d.advance()) {
@@ -28,9 +29,14 @@
 //   }
 // }
 struct DIMACS {
-    DIMACS(const char* filename) {
-        f_ = fopen(filename, "r");
-        CHECK(f_) << "Failed to open file: " << filename;
+    DIMACS(const char* filename) : filename_(filename) { }
+
+    ~DIMACS() { fclose(f_); }
+
+    void reset() {
+        if (f_ != 0) fclose(f_);
+        f_ = fopen(filename_, "r");
+        CHECK(f_) << "Failed to open file: " << filename_;
 
         // Read comment lines until we see the problem line.
         long long nv = 0, nc = 0;
@@ -45,9 +51,8 @@ struct DIMACS {
         CHECK_NO_OVERFLOW(clause_t, nc);
         nvars_ = nv;
         nclauses_ = nc;
-    }
 
-    ~DIMACS() { fclose(f_); }
+    }
 
     inline void advance() { read_ = fscanf(f_, " %i ", &curr_); }
 
@@ -62,7 +67,8 @@ struct DIMACS {
     inline lit_t nclauses() { return nclauses_; }
 
 private:
-    FILE* f_;
+    const char* filename_;
+    FILE* f_ = 0;
     int read_ = 0;
     lit_t curr_ = lit_nil;
     lit_t nvars_;
