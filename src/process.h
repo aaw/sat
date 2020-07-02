@@ -20,6 +20,15 @@ struct Cell {
     cell_size_t clause_next = cell_nil;  // D (dexter)
 };
 
+// When we eliminate a variable, we store a rule that will tell us the truth
+// value of that variable as a function of other un-eliminated variables. Here,
+// clauses is a sequence of lit_nil-delimited clauses. The rule tells us to set
+// lit to true iff all clauses are satisfied.
+struct Rule {
+    lit_t lit;
+    std::vector<lit_t> clauses;
+};
+
 struct Processor {
     Processor(const char* filename) : dimacs(filename) {
         if (!PARAM_preprocess) return;
@@ -156,6 +165,20 @@ struct Processor {
         next_cell = i;
     }
 
+    void apply_rules() {
+        while (!rules.empty()) {
+            const Rule& r = rules.back();
+            rules.pop_back();
+            bool sat = r.clauses.empty();
+            for (lit_t l : r.clauses) {
+                if (l == lit_nil && !sat ) break;  // nothing sat in current
+                if (l == lit_nil /* && sat */) sat = false;  // reset for next
+                if (val[abs(l)] == (l > 0)) sat = true;  // sat in current
+            }
+            val[abs(r.lit)] = (sat == (r.lit > 0));
+        }
+    }
+
     void print_assignment() {
         for (std::size_t i = 1, j = 0; i < val.size(); ++i) {
             if (j % 10 == 0) PRINT << "v";
@@ -170,6 +193,7 @@ struct Processor {
     std::vector<bool> val;
     std::vector<Cell> cell_storage;
     Cell* cell;
+    std::vector<Rule> rules;
     cell_size_t next_cell;
     cell_size_t lit_end;
     cell_size_t clause_end;
