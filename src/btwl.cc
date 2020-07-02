@@ -122,7 +122,6 @@ Cnf parse(const char* filename) {
     while (!p.eof()) {
         std::size_t start = c.clauses.size();
         for (p.advance(); !p.eoc(); p.advance()) {
-            LOG(0) << "push " << p.curr();
             c.clauses.push_back(p.curr());
         }
         if (p.eof() && start == c.clauses.size()) break;

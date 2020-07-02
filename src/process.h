@@ -9,8 +9,8 @@ DEFINE_PARAM(preprocess, 0,
              "If non-zero, pre-process the input formula, applying common "
              "simplifications.");
 
-typedef uint32_t cell_size_t;
-constexpr uint32_t cell_nil = std::numeric_limits<cell_size_t>::max();
+typedef int32_t cell_size_t;
+constexpr int32_t cell_nil = std::numeric_limits<cell_size_t>::max();
 
 struct Cell {
     lit_t lit = lit_nil;
@@ -20,15 +20,6 @@ struct Cell {
     cell_size_t clause_next = cell_nil;  // D (dexter)
 };
 
-// TODO: rework so we're not doing the 2*x+1 stuff for literals...
-
-// Convert a positive/negative literal to a lit index. Maps lits in the range
-// [-nvars, nvars] onto [2, 2*nvars+1].
-static inline cell_size_t lidx(lit_t l) { return 2 * abs(l) + (l < 0 ? 1 : 0); }
-
-// Inverse of lidx; lit(lidx(-3)) = -3
-static inline lit_t lit(cell_size_t l) { return (l & 1 ? -1 : 1) * (l / 2); }
-
 struct Processor {
     Processor(const char* filename) : dimacs(filename) {
         if (!PARAM_preprocess) return;
@@ -37,21 +28,22 @@ struct Processor {
         nvars_ = dimacs.nvars();
         nclauses_ = dimacs.nclauses();
         val.resize(dimacs.nvars() + 1, false);
-        cells.resize(lidx(-dimacs.nvars()) + dimacs.nclauses() + 1);
+        cell_storage.resize(2*nvars_ + 1 + nclauses_);
+        cell = &cell_storage[nvars_];
         std::vector<lit_t> c;
 
-        for (cell_size_t i = 2; i < cells.size(); ++i) {
-            cells[i].lit_next = cells[i].lit_prev = i;
-            cells[i].clause_next = cells[i].clause_prev = i;
+        for (size_t i = 0; i < cell_storage.size(); ++i) {
+            cell_size_t self = i - nvars_;
+            cell_storage[i].lit_next = cell_storage[i].lit_prev = self;
+            cell_storage[i].clause_next = cell_storage[i].clause_prev = self;
         }
 
-        lit_end = lidx(-dimacs.nvars()) + 1;
-        clause_end = lidx(-dimacs.nvars());
-        LOG(0) << "lit_end = " << lit_end;
+        lit_end = dimacs.nvars() + 1;
+        clause_end = dimacs.nvars();
         while (!dimacs.eof()) {
             c.clear();
             for (dimacs.advance(); !dimacs.eoc(); dimacs.advance()) {
-                c.push_back(lidx(dimacs.curr()));
+                c.push_back(dimacs.curr());
             }
             if (!dimacs.eof() && c.empty()) {
                 LOG(2) << "Empty clause in input file, unsatisfiable formula.";
@@ -68,19 +60,19 @@ struct Processor {
             cell_size_t ptr = ++clause_end;
             for (const auto& l : c) {
                 cell_size_t nc = alloc_cell();
-                cells[nc].lit = l;
+                cell[nc].lit = l;
 
                 // Set clause_prev/clause_next.
-                cells[nc].clause_prev = ptr;
-                cells[nc].clause_next = cells[ptr].clause_next;
-                cells[cells[ptr].clause_next].clause_prev = nc;
-                cells[ptr].clause_next = nc;
+                cell[nc].clause_prev = ptr;
+                cell[nc].clause_next = cell[ptr].clause_next;
+                cell[cell[ptr].clause_next].clause_prev = nc;
+                cell[ptr].clause_next = nc;
 
                 // Set lit_prev/lit_next.
-                cells[nc].lit_prev = l;
-                cells[nc].lit_next = cells[l].lit_next;
-                cells[cells[l].lit_next].lit_prev = nc;
-                cells[l].lit_next = nc;
+                cell[nc].lit_prev = l;
+                cell[nc].lit_next = cell[l].lit_next;
+                cell[cell[l].lit_next].lit_prev = nc;
+                cell[l].lit_next = nc;
 
                 ptr = nc;
             }
@@ -89,11 +81,12 @@ struct Processor {
     }
 
     void dump_clauses() {
-        for (size_t i = lit_end; i < cells.size(); ++i) {
-            LOG(0) << "[" << i << "]: (" << lit(cells[i].lit) << ") "
-                   << "<" << cells[i].clause_prev << "," << cells[i].clause_next
-                   << "> {" << cells[i].lit_prev << "," << cells[i].lit_next
-                   << "}";
+        for (size_t i = lit_end; i < cell_storage.size(); ++i) {
+            LOG(0) << "[" << i - nvars_ << "]: (" << cell_storage[i].lit << ") "
+                   << "<" << cell_storage[i].clause_prev << ","
+                   << cell_storage[i].clause_next << "> {"
+                   << cell_storage[i].lit_prev << ","
+                   << cell_storage[i].lit_next << "}";
         }
     }
 
@@ -116,7 +109,7 @@ struct Processor {
             dimacs.advance();
             return;
         }
-        cptr = cells[cptr].clause_next;
+        cptr = cell[cptr].clause_next;
         if (cptr < clause_end) {
             ++cptr;
             if (cptr >= clause_end) { eof_ = true; }
@@ -130,8 +123,7 @@ struct Processor {
 
     lit_t curr() {
         if (!PARAM_preprocess) return dimacs.curr();
-        //LOG(0) << "|" << lit(cells[cptr].lit) << "|";
-        return lit(cells[cptr].lit);
+        return cell[cptr].lit;
     }
 
     lit_t nvars() {
@@ -145,20 +137,22 @@ struct Processor {
     }
 
     inline cell_size_t alloc_cell() {
-        INC(cells_allocated);
+        // TODO: check to make sure we don't overflow cell_size_t here
+        INC(cell_allocated);
         if (next_cell == cell_nil) {
-            cells.emplace_back(Cell());
-            return cells.size() - 1;
+            cell_storage.emplace_back(Cell());
+            cell = &cell_storage[nvars_];
+            return cell_storage.size() - nvars() - 1;
         } else {
             cell_size_t retval = next_cell;
-            next_cell = cells[next_cell].clause_prev;
+            next_cell = cell[next_cell].clause_prev;
             return retval;
         }
     }
 
     inline void free_cell(cell_size_t i) {
-        INC(cells_freed);
-        cells[i].clause_prev = next_cell;
+        INC(cell_freed);
+        cell[i].clause_prev = next_cell;
         next_cell = i;
     }
 
@@ -174,7 +168,8 @@ struct Processor {
 
     DIMACS dimacs;
     std::vector<bool> val;
-    std::vector<Cell> cells;
+    std::vector<Cell> cell_storage;
+    Cell* cell;
     cell_size_t next_cell;
     cell_size_t lit_end;
     cell_size_t clause_end;
