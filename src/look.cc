@@ -240,6 +240,8 @@ struct lookahead_order_t {
 
 // Storage for the DPLL search and the final assignment, if one exists.
 struct Cnf {
+    Processor* p;
+
     // Number of variables in the original problem. These are the first
     // novars variables in the value array. novars <= nvars() since extra
     // vars can be added during processing to convert to 3-SAT.
@@ -360,8 +362,9 @@ struct Cnf {
 
     double tau; // Trigger value for double lookahead.
 
-    Cnf(lit_t novars, lit_t nsvars) :
-        novars(novars),
+    Cnf(Processor* p, lit_t nsvars) :
+        p(p),
+        novars(p->nvars()),
         bimp_storage(2 * (novars + nsvars) + 1),
         bimp(&bimp_storage[novars + nsvars]),
         timp_storage(2 * (novars + nsvars) + 1),
@@ -577,16 +580,14 @@ struct Cnf {
         }
     }
 
-    // Print the satifsying assigment.
     void print_assignment() {
-        for (int i = 1, j = 0; i <= novars; ++i) {
-            if (!fixed(i)) { stamp_false(i, t); }
-            if (j % 10 == 0) PRINT << "v";
-            PRINT << (fixed_false(i) ? " -" : " ") << i;
-            ++j;
-            if (i == novars) PRINT << " 0" << std::endl;
-            else if (j > 0 && j % 10 == 0) PRINT << std::endl;
+        p->val.resize(novars + 1, false);  // In case preprocessing is disabled.
+        for (lit_t i = 1; i <= novars; ++i) {
+            if (!fixed(i)) { p->val[i] = false; }
+            else { p->val[i] = fixed_true(i); }
         }
+        p->apply_rules();
+        p->print_assignment();
     }
 
     std::string progress_debug_string() {
@@ -614,19 +615,18 @@ private:
     uint32_t saved_t_;
 };
 
-Cnf parse(const char* filename) {
-    Processor p(filename);
-    p.reset();
+Cnf parse(Processor* p) {
+    p->reset();
     lit_t nsvars = 0;
     std::vector<std::vector<lit_t>> clauses;
     std::vector<lit_t> clause;
-    while (!p.eof()) {
+    while (!p->eof()) {
         clause.clear();
-        for (p.advance(); !p.eoc(); p.advance()) {
-            clause.push_back(p.curr());
+        for (p->advance(); !p->eoc(); p->advance()) {
+            clause.push_back(p->curr());
         }
-        if (p.eof() && clause.empty()) break;
-        if (!p.eof() && clause.empty()) {
+        if (p->eof() && clause.empty()) break;
+        if (!p->eof() && clause.empty()) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
         }
@@ -641,20 +641,20 @@ Cnf parse(const char* filename) {
             clauses.back().push_back(clause[0]);
             clauses.back().push_back(clause[1]);
             ++nsvars;
-            clauses.back().push_back(p.nvars() + nsvars);
+            clauses.back().push_back(p->nvars() + nsvars);
             LOG(3) << "  Added (" << clauses.back()[0] << " "
                    << clauses.back()[1] << " " << clauses.back()[2] << ")";
             for (size_t i = 0; i < clause.size() - 4; ++i) {
                 clauses.push_back({});
-                clauses.back().push_back(-p.nvars() - nsvars);
+                clauses.back().push_back(-p->nvars() - nsvars);
                 clauses.back().push_back(clause[i + 2]);
                 ++nsvars;
-                clauses.back().push_back(p.nvars() + nsvars);
+                clauses.back().push_back(p->nvars() + nsvars);
                 LOG(3) << "  Added (" << clauses.back()[0] << " "
                        << clauses.back()[1] << " " << clauses.back()[2] << ")";
             }
             clauses.push_back({});
-            clauses.back().push_back(-p.nvars() - nsvars);
+            clauses.back().push_back(-p->nvars() - nsvars);
             clauses.back().push_back(clause[clause.size()-2]);
             clauses.back().push_back(clause[clause.size()-1]);
             LOG(3) << "  Added (" << clauses.back()[0] << " "
@@ -662,11 +662,11 @@ Cnf parse(const char* filename) {
         }
     }
 
-    Cnf c(p.nvars(), nsvars);
+    Cnf c(p, nsvars);
 
     // L1. [Initialize.]
-    std::vector<uint8_t> forced_storage(2 * p.nvars() + 1, 0);
-    uint8_t* forced = &forced_storage[p.nvars()];
+    std::vector<uint8_t> forced_storage(2 * p->nvars() + 1, 0);
+    uint8_t* forced = &forced_storage[p->nvars()];
     for (const auto& cl : clauses) {
         if (cl.size() == 1) {
             if (forced[-cl[0]]) {
@@ -1410,7 +1410,8 @@ int main(int argc, char** argv) {
         << "double_lookahead_damping factor must be <= 1";
     init_counters();
     init_timers();
-    Cnf c = parse(argv[oidx]);
+    Processor p(argv[oidx]);
+    Cnf c = parse(&p);
     if (solve(&c)) SAT_EXIT(&c);
     UNSAT_EXIT;
 }

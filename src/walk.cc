@@ -41,6 +41,16 @@ static bool flip(float p) {
 }
 
 struct Cnf {
+    Processor* p;
+
+    // Number of variables in the formula. Valid variables range from 1 to
+    // nvars, inclusive.
+    lit_t nvars;
+
+    // Number of clauses in the formula. Valid clause indexes range from 0 to
+    // nclauses - 1.
+    clause_t nclauses;
+
     // Clauses are stored as a sequential list of literals in memory with no
     // terminator between clauses. Example: (1 OR 2) AND (3 OR -2 OR -1) would
     // be stored as [1][2][3][-2][-1]. The start array (below) keeps track of
@@ -77,23 +87,16 @@ struct Cnf {
     // Maps clause indexes to number of true literals in clause
     std::vector<lit_t> numtrue;
 
-    // Number of variables in the formula. Valid variables range from 1 to
-    // nvars, inclusive.
-    lit_t nvars;
-
-    // Number of clauses in the formula. Valid clause indexes range from 0 to
-    // nclauses - 1.
-    clause_t nclauses;
-
-    Cnf(lit_t nvars, clause_t nclauses) :
+    Cnf(Processor* p) :
+        p(p),
+        nvars(p->nvars()),
+        nclauses(p->nclauses()),
         val(nvars+1),
         cost(nvars+1, 0),
         invclause_storage(2 * nvars + 1),
         invclause(&invclause_storage[nvars]),
         unsat_index(nclauses, clause_nil),
-        numtrue(nclauses, 0),
-        nvars(nvars),
-        nclauses(nclauses) {
+        numtrue(nclauses, 0) {
         if (FLAGS_seed == 0) FLAGS_seed = time(NULL);
         srand(FLAGS_seed);
     }
@@ -154,27 +157,25 @@ struct Cnf {
     }
 
     void print_assignment() {
-        for (int i = 1, j = 0; i <= nvars; ++i) {
-            if (j % 10 == 0) PRINT << "v";
-            PRINT << (val[i] ? " " : " -") << i;
-            ++j;
-            if (i == nvars) PRINT << " 0" << std::endl;
-            else if (j > 0 && j % 10 == 0) PRINT << std::endl;
+        p->val.resize(nvars + 1, false);  // In case preprocessing is disabled.
+        for (lit_t i = 1; i <= nvars; ++i) {
+            p->val[i] = val[i];
         }
+        p->apply_rules();
+        p->print_assignment();
     }
 };
 
-Cnf parse(const char* filename) {
-    Processor p(filename);
-    p.reset();
-    Cnf c(static_cast<lit_t>(p.nvars()), static_cast<clause_t>(p.nclauses()));
-    while (!p.eof()) {
+Cnf parse(Processor* p) {
+    p->reset();
+    Cnf c(p);
+    while (!p->eof()) {
         std::size_t start = c.clauses.size();
-        for (p.advance(); !p.eoc(); p.advance()) {
-            c.clauses.push_back(p.curr());
+        for (p->advance(); !p->eoc(); p->advance()) {
+            c.clauses.push_back(p->curr());
         }
-        if (p.eof() && start == c.clauses.size()) break;
-        if (!p.eof() && start == c.clauses.size()) {
+        if (p->eof() && start == c.clauses.size()) break;
+        if (!p->eof() && start == c.clauses.size()) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
         }
@@ -340,8 +341,7 @@ int main(int argc, char** argv) {
         << "Usage: " << argv[0] << " <filename>";
     init_counters();
     init_timers();
-    Cnf c = parse(argv[oidx]);
-    if (c.clauses.empty() || solve(&c)) {
-        SAT_EXIT(&c);
-    }
+    Processor p(argv[oidx]);
+    Cnf c = parse(&p);
+    if (c.clauses.empty() || solve(&c)) { SAT_EXIT(&c); }
 }

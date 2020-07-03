@@ -168,7 +168,6 @@ struct Processor {
     void apply_rules() {
         while (!rules.empty()) {
             const Rule& r = rules.back();
-            rules.pop_back();
             bool sat = r.clauses.empty();
             for (lit_t l : r.clauses) {
                 if (l == lit_nil && !sat ) break;  // nothing sat in current
@@ -176,13 +175,15 @@ struct Processor {
                 if (val[abs(l)] == (l > 0)) sat = true;  // sat in current
             }
             val[abs(r.lit)] = (sat == (r.lit > 0));
+            LOG(2) << "erp rule set " << abs(r.lit) << " = " << val[abs(r.lit)];
+            rules.pop_back();
         }
     }
 
     void print_assignment() {
         for (std::size_t i = 1, j = 0; i < val.size(); ++i) {
             if (j % 10 == 0) PRINT << "v";
-            PRINT << (val[i] ? " " : " -") << i+1;
+            PRINT << (val[i] ? " " : " -") << i;
             ++j;
             if (i == val.size() - 1) PRINT << " 0" << std::endl;
             else if (j > 0 && j % 10 == 0) PRINT << std::endl;

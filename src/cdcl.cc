@@ -195,6 +195,11 @@ static bool flip(float p) {
 // take on only positive values and literals can take on both positive and
 // negative values.
 struct Cnf {
+    Processor* p;
+
+    // Number of variables in the problem. [1, ..., nvars] are valid variables.
+    size_t nvars;
+
     // Array of all clauses. Consists of both clauses in the original formula
     // and lemmas learned by CDCL. All learned lemmas appear after original
     // clauses. The comment above clause_elem_t describes the layout. Clauses
@@ -265,9 +270,6 @@ struct Cnf {
     // pair on this list.
     std::vector<std::pair<lit_t, clause_t>> trail_lits;
 
-    // Number of variables in the problem. [1, ..., nvars] are valid variables.
-    size_t nvars;
-
     // The resolution epoch. Each time we learn a clause, we bump this value by
     // 3. We use this epoch value to stamp literals as "visited" in the stamp
     // and lstamp arrays while processing the learned clause. The subroutine
@@ -306,7 +308,9 @@ struct Cnf {
 
     FILE* prooflog;
 
-    Cnf(size_t nvars) :
+    Cnf(Processor* p) :
+        p(p),
+        nvars(p->nvars()),
         val(nvars + 1, UNSET),
         lev(nvars + 1, -1),
         oval(nvars + 1, FALSE),
@@ -322,7 +326,6 @@ struct Cnf {
         watch(&watch_storage[nvars]),
         b(nvars, -1),
         trail_lits(nvars),
-        nvars(nvars),
         epoch(0),
         nlemmas(0),
         d(0),
@@ -703,35 +706,33 @@ struct Cnf {
     }
 
     void print_assignment() {
-        for (size_t i = 1, j = 0; i <= nvars; ++i) {
-            if (val[i] == UNSET) { val[i] = FALSE; }
-            if (j % 10 == 0) PRINT << "v";
-            PRINT << ((val[i] & 1) ? " -" : " ") << i;
-            ++j;
-            if (i == nvars) PRINT << " 0" << std::endl;
-            else if (j > 0 && j % 10 == 0) PRINT << std::endl;
-         }
+        p->val.resize(nvars + 1, false);  // In case preprocessing is disabled.
+        for (size_t i = 1; i <= nvars; ++i) {
+            if (val[i] == UNSET) { p->val[i] = FALSE; }
+            else { p->val[i] = !(val[i] & 1); }
+        }
+        p->apply_rules();
+        p->print_assignment();
     }
 };
 
-Cnf parse(const char* filename) {
+Cnf parse(Processor* p) {
     Timer t("parse");
-    Processor p(filename);
-    p.reset();
-    Cnf c(p.nvars());
-    while (!p.eof()) {
+    p->reset();
+    Cnf c(p);
+    while (!p->eof()) {
         c.clauses.push_back({.ptr = clause_nil});  // watch ptr for second lit.
         c.clauses.push_back({.ptr = clause_nil});  // watch ptr for first lit.
         c.clauses.push_back({.size = 0});          // size of clause. set below.
         std::size_t start = c.clauses.size();
-        for (p.advance(); !p.eoc(); p.advance()) {
-            c.clauses.push_back({p.curr()});
+        for (p->advance(); !p->eoc(); p->advance()) {
+            c.clauses.push_back({p->curr()});
         }
         int cs = c.clauses.size() - start;
-        if (!p.eof() && cs == 0) {
+        if (!p->eof() && cs == 0) {
             LOG(2) << "Empty clause in input file, unsatisfiable formula.";
             UNSAT_EXIT;
-        } else if (p.eof() && cs == 0) {
+        } else if (p->eof() && cs == 0) {
             // Clean up from (now unnecessary) c.clauses.push_backs above.
             for(clause_t i = 0; i < kHeaderSize; ++i) { c.clauses.pop_back(); }
             break;
@@ -1159,7 +1160,8 @@ int main(int argc, char** argv) {
         "Usage: " << argv[0] << " <filename>";
     init_counters();
     init_timers();
-    Cnf c = parse(argv[oidx]);
+    Processor p(argv[oidx]);
+    Cnf c = parse(&p);
     if (c.clauses.empty() || solve(&c)) {
         SAT_EXIT(&c);
     } else {
