@@ -22,6 +22,9 @@ struct Cell {
     uint64_t sig = 0;
 };
 
+#define TALLY(l) (cell[l].lit)
+#define CSIZE(c) (cell[c].clause)
+
 // When we eliminate a variable, we store a rule that will tell us the truth
 // value of that variable as a function of other un-eliminated variables. Here,
 // clauses is a sequence of lit_nil-delimited clauses. The rule tells us to set
@@ -99,20 +102,37 @@ struct Processor {
             cell[l].sig = 1UL << (rand() % 32);
             cell[l].sig <<= 32;
             cell[l].sig = 1UL << (rand() % 32);
+            calc_tally(l);
         }
 
         // Initialize clause signatures.
         for (cell_size_t i = lit_end; i < clause_end; ++i) {
-            set_clause_sig(i);
+            calc_clause_sig(i);
+            calc_csize(i);
         }
 
         dump_clauses();
     }
 
-    void set_clause_sig(clause_t c) {
+    void calc_clause_sig(clause_t c) {
         cell[c].sig = 0;
         for(clause_t i = cell[c].clause_next; i != c; i = cell[i].clause_next) {
             cell[c].sig |= cell[cell[i].lit].sig;
+        }
+    }
+
+    void calc_tally(lit_t l) {
+        TALLY(l) = 0;
+        for(cell_size_t p = cell[l].lit_next; p != l; p = cell[p].lit_next) {
+            ++TALLY(l);
+        }
+    }
+
+    void calc_csize(cell_size_t c) {
+        CSIZE(c) = 0;
+        for(cell_size_t p = cell[c].clause_next; p != c;
+            p = cell[p].clause_next) {
+            ++CSIZE(c);
         }
     }
 
