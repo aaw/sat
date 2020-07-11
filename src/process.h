@@ -14,10 +14,12 @@ constexpr int32_t cell_nil = std::numeric_limits<cell_size_t>::max();
 
 struct Cell {
     lit_t lit = lit_nil;
+    cell_size_t clause = cell_nil;
     cell_size_t lit_prev = cell_nil;     // B (backward)
     cell_size_t lit_next = cell_nil;     // F (forward)
     cell_size_t clause_prev = cell_nil;  // S (sinister)
     cell_size_t clause_next = cell_nil;  // D (dexter)
+    uint64_t sig = 0;
 };
 
 // When we eliminate a variable, we store a rule that will tell us the truth
@@ -41,14 +43,16 @@ struct Processor {
         cell = &cell_storage[nvars_];
         std::vector<lit_t> c;
 
+        // Initialize all cells.
         for (size_t i = 0; i < cell_storage.size(); ++i) {
             cell_size_t self = i - nvars_;
             cell_storage[i].lit_next = cell_storage[i].lit_prev = self;
             cell_storage[i].clause_next = cell_storage[i].clause_prev = self;
         }
 
-        lit_end = dimacs.nvars() + 1;
-        clause_end = dimacs.nvars();
+        // Process input from DIMACS file.
+        lit_end = nvars_ + 1;
+        clause_end = nvars_;
         while (!dimacs.eof()) {
             c.clear();
             for (dimacs.advance(); !dimacs.eoc(); dimacs.advance()) {
@@ -67,9 +71,11 @@ struct Processor {
 
             // Install the clause.
             cell_size_t ptr = ++clause_end;
+            cell_size_t ci = ptr;
             for (const auto& l : c) {
                 cell_size_t nc = alloc_cell();
                 cell[nc].lit = l;
+                cell[nc].clause = ci;
 
                 // Set clause_prev/clause_next.
                 cell[nc].clause_prev = ptr;
@@ -86,12 +92,34 @@ struct Processor {
                 ptr = nc;
             }
         }
+
+        // Initialize lit signatures.
+        for (lit_t l = -nvars_; l <= nvars_; ++l) {
+            if (l == lit_nil) continue;
+            cell[l].sig = 1UL << (rand() % 32);
+            cell[l].sig <<= 32;
+            cell[l].sig = 1UL << (rand() % 32);
+        }
+
+        // Initialize clause signatures.
+        for (cell_size_t i = lit_end; i < clause_end; ++i) {
+            set_clause_sig(i);
+        }
+
         dump_clauses();
+    }
+
+    void set_clause_sig(clause_t c) {
+        cell[c].sig = 0;
+        for(clause_t i = cell[c].clause_next; i != c; i = cell[i].clause_next) {
+            cell[c].sig |= cell[cell[i].lit].sig;
+        }
     }
 
     void dump_clauses() {
         for (size_t i = lit_end; i < cell_storage.size(); ++i) {
             LOG(0) << "[" << i - nvars_ << "]: (" << cell_storage[i].lit << ") "
+                   << " ( " << cell_storage[i].clause << ") "
                    << "<" << cell_storage[i].clause_prev << ","
                    << cell_storage[i].clause_next << "> {"
                    << cell_storage[i].lit_prev << ","

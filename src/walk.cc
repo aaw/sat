@@ -197,7 +197,7 @@ Cnf parse(Processor* p) {
 
 // Returns true exactly when a satisfying assignment exists for c after
 // random initialization and n iterations of WalkSAT.
-bool walk(Cnf* c, int n) {
+bool walk(Cnf* c, uint64_t n) {
 
     // W1. [Initialize.]
     c->unsat.clear();
@@ -225,7 +225,7 @@ bool walk(Cnf* c, int n) {
         }
     }
 
-    for (int nn = 0; nn < n; ++nn) {
+    for (uint64_t nn = 0; nn < n; ++nn) {
         LOG(2) << c->dump_clauses();
 
         // W2. [Done?]
@@ -319,16 +319,16 @@ bool walk(Cnf* c, int n) {
 // Produces the "reluctant doubling" sequence of Luby, Sinclair, and Zuckerman
 // discussed in the text in Exercise 293 and defined in (131). Starting with
 // u=1 and v=1, calls to this function return v=1,1,2,1,1,2,4,1,1,...
-void reluctant_double(int& u, int& v) {
+void reluctant_double(uint64_t& u, uint64_t& v) {
     if ((u & -u) == v) { ++u; v = 1; }
     else { v *= 2; }
 }
 
 bool solve(Cnf* c) {
-    int base = c->nvars;
+    lit_t base = c->nvars;
     if (PARAM_quadratic_cutoff) base *= c->nvars;
-    for (int u = 1, v = 1; true; reluctant_double(u, v)) {
-        int iters = v * base * PARAM_cutoff_multiplier;
+    for (uint64_t u = 1, v = 1; true; reluctant_double(u, v)) {
+        uint64_t iters = v * base * PARAM_cutoff_multiplier;
         LOG(1) << "Running for " << iters << " iterations.";
         if (walk(c, iters)) return true;
         INC(restarts);
