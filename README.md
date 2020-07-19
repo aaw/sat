@@ -57,12 +57,12 @@ input file as an argument, for example:
 
 All solvers accept a set of common flags:
 
-   * `-s[n]`: Set the random seed to n.
-   * `-v[n]`: Set the logging verbosity to n. Bigger n means more detail.
+   * `-s`: Set the random seed.
+   * `-v`: Set the logging verbosity to a number >= 0. 0 means no logging, more detail comes with higher levels.
    * `-t`: Collect timing information, dump at exit.
    * `-c`: Collect counters, dump at exit.
    * `-dF`: Output a [DRAT proof](https://www.cs.utexas.edu/~marijn/drat-trim) on unsatisfiable instances to file F. (Only works for bin/cdcl.)
-   * `-p[p1=v1][;pn=vn]*: Set binary-specific parameters to floating point values.
+   * `-p[p1=v1][;pn=vn]*`: Set binary-specific parameters to floating point values.
    * `-h`: Display all flags and parameters available.
 
 Testing
@@ -90,7 +90,7 @@ A full list of flags accepted by `script/test.sh`:
    * `-s`: Random seed. Passed through directly as `-s` flag to the binary.
    * `-t`: Timeout. Format is a floating point duration with an optional suffix of `s` (seconds, default), `m` (minutes), `h` (hours), `d` (days).
    * `-v`: If set, verify results. Uses `script/verify_sat.py` to verify satisfiable results and expects
-     `[bin/drat-trim](https://github.com/marijnheule/drat-trim)` to exist to verify unsatisfiable reults.
+     [`bin/drat-trim`](https://github.com/marijnheule/drat-trim) to exist to verify unsatisfiable results.
      All binaries can have their satisfiable results verified, only `cdcl` can have its unsatisfiable results verified.
 
 Using Instance Generators
@@ -111,7 +111,7 @@ file, use bash process substitution:
 Fuzzing
 -------
 
-`./script/fuzz.sh` supports fuzz-testing one binary against the other on randomly generated
+`./script/fuzz.sh` supports fuzz-testing one binary against another on randomly generated
 instances. Random instances close to the sat/unsat threshold are created using the `./gen/rand.py` generator.
 
 Flags accepted:
