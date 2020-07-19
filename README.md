@@ -34,7 +34,7 @@ Clone this repo:
     git clone git@github.com:aaw/sat.git
 
 cd into the top level of the clone (`cd sat`) and run `make` to make sure everything
-builds. This should build four binaries and put them in the bin/ subdirectory:
+builds. This should build five binaries and put them in the bin/ subdirectory:
 
    * bin/btwl (Algorithm B)
    * bin/dpll (Algorithm D)
@@ -55,13 +55,15 @@ input file as an argument, for example:
 
     ./bin/dpll ./test/simple_1.cnf
 
-You can change the verbosity of the output with the `-v` flag. By default, verbosity
-is set to 0 and gives the minimal amount of output needed. Larger values of
-verbosity output more. For all solvers, verbosity level 1 gives a visual
-representation of the solver state during the search, so you can get some idea of
-how the backtracking process works by running, for example:
+All solvers accept a set of common flags:
 
-     ./bin/btwl -v1 ./test/waerden_4_4_35.cnf
+   * `-s[n]`: Set the random seed to n.
+   * `-v[n]`: Set the logging verbosity to n. Bigger n means more detail.
+   * `-t`: Collect timing information, dump at exit.
+   * `-c`: Collect counters, dump at exit.
+   * `-dF`: Output a [DRAT proof](https://www.cs.utexas.edu/~marijn/drat-trim) on unsatisfiable instances to file F. (Only works for bin/cdcl.)
+   * `-p[p1=v1][;pn=vn]*: Set binary-specific parameters to floating point values.
+   * `-h`: Display all flags and parameters available.
 
 Testing
 -------
@@ -71,13 +73,25 @@ test instances in the form of DIMACS CNF files. Instances are all annotated with
 comments that tell whether the instance is satisfiable/unsatisfiable and a subjective
 rating of easy/medium/hard.
 
-The script/test.sh script can be used to test a SAT solver against all instances of a
+The `script/test.sh` script can be used to test a SAT solver against all instances of a
 particular difficulty class. Pass the desired binary with `-b` and the desired
 difficulty with `-d` and an optional per-instance timeout with `-t`. For example, to
 test the `dpll` binary against all easy instances with a timeout of 10 seconds per
 instance, run the following from the top level of this repo:
 
     ./script/test.sh -bdpll -deasy -t10s
+
+A full list of flags accepted by `script/test.sh`:
+
+   * `-b`: The binary to test, one of `{btwl,dpll,cdcl,look,walk}`. Default: `btwl`.
+   * `-d`: Test instance difficulty, one of `{easy,medium,hard}`. Default: easy.
+   * `-l`: Test instance label, one of `{sat,unsat}`. Default: test both sat and unsat.
+   * `-p`: Binary-specific params. Passed through directly as `-p` flags to the binary.
+   * `-s`: Random seed. Passed through directly as `-s` flag to the binary.
+   * `-t`: Timeout. Format is a floating point duration with an optional suffix of `s` (seconds, default), `m` (minutes), `h` (hours), `d` (days).
+   * `-v`: If set, verify results. Uses `script/verify_sat.py` to verify satisfiable results and expects
+     `[bin/drat-trim](https://github.com/marijnheule/drat-trim)` to exist to verify unsatisfiable reults.
+     All binaries can have their satisfiable results verified, only `cdcl` can have its unsatisfiable results verified.
 
 Using Instance Generators
 -------------------------
@@ -93,3 +107,20 @@ To run a SAT solver directly against the output of a generator without an interm
 file, use bash process substitution:
 
     ./bin/dpll <(./gen/langford.py 5)
+
+Fuzzing
+-------
+
+`./script/fuzz.sh` supports fuzz-testing one binary against the other on randomly generated
+instances. Random instances close to the sat/unsat threshold are created using the `./gen/rand.py` generator.
+
+Flags accepted:
+
+   * `-b`: The experiment binary, one of `{btwl,dpll,cdcl,look,walk}`. Default: `look`.
+   * `-c`: The control binary, one of `{btwl,dpll,cdcl,look,walk}`. Default: `cdcl`.
+   * `-d`: The difficulty, one of `{easy,medium,hard}`. Default: easy.
+   * `-n`: Number of tests to run. Default: 20.
+   * `-p`: Parameters sent to the experiment binary.
+   * `-r`: Random seed used by the control binary.
+   * `-s`: Random seed used by the experiment binary.
+   * `-t`: Timeout. Same format accepted by `./script/test.sh`.
