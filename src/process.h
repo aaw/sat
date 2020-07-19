@@ -66,8 +66,11 @@ struct Processor {
                 UNSAT_EXIT;
             }
 
-            // Sort and remove duplicate lits.
-            std::sort(c.begin(), c.end());
+            // Sort and remove duplicate lits. We want lits sorted by var, with
+            // positive lits coming before negative: 1,2,3,-4,5,-5,6,...
+            std::sort(c.begin(), c.end(), [](lit_t x, lit_t y) -> bool {
+                    return abs(x) > abs(y) || (abs(x) == abs(y) && x < y);
+                });
             c.erase(std::unique(c.begin(), c.end()), c.end());
 
             // TODO: remove tautological clauses
@@ -99,9 +102,8 @@ struct Processor {
         // Initialize lit signatures.
         for (lit_t l = -nvars_; l <= nvars_; ++l) {
             if (l == lit_nil) continue;
-            cell[l].sig = 1UL << (rand() % 32);
-            cell[l].sig <<= 32;
-            cell[l].sig = 1UL << (rand() % 32);
+            cell[l].sig = 1UL << (rand() % 64);
+            cell[l].sig |= 1UL << (rand() % 64);
             calc_tally(l);
         }
 
@@ -134,6 +136,10 @@ struct Processor {
             p = cell[p].clause_next) {
             ++CSIZE(c);
         }
+    }
+
+    bool resolve(cell_size_t c, cell_size_t d, lit_t v) {
+
     }
 
     void dump_clauses() {
@@ -205,6 +211,12 @@ struct Processor {
             next_cell = cell[next_cell].clause_prev;
             return retval;
         }
+    }
+
+    inline cell_size_t copy(lit_t u) {
+        cell_size_t i = alloc_cell();
+        cell[i].lit = u;
+        return i;
     }
 
     inline void free_cell(cell_size_t i) {
