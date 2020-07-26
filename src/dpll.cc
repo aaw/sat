@@ -1,5 +1,4 @@
-// Algorithm D from Knuth's The Art of Computer Programming 7.2.2.2:
-// Cyclic DPLL.
+// Algorithm D from Knuth's The Art of Computer Programming 7.2.2.2: DPLL.
 
 #include <sstream>
 #include <vector>

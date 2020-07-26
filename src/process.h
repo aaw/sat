@@ -139,7 +139,7 @@ struct Processor {
     }
 
     bool resolve(cell_size_t c, cell_size_t d, lit_t v) {
-
+        return true; // TODO
     }
 
     void dump_clauses() {
