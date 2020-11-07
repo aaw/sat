@@ -71,9 +71,6 @@ struct AbortLogger {
         PRINT << msg;
         return *this;
     }
-
-private:
-    bool enabled_;
 };
 
 void UnsatExit() {
