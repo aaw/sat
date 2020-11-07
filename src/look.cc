@@ -13,6 +13,7 @@
 //   - Exercise 139: Compensation resolvents
 //   - Exercise 149: Efficiently identify participants
 //   - Exercise 153: Use a heap to identify best candidates
+//   - Exercise 169: Use Ahmed-Kullmann heuristic for choosing branch literal
 
 #include <sstream>
 #include <vector>
@@ -100,6 +101,11 @@ DEFINE_PARAM(add_compensation_resolvents, 1,
 DEFINE_PARAM(exploit_lookahead_autarkies, 1,
              "If 1, detect and exploit autarkies that occur during lookahead, "
              "resulting in either a forced literal or a new binary clause.");
+
+// Optimization described in Exercise 169 (better branch variable selection).
+DEFINE_PARAM(use_advanced_branch_heuristic, 0,
+             "If 1, use the heuristic of T. Ahmed and O. Kullmann to choose "
+             "a branch variable.");
 
 // 32-bit truth stamps form the basis of the data structure used to efficiently
 // set and forget truth values during lookahead. The solver always carries a
@@ -1297,11 +1303,36 @@ bool lookahead(Cnf* c) {
     return true;
 }
 
-// Choose the best literal candidate for branching using the H scores computed
-// by traversing the lookahead forest.
-lit_t choose_branch_lit(Cnf* c) {
-    CHECK(!c->freevar.empty()) << "choose_best_lit called with no free vars.";
-    if (PARAM_disable_lookahead) return c->freevar[0];
+// Choose the best var candidate for branching my minimizing the function
+// tau(H(l),H(-l)), where tau(a,b) is the positive solution to the equation
+// tau^-a + tau^-b = 1. Uses Newton's method to solve on each variable, see
+// Exercise 169 for details.
+lit_t choose_branch_var_advanced(Cnf* c) {
+    double best_tau = std::numeric_limits<double>::max();
+    lit_t best_var = lit_nil;
+    for (lookahead_order_t la : c->lookahead_order) {
+        if (la.lit < 0) continue;
+        float aj = c->dfs[la.lit].H + 0.0000001;
+        float bj = c->dfs[-la.lit].H + 0.0000001;
+        float tau = 1/(aj + bj);
+        float alpha = exp((-aj) * tau);
+        float beta = exp((-bj) * tau);
+        while (alpha + beta > 1) {
+            tau += (alpha + beta - 1)/ (aj*alpha + bj*beta);
+            alpha = exp((-aj) * tau);
+            beta = exp((-bj) * tau);
+        }
+        if (tau < best_tau) {
+            best_tau = tau;
+            best_var = la.lit;
+        }
+    }
+    return best_var;
+}
+
+// A simple strategy for choosing a branching variable, discussed in
+// Exercise 168.
+lit_t choose_branch_var_basic(Cnf* c) {
     double best_h = std::numeric_limits<double>::lowest();
     lit_t best_var = lit_nil;
     for (lookahead_order_t la : c->lookahead_order) {
@@ -1313,6 +1344,17 @@ lit_t choose_branch_lit(Cnf* c) {
             best_var = la.lit;
         }
     }
+    return best_var;
+}
+
+// Choose the best literal candidate for branching using the H scores computed
+// by traversing the lookahead forest.
+lit_t choose_branch_lit(Cnf* c) {
+    CHECK(!c->freevar.empty()) << "choose_best_lit called with no free vars.";
+    if (PARAM_disable_lookahead) return c->freevar[0];
+    lit_t best_var = PARAM_use_advanced_branch_heuristic ?
+        choose_branch_var_advanced(c) :
+        choose_branch_var_basic(c);
     CHECK(best_var != lit_nil) << "No branch lit could be found.";
     // Using the best variable candidate, choose the least reduced literal.
     if (c->dfs[best_var].H > c->dfs[-best_var].H) { best_var = -best_var; }
