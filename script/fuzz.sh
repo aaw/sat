@@ -89,7 +89,7 @@ NTIMEOUT=0
 start=`date +%s`
 overall_delta=0
 
-echo "Testing ${DIFFICULTY} examples:"
+printf "Testing ${DIFFICULTY} examples (\u0394 = expt - control)\n"
 for i in $(seq 1 "$COUNT"); do
     seed="${RANDOM}"
     printf "rand ${ARGS} ${seed} "
