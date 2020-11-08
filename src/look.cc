@@ -131,6 +131,9 @@ constexpr uint32_t PT = std::numeric_limits<uint32_t>::max() - 5;  // 2^32 - 6
 // Nil truth : never used as a truth value.
 constexpr uint32_t nil_truth = 0;
 
+// Small value added to all heuristic scores when we need them to be non-zero.
+constexpr float epsilon = 0.000001;
+
 // Branching states for the solver at a decision level.
 enum branch_t {
     NEED_LOOKAHEAD = 0,  // Need to perform lookahead to find best lit.
@@ -1303,7 +1306,7 @@ bool lookahead(Cnf* c) {
     return true;
 }
 
-// Choose the best var candidate for branching my minimizing the function
+// Choose the best var candidate for branching by minimizing the function
 // tau(H(l),H(-l)), where tau(a,b) is the positive solution to the equation
 // tau^-a + tau^-b = 1. Uses Newton's method to solve on each variable, see
 // Exercise 169 for details.
@@ -1312,13 +1315,13 @@ lit_t choose_branch_var_advanced(Cnf* c) {
     lit_t best_var = lit_nil;
     for (lookahead_order_t la : c->lookahead_order) {
         if (la.lit < 0) continue;
-        float aj = c->dfs[la.lit].H + 0.0000001;
-        float bj = c->dfs[-la.lit].H + 0.0000001;
-        float tau = 1/(aj + bj);
+        float aj = c->dfs[la.lit].H + epsilon;
+        float bj = c->dfs[-la.lit].H + epsilon;
+        float tau = 1.0 / (aj + bj);
         float alpha = exp((-aj) * tau);
         float beta = exp((-bj) * tau);
-        while (alpha + beta > 1) {
-            tau += (alpha + beta - 1)/ (aj*alpha + bj*beta);
+        while (alpha + beta > 1.0) {
+            tau += (alpha + beta - 1.0)/ (aj*alpha + bj*beta);
             alpha = exp((-aj) * tau);
             beta = exp((-bj) * tau);
         }
@@ -1337,7 +1340,7 @@ lit_t choose_branch_var_basic(Cnf* c) {
     lit_t best_var = lit_nil;
     for (lookahead_order_t la : c->lookahead_order) {
         if (la.lit < 0) continue;
-        double h = (c->dfs[la.lit].H + 0.001) * (c->dfs[-la.lit].H + 0.001);
+        double h = (c->dfs[la.lit].H + epsilon) * (c->dfs[-la.lit].H + epsilon);
         CHECK(!c->fixed(la.lit, RT)) << la.lit << " is fixed during choice.";
         if (h > best_h) {
             best_h = h;
