@@ -173,7 +173,7 @@ struct restart_oracle {
         if ((u & -u) == v) {
             ++u;
             v = 1;
-            theta = psi * (1L << 32);
+            theta = psi * (1LL << 32);
         } else {
             v *= 2;
             theta += theta >> 4;
