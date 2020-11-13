@@ -105,8 +105,8 @@ for i in $(seq 1 "$COUNT"); do
     experiment_end=`date +%s%N`
     experiment_time=$((experiment_end-experiment_start))
     total_time=$((experiment_time-control_time))
-    total_secs=$(bc <<<"scale=2;${total_time}/1000000000.0")
-    overall_delta=$(bc <<<"scale=1;${overall_delta}+${total_secs}")
+    total_secs=$(python3 -c "print('{:g}'.format(round(${total_time}/1000000000.0, 2)))")
+    overall_delta=$(python3 -c "print('{:g}'.format(round(${overall_delta}+${total_secs}, 2)))")
     if [[ "$control_result" -eq 124 ]] && [[ "$experiment_result" -eq 124 ]]; then
         printf $'\u001b[31m\u23f1\u001b[0m\n' # Red stopwatch
         ((NTIMEOUT++))
