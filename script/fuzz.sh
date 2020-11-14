@@ -132,4 +132,12 @@ echo ""
 end=`date +%s`
 runtime=$((end-start))
 
-echo -e "${NSUCCESS} succeeded, ${NFAILURE} failed, ${NTIMEOUT} timed out in ${runtime} seconds." 'Total \u0394' "= ${overall_delta}s"
+winner="${CONTROL_BINARY}"
+winner_cmd="print(1) if ${overall_delta} < 0 else print(0)"
+expt_won="$(python3 -c ${winner_cmd})"
+if [[ "${expt_won}" -eq 1 ]]; then winner="${EXPERIMENT_BINARY}"; fi
+
+echo -e \
+     "${NSUCCESS} succeeded, ${NFAILURE} failed, ${NTIMEOUT} timed out in ${runtime} seconds." \
+     'Total \u0394:' \
+     "${overall_delta}s, Winner: ${winner}"
