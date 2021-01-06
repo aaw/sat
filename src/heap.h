@@ -17,7 +17,7 @@
 extern unsigned long FLAGS_seed;
 
 const double kMaxScore = pow(10,100);
-const double kHeapNil = std::numeric_limits<size_t>::max();
+const size_t kHeapNil = std::numeric_limits<size_t>::max();
 const double kNegInf = std::numeric_limits<double>::min();
 
 DEFINE_PARAM(heap_rho, 0.96,
