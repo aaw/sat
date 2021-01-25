@@ -115,10 +115,10 @@ struct Cnf {
 
     void register_satisfied(clause_t c) {
         if (unsat_index[c] == clause_nil) return;
-        unsat_index[unsat[unsat.size()-1]] = unsat_index[c];
-        std::swap(unsat[unsat_index[c]], unsat[unsat.size()-1]);
+        unsat_index[unsat.back()] = unsat_index[c];
+        std::swap(unsat[unsat_index[c]], unsat.back());
         unsat_index[c] = clause_nil;
-        unsat.resize(unsat.size()-1);
+        unsat.pop_back();
     }
 
     void register_unsatisfied(clause_t c) {
