@@ -84,7 +84,7 @@ A full list of flags accepted by `script/test.sh`:
 
    * `-bX`: The solver to test, where `X` is one of `{btwl,dpll,cdcl,look,walk}`. Default: `btwl`.
    * `-dX`: Test instance difficulty, where `X` is one of `{easy,medium,hard}`. Default: easy.
-   * `-lX`: Test instance label, where `X` is either `sat or `unsat`. Default: test both sat and unsat.
+   * `-lX`: Test instance label, where `X` is either `sat` or `unsat`. Default: test both sat and unsat.
    * `-pX`: Binary-specific params. `X` is passed through directly as `-p` flags to the solver.
    * `-sN`: Random seed, an integer. `N` is passed through directly as `-s` flag to the solver.
    * `-tX`: Timeout. Format for `X` is a floating point duration with an optional suffix of `s`
