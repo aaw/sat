@@ -51,7 +51,6 @@ struct DIMACS {
         CHECK_NO_OVERFLOW(clause_t, nc);
         nvars_ = nv;
         nclauses_ = nc;
-
     }
 
     inline void advance() { read_ = fscanf(f_, " %i ", &curr_); }
