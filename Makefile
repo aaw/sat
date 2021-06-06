@@ -8,6 +8,17 @@ RM=rm -f
 
 all: bin/btwl bin/dpll bin/cdcl bin/look bin/walk
 
+check: all
+	script/test.sh -bbtwl
+	script/test.sh -bdpll
+	script/test.sh -bcdcl
+	script/test.sh -bcdcl -dmedium
+	script/test.sh -blook
+	script/test.sh -blook -dmedium
+	script/test.sh -bwalk -lsat
+	script/test.sh -bwalk -lsat -dmedium
+	script/fuzz.sh -s1
+
 test: tbin/heap_test
 
 bin/btwl: src/btwl.cc src/logging.h src/types.h src/flags.h src/timer.h src/counters.h src/params.h src/parse.h src/process.h
