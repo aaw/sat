@@ -1,1 +1,2 @@
-apt-get update && apt-get install bash build-essential python3
+sudo apt-get update
+sudo apt-get install bash build-essential python3
