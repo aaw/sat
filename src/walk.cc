@@ -325,7 +325,7 @@ void reluctant_double(uint64_t& u, uint64_t& v) {
 }
 
 bool solve(Cnf* c) {
-    lit_t base = c->nvars;
+    uint64_t base = c->nvars;
     if (PARAM_quadratic_cutoff) base *= c->nvars;
     for (uint64_t u = 1, v = 1; true; reluctant_double(u, v)) {
         uint64_t iters = v * base * PARAM_cutoff_multiplier;
