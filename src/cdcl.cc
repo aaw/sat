@@ -556,7 +556,7 @@ struct Cnf {
         clauses.push_back({.lit = -lp});  // LIT0
         add_to_watchlist(lc, -lp);
         clauses.push_back({.lit = lit_nil});  // LIT1, set below.
-        // Need to watch a literal at some level < dp.
+        // Need to watch a literal at level dp.
         bool found_watch = false;
         for (size_t j = 0; j < r; ++j) {
             if (found_watch || lev[var(b[j])] < dp) {
