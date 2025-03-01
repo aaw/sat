@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cstring>
+#include <cstdint>
 #include <limits>
 
 // TODO: do this lit/clause size ifdef below better
