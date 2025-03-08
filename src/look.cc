@@ -942,7 +942,6 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
     CHECK(c->rstack.size() >= c->f) << "Expected f <= rstack size";
     c->rstack.resize(c->f);
     c->g = c->f;
-    c->windfalls.clear();
     if (!propagate(c, l)) return false;
     for (; c->g < c->rstack.size(); ++c->g) {
         lit_t lp = c->rstack[c->g];
@@ -966,8 +965,6 @@ bool propagate_lookahead(Cnf* c, lit_t l, double* hh) {
             }
         }
     }
-    if (PARAM_add_windfalls) INC(windfalls, c->windfalls.size());
-    for (lit_t w : c->windfalls) { c->add_binary_clause(-l, w); }
     return true;
 }
 
@@ -1223,6 +1220,8 @@ bool lookahead(Cnf* c) {
         if (c->dfs[l].parent != lit_nil) {
             c->dfs[l].H = c->dfs[c->dfs[l].parent].H;
         }
+
+        if (PARAM_add_windfalls) c->windfalls.clear();
         if (!c->fixed(l)) {
             // X8. [Compute sharper heuristic.]
             double w = 0;
@@ -1279,6 +1278,11 @@ bool lookahead(Cnf* c) {
         } else if (c->fixed_false(l) && !c->fixed_false(l, PT)) {
             // X13. [Recover from conflict.]
             if (!force_lookahead(c, -l)) { return false; }
+        }
+
+        if (PARAM_add_windfalls) {
+            INC(windfalls, c->windfalls.size());
+            for (lit_t w : c->windfalls) c->add_binary_clause(-l, w);
         }
 
         // X7. [Move to next.]
