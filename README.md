@@ -2,8 +2,7 @@ SAT solvers
 ===========
 
 This repo contains SAT solvers that are implemented following descriptions in
-Donald Knuth's "The Art of Computer Programming, Volume 4, Fascicle 6:
-Satisfiability".
+Donald Knuth's The Art of Computer Programming, Volume 4B (Combinatorial Algorithms, Part 2).
 
 Solvers currently implemented are:
 
