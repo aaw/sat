@@ -16,9 +16,20 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+
     - name: configure
-      run: ./configure
+      run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y bash build-essential python3 coreutils
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew update
+            brew install bash python3 coreutils
+            xcode-select --install || true
+          fi
+      
     - name: make
       run: make
+      
     - name: make check
       run: make check
