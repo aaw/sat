@@ -397,7 +397,7 @@ struct Cnf {
         backi(novars + nsvars + 1),
         backl(novars + nsvars + 1),
         val(novars + nsvars + 1, 0),
-        sig(novars + nsvars + 1, psig_t{path: 0, length: 0}),
+        sig(novars + nsvars + 1, psig_t{.path = 0, .length = 0}),
         cand(novars + nsvars),
         sigma(0),
         d(0),
@@ -489,7 +489,7 @@ struct Cnf {
     void bimp_append(lit_t u, lit_t v) {
         if (istamps[u] != istamp) {
             istamps[u] = istamp;
-            istack.push_back({l: u, bsize: bimp[u].size()});
+            istack.push_back({.l = u, .bsize = bimp[u].size()});
         }
         bimp[u].push_back(v);
     }
@@ -525,7 +525,7 @@ struct Cnf {
     // Mark l as a participant on the current search path.
     void sigma_stamp(lit_t l) {
         if (participant(l)) return;
-        sig[var(l)] = psig_t{path: sigma, length: d+1};
+        sig[var(l)] = psig_t{.path = sigma, .length = d+1};
     }
 
     // Use heuristic scores in hold to compute another iteration of heuristic
@@ -692,13 +692,13 @@ Cnf parse(Processor* p) {
             CHECK(cl.size() == 3) << "Unexpected clause of size " << cl.size();
             size_t link = c.timp[-cl[1]].size();
             c.timp[-cl[0]].push_back({
-                u: cl[1], v: cl[2], link: link, active: true});
+                .u = cl[1], .v = cl[2], .link = link, .active = true});
             link = c.timp[-cl[2]].size();
             c.timp[-cl[1]].push_back({
-                u: cl[2], v: cl[0], link: link, active: true});
+                .u = cl[2], .v = cl[0], .link = link, .active = true});
             link = c.timp[-cl[0]].size() - 1;
             c.timp[-cl[2]].push_back({
-                u: cl[0], v: cl[1], link: link, active: true});
+                .u = cl[0], .v = cl[1], .link = link, .active = true});
         }
     }
 
@@ -870,7 +870,7 @@ void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
     c->dfs[l].seen = true;
     c->dfs[l].rep = true;
     size_t i = c->lookahead_order.size();
-    c->lookahead_order.push_back({lit: l});
+    c->lookahead_order.push_back({.lit = l});
     for (lit_t w : c->big[l]) {
         if (c->dfs[w].seen) continue;
         c->dfs[w].parent = l;
@@ -889,7 +889,7 @@ void lookahead_dfs(Cnf* c, lit_t& count, lit_t l) {
 bool lookahead_dfs_scc(Cnf* c, lit_t& count, lit_t l) {
     c->dfs[l].seen = true;
     size_t i = c->lookahead_order.size();
-    c->lookahead_order.push_back({lit: l});
+    c->lookahead_order.push_back({.lit = l});
     c->dfs[l].num = i;
     c->dfs[l].low = i;
     c->sccstack.push_back(l);

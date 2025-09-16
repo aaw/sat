@@ -108,22 +108,22 @@ for i in $(seq 1 "$COUNT"); do
     total_secs=$(python3 -c "print('{:g}'.format(round(${total_time}/1000000000.0, 2)))")
     overall_delta=$(python3 -c "print('{:g}'.format(round(${overall_delta}+${total_secs}, 2)))")
     if [[ "$control_result" -eq 124 ]] && [[ "$experiment_result" -eq 124 ]]; then
-        printf $'\u001b[31m\u23f1\u001b[0m\n' # Red stopwatch
+	printf '\033[31m⏱\033[0m\n'   # Red stopwatch
         ((NTIMEOUT++))
     elif [[ "$control_result" -eq 124 ]]; then
-        printf $'\u001b[33m\u23f1\u001b[0m\n' # Yellow stopwatch
+	printf '\033[33m⏱\033[0m\n'   # Yellow stopwatch
         ((NTIMEOUT++))
     elif [[ "$experiment_result" -eq 124 ]]; then
-        printf $'\u001b[32m\u23f1\u001b[0m\n' # Green stopwatch
+	printf '\033[32m⏱\033[0m\n'   # Green stopwatch
         ((NTIMEOUT++))
     elif [[ "$control_result" -eq "$SATISFIABLE" ]] && [[ "$experiment_result" -eq "$SATISFIABLE" ]]; then
-        printf $'\u001b[32m\u2714\u001b[0m'" (\u0394 = ${total_secs}s)\n" # Green check
+	printf '\033[32m✓\033[0m (Δ = %ss)\n' "$total_secs"   # Green check
         ((NSUCCESS++))
     elif [[ "$control_result" -eq "$UNSATISFIABLE" ]] && [[ "$experiment_result" -eq "$UNSATISFIABLE" ]]; then
-        printf $'\u001b[33m\u2714\u001b[0m'" (\u0394 = ${total_secs}s)\n" # Yellow check
+	printf '\033[33m✓\033[0m (Δ = %ss)\n' "$total_secs"   # Yellow check
         ((NSUCCESS++))
     else
-        printf $'\u001b[31m\u274c\u001b[0m\n' # Red X
+	printf '\033[31m✘\033[0m\n'   # Red X
         ((NFAILURE++))
     fi
 done
@@ -139,5 +139,5 @@ if [[ "${expt_won}" -eq 1 ]]; then winner="${EXPERIMENT_BINARY}"; fi
 
 echo -e \
      "${NSUCCESS} succeeded, ${NFAILURE} failed, ${NTIMEOUT} timed out in ${runtime} seconds." \
-     'Total \u0394:' \
+     'Total Δ:' \
      "${overall_delta}s, Winner: ${winner}"
