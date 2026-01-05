@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-# Usage: $ generate-sat.py k l i n
+# Usage: $ intersecting-set-pair.py k l i n
 #
 # Generates a DIMACS CNF file that's satisfiable iff there's a
 # cross-intersecting set system with m(k,l,i) = n.
