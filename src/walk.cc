@@ -37,7 +37,7 @@ DEFINE_PARAM(move_to_front, 1,
 
 // Flips a coin that lands on heads with probability p. Return true iff heads.
 static bool flip(float p) {
-    return static_cast<float>(rand())/RAND_MAX <= p;
+    return static_cast<double>(rand())/RAND_MAX <= p;
 }
 
 struct Cnf {
